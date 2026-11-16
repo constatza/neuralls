@@ -239,7 +239,7 @@ sweeping the probes.
 
 Directions the smoother handles well are quickly attenuated, so what
 survives after `window.stop` sweeps is, by construction, smoother-resistant
-— the directions a POD-2G coarse space needs to cover. Reuses torchalg's
+— the directions a POD coarse space needs to cover. Reuses torchalg's
 `apply_jacobi_damping_trajectory` for the damping sweep itself (a brief
 numpy/torch round-trip, the one exception to this package's otherwise
 numpy-only strategies) so "smooth" means the exact same thing here as it

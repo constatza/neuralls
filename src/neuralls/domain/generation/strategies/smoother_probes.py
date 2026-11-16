@@ -12,7 +12,7 @@ to cover.
 
 This is the one strategy in this package that briefly leaves numpy for a
 torch round-trip: the damping sweep itself (`apply_jacobi_damping_trajectory`)
-lives in `torchalg` so it exercises the same weighted-Jacobi map POD-2G's
+lives in `torchalg` so it exercises the same weighted-Jacobi map POD's
 smoother weighting (`composition/preconditioners/_weighting.py`) and the AMG
 smoother actually run — reusing it here means "algebraically smooth" means
 the exact same thing in both places, not two independently-tuned
@@ -143,7 +143,7 @@ class SmootherFilteredProbesStrategy:
 
     Produces snapshots whose "smoothness" is controlled directly by
     ``window``/``omega`` rather than emerging incidentally from a CG
-    trajectory — useful as a POD-2G training ensemble targeted specifically
+    trajectory — useful as a POD training ensemble targeted specifically
     at the modes a weighted-Jacobi smoother struggles with.
     """
 

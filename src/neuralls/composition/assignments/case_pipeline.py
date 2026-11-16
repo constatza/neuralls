@@ -74,7 +74,7 @@ def run_case_pipeline(
     skipped entirely when the case config declares no `[[comparisons]]` or
     `[[comparison_sweeps]]` — a case config may
     legitimately declare only `[[comparisons]]` with preconditioners inline
-    in `comparison_baseline` (e.g. POD-2G weighting variants that need the
+    in `comparison_baseline` (e.g. POD weighting variants that need the
     matrix at fit time, which a checkpoint-backed `fit` job can't provide).
 
     Args:

@@ -109,7 +109,7 @@ def needs_model_resolution(specs: tuple[PreconditionerConfig, ...]) -> bool:
     """Return True when any checkpoint-bearing preconditioner needs model_ref lookup.
 
     Generic over `CheckpointRefBearing` (not `NeuralPreconditionerConfig`-only)
-    so a checkpoint-backed `AMGPreconditionerConfig` (POD-2G fitted ahead of
+    so a checkpoint-backed `AMGPreconditionerConfig` (POD fitted ahead of
     time via a `FitJobConfig` assignment) triggers resolution the same way a
     neural preconditioner does — one dispatch point, no per-kind branching.
     """
@@ -269,7 +269,7 @@ def neural_specs_from_assignments(
     """Generate auto preconditioner stubs from assignment entries.
 
     Dispatches on each assignment's declared job kind: a `fit`-kind job
-    (`FitJobConfig` — e.g. POD-2G basis fitting) yields an unresolved
+    (`FitJobConfig` — e.g. POD basis fitting) yields an unresolved
     `AMGPreconditionerConfig`/`PODCoarseningConfig` stub; any other kind
     (today: `train`/`search`) yields the existing unresolved
     `NeuralPreconditionerConfig` stub. Both stubs reference the most recent
@@ -335,7 +335,7 @@ class ComparisonResolutionContext:
     Attributes:
         tracking: Source of the lease managers and reuse lookups of this resolution.
         load_dataset: Reads a dataset's presentation from its directory, so scope and
-            POD-2G method descriptions never touch a manifest directly.
+            POD method descriptions never touch a manifest directly.
         master_cfg: The already-loaded case config, when the caller has one
             in scope (the batch path) — avoids reloading it from
             `case_config_path` for every comparison entry. Standalone

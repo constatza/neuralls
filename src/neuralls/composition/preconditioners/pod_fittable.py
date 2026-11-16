@@ -7,7 +7,7 @@ preconditioner algorithm classes. This adapter holds no new math at all — it
 inherits `build_transfer`/`compute_pod_basis` from `PODCoarseningStrategy`
 unchanged — it exists solely so dlkit's job loader (`[model] module_path`,
 resolved via `importlib`) has a concrete, importable class to construct for a
-`run.type = "fit"` (POD-2G) assignment, mirroring
+`run.type = "fit"` (POD) assignment, mirroring
 `composition/preconditioners/factory.py`'s existing role translating between
 neuralls' config layer and `torchalg`'s runtime objects.
 

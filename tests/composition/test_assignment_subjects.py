@@ -98,7 +98,7 @@ def test_a_fit_job_is_the_pod_basis_trained_on_its_dataset(
 
     assert isinstance(subject, DatasetQualifiedMethodPresentation)
     text = render_run_name(TrainingRunName(subject, Untimed()), PLAIN)
-    assert text == "POD-2G (r=10) | Gaussian Solutions (μ=0, σ=1, N=8)"
+    assert text == "POD (r=10) | Gaussian Solutions (μ=0, σ=1, N=8)"
 
 
 def test_a_neural_job_is_its_architecture_trained_on_its_dataset(
@@ -174,12 +174,10 @@ def test_presentations_are_built_for_every_named_assignment_with_the_case_notati
 def test_assignments_that_render_alike_are_rejected_before_any_run_opens(
     training_presentation_of: Callable[[str], TrainingPresentation],
 ) -> None:
-    same = training_presentation_of("POD-2G")
+    same = training_presentation_of("POD")
 
     with pytest.raises(IndistinguishableTrainingError) as error:
-        require_distinct_training_labels(
-            {"first": same, "second": training_presentation_of("POD-2G")}
-        )
+        require_distinct_training_labels({"first": same, "second": training_presentation_of("POD")})
     assert (error.value.text, error.value.assignment_ids) == (
         render_training_label(same),
         ("first", "second"),
@@ -190,5 +188,5 @@ def test_assignments_with_different_models_are_distinct(
     training_presentation_of: Callable[[str], TrainingPresentation],
 ) -> None:
     require_distinct_training_labels(
-        {"first": training_presentation_of("POD-2G"), "second": training_presentation_of("FNO")}
+        {"first": training_presentation_of("POD"), "second": training_presentation_of("FNO")}
     )

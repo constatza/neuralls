@@ -62,7 +62,7 @@ Preconditioner descriptions are structured values built in
 every algorithmic parameter is shown, including defaults, and neural variants
 are distinguished by a validated `architecture` name (set on the `[[jobs]]` entry,
 `JobEntry.architecture`, separate from its free-text training `display_name`),
-never by assignment identity, job title or class name. A POD-2G method carries
+never by assignment identity, job title or class name. A POD method carries
 its fit dataset's recorded presentation (never an id or path), which the renderer
 appends once after ``|``. The plotting API takes the typed presentation, not
 text: `platform/reporting/figure_text.py` renders legend entries, bar labels,
@@ -99,8 +99,8 @@ visual axes instead of deriving everything from one attribute: linestyle
 always follows preconditioner family (lowest-cardinality attribute, matching
 matplotlib's own default solid/dashed/dashdot/dotted order), while marker and
 color follow explicit per-entry keys when the composition layer supplies them
-— e.g. POD-2G comparisons key color on fit dataset and marker on snapshot
-weighting scheme (`preconditioner_family.py::pod2g_style_keys`) — falling back to
+— e.g. POD comparisons key color on fit dataset and marker on snapshot
+weighting scheme (`preconditioner_family.py::pod_style_keys`) — falling back to
 family when a caller doesn't supply one. Colors come from the Okabe-Ito
 colorblind-safe palette for up to 8 distinct keys, extended with
 procedurally generated evenly-spaced hues beyond that so the color axis
@@ -345,7 +345,7 @@ were taken in, each `unknown` when not recorded; and, per method child run, the 
 (`reporting/figure_index.py`, written once to the root run's artifact root in `finalize`) lists only
 `run_id`, `artifact_paths` (every file of the figure), `card`, `kind`, `level` and `scope` per figure, derived from the cards, and cites in a top-level `splits` key the `splits.toml` copied beside it (`FigureUploader.write_index` uploads both, so train/test separation is checkable from the report's own data; `validate_figure_index` rejects an index without the citation); before it is
 written `verify_figure_records` raises unless every uploaded figure file belongs to a figure that has all its format files and a same-stem card naming that stem, and the index
-lists exactly the uploaded figure files, each entry's files being the ones its card names. The card stores each scope as keys and typed values (`facts_codec.encode_figure_scope`, whose recipe is `encode_recipe`: kind, parameters and mask) beside its plain rendered `display` text; file names are slugs of rendered text, never ids: a group figure `{kind}_{slug}` (written as `.png`) takes `slug` from the plain rendered scope (`scope_label`, which prefixes dataset, recipe, and system scopes with "Comparison matrix set") and a method figure `residual_history_{slug}` from the rendered method label (`POD-2G (r=10)` becomes `POD-2G_r_10`); `figure_metadata.FigureSlugs` allocates one stem per subject (<= 80 characters) and suffixes `_2`, `_3` in encounter order when two subjects render alike. Machine ids live only in metric keys (`{metric}/{method}`, one run per report scope) and in `*_id` fields (`dataset_ids`, encoded `recipes`, `method_id`; `[reference]` holds the selection kind plus the method id and reason when it has them). Card counts retain every dataset, recipe population/weight, and
+lists exactly the uploaded figure files, each entry's files being the ones its card names. The card stores each scope as keys and typed values (`facts_codec.encode_figure_scope`, whose recipe is `encode_recipe`: kind, parameters and mask) beside its plain rendered `display` text; file names are slugs of rendered text, never ids: a group figure `{kind}_{slug}` (written as `.png`) takes `slug` from the plain rendered scope (`scope_label`, which prefixes dataset, recipe, and system scopes with "Comparison matrix set") and a method figure `residual_history_{slug}` from the rendered method label (`POD (r=10)` becomes `POD_r_10`); `figure_metadata.FigureSlugs` allocates one stem per subject (<= 80 characters) and suffixes `_2`, `_3` in encounter order when two subjects render alike. Machine ids live only in metric keys (`{metric}/{method}`, one run per report scope) and in `*_id` fields (`dataset_ids`, encoded `recipes`, `method_id`; `[reference]` holds the selection kind plus the method id and reason when it has them). Card counts retain every dataset, recipe population/weight, and
 the actual solver, normalization, and timing-repeat settings; method-child
 history figures are registered with unique method-qualified ownership. Raw
 benchmark events and method summaries become
@@ -465,7 +465,7 @@ config, presentation, offline cost, planned systems, and the setup, solve and co
 rejects anything inconsistent: a presentation of another method, events for systems that
 were not planned, a summary whose digest differs from the run's tag, a method stored twice, or datasets presented differently by two methods.
 The stored config holds content digests for checkpoint and dataset inputs, so a report-time
-`pod2g_style_keys` colour key groups methods by fit-dataset content, not by path.
+`pod_style_keys` colour key groups methods by fit-dataset content, not by path.
 
 The DLKit dataset bridge stays generic. Platform helpers construct and patch
 DLKit-native dataset entries with the names supplied by composition, but

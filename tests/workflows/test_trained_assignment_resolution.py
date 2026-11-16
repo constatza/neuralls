@@ -24,7 +24,7 @@ from neuralls.platform.config.models.preconditioner import (
 from neuralls.platform.tracking.artifact_access import NoopArtifactLeaseManager
 from neuralls.shared.digest import canonical_digest
 
-ASSIGNMENT_ID = "pod-2g_rank10"
+ASSIGNMENT_ID = "pod_rank10"
 
 
 @pytest.fixture

@@ -208,9 +208,9 @@ class PreconditionerComparisonEntry:
             sink renders its legend text.
         family: Plot-style family key (see ``preconditioner_family.preconditioner_family``),
             driving shared linestyle across same-family preconditioners.
-        color_key: Optional plot color-axis key (e.g. a POD-2G fit dataset).
+        color_key: Optional plot color-axis key (e.g. a POD fit dataset).
             Entries sharing a key share a color; ``None`` falls back to ``family``.
-        marker_key: Optional plot marker-axis key (e.g. a POD-2G weighting
+        marker_key: Optional plot marker-axis key (e.g. a POD weighting
             scheme). Entries sharing a key share a marker; ``None`` falls back
             to ``family``.
     """

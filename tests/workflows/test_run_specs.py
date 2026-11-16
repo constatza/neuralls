@@ -44,14 +44,14 @@ from tests.presentation_support import PreparedMethodFactory
 PLAIN = NotationPolicy.default()
 STAMP = "Thu 12 Mar 2026 - 12:00:00"
 ISO = "2026-03-12T12:00:00"
-DATASET_TEXT = "Test problem | Gaussian CG Residuals (k=20, N=100)"
+DATASET_TEXT = "Test problem | CG Errors (k=20, N=100)"
 
 
 @pytest.fixture
 def trained(dataset_presentation: DatasetPresentation) -> TrainingPresentation:
-    """A POD-2G method trained on the test dataset."""
+    """A POD method trained on the test dataset."""
     return TrainingPresentation(
-        DatasetQualifiedMethodPresentation(ScientificDescription("POD-2G"), dataset_presentation),
+        DatasetQualifiedMethodPresentation(ScientificDescription("POD"), dataset_presentation),
         PLAIN,
     )
 
@@ -95,9 +95,9 @@ def test_training_tags_keep_the_id_apart_from_the_rendered_label(
         "phase": "training",
         "assignment_id": "exp-1",
         "dataset_id": "dataset-1",
-        "dataset": "Test problem | Gaussian CG Residuals (k=20, N=100)",
+        "dataset": "Test problem | CG Errors (k=20, N=100)",
         "job_id": "job-1",
-        "assignment_label": "POD-2G | Gaussian CG Residuals (k=20, N=100)",
+        "assignment_label": "POD | CG Errors (k=20, N=100)",
     }
 
 
@@ -114,7 +114,7 @@ def test_training_run_spec_is_named_by_what_it_trains(trained: TrainingPresentat
     )
 
     assert spec.experiment_name == "Train"
-    assert run_name_text(spec.name) == "POD-2G | Gaussian CG Residuals (k=20, N=100) | " + STAMP
+    assert run_name_text(spec.name) == "POD | CG Errors (k=20, N=100) | " + STAMP
     assert spec.tags["assignment_id"] == "exp-1"
 
 
@@ -129,7 +129,7 @@ def test_batched_training_run_name_has_no_timestamp(trained: TrainingPresentatio
         workspace_root=Path("workspace"),
         include_timestamp=False,
     )
-    assert run_name_text(spec.name) == "POD-2G | Gaussian CG Residuals (k=20, N=100)"
+    assert run_name_text(spec.name) == "POD | CG Errors (k=20, N=100)"
 
 
 @pytest.mark.parametrize(
@@ -181,7 +181,7 @@ def test_sibling_systems_on_a_dataset_title_get_distinct_run_names(
                 Untimed(),
             )
             names.append(run_name_text(run))
-    dataset = "Comparison matrix set: Test problem | Gaussian CG Residuals (k=20, N=100)"
+    dataset = "Comparison matrix set: Test problem | CG Errors (k=20, N=100)"
     assert names == [
         f"{dataset} | matrix {matrix}, RHS {ordinal}" for matrix in (3, 4) for ordinal in (0, 1)
     ]

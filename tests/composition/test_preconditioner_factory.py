@@ -128,7 +128,7 @@ class MissingCheckpointAdapter(PredictorAdapter):
 
 
 class MockInferencePredictor(InferencePredictorPort):
-    """Lightweight mock batch-inference predictor for neural POD-2G testing."""
+    """Lightweight mock batch-inference predictor for neural POD testing."""
 
     def __init__(self, output_dim: int) -> None:
         """Initialize with the row width to return for each predicted snapshot."""
@@ -409,7 +409,7 @@ def test_factory_creates_amg_preconditioner_with_pod_coarsening(
     well_conditioned_matrix: torch.Tensor,
     pod_fit_arrays: tuple[np.ndarray, np.ndarray],
 ) -> None:
-    """Factory creates AMGPreconditioner for AMG type with POD-2G coarsening.
+    """Factory creates AMGPreconditioner for AMG type with POD coarsening.
 
     The snapshot ensemble arrives staged, as `PreconditionerService.preload` supplies it.
     """
@@ -455,7 +455,7 @@ def test_factory_creates_amg_preconditioner_with_neural_pod_coarsening(
     parameter_arrays: tuple[np.ndarray, ...],
     mock_checkpoint: Path,
 ) -> None:
-    """Factory creates AMGPreconditioner for AMG type with neural POD-2G coarsening.
+    """Factory creates AMGPreconditioner for AMG type with neural POD coarsening.
 
     The snapshot ensemble is predicted by a checkpoint (via the injected
     `inference_predictor_factory`), not read from a precomputed solutions

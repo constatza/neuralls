@@ -18,7 +18,7 @@ from neuralls.platform.config.models.weighting import (
 
 @pytest.fixture
 def snapshot_batches() -> list[dict[str, dict[str, torch.Tensor]]]:
-    """Two dataloader-shaped batches whose `targets.y` entries are POD-2G snapshots.
+    """Two dataloader-shaped batches whose `targets.y` entries are POD snapshots.
 
     Mirrors the `TensorDict`-nested-under-"targets" batch shape
     `FlexibleDataset`/`ArrayDataModule` actually yield (see

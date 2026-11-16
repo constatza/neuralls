@@ -301,7 +301,7 @@ def _require_assignment_sweep_jobs(sweep: dict[str, Any], dataset_sweep: str) ->
     'job' may be a single string (that one job, broadcast to every dataset in
     the referenced dataset_sweep — today's original behavior) or a list of
     strings (every job crossed with every dataset in the referenced
-    dataset_sweep, e.g. testing every POD-2G rank against every cg-variant
+    dataset_sweep, e.g. testing every POD rank against every cg-variant
     instead of pairing them 1:1 by name).
     """
     job = sweep.get("job")

@@ -115,7 +115,7 @@ def test_a_rank_of_ten_and_a_rank_of_ten_point_zero_are_different_methods(
     """Python equates 10 and 10.0; the cohort must not report them as identical labels."""
 
     def method(name: str, rank: float) -> MethodPresentationCandidate:
-        description = ScientificDescription("POD-2G", facts=(make_fact(RANK, rank),))
+        description = ScientificDescription("POD", facts=(make_fact(RANK, rank),))
         return MethodPresentationCandidate(
             PreconditionerName(name), StandaloneMethodPresentation(description)
         )

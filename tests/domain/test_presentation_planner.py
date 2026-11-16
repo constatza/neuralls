@@ -142,7 +142,7 @@ def test_editorial_presentation_rejects_invalid_titles(title: str) -> None:
 
 def test_assignment_identity_is_never_rendered(dataset: DatasetPresentation) -> None:
     method = ScientificDescription(
-        "POD-2G",
+        "POD",
         facts=(_int(RANK, 10), make_fact(ASSIGNMENT, 1)),
     )
     text = render_method(
@@ -150,17 +150,17 @@ def test_assignment_identity_is_never_rendered(dataset: DatasetPresentation) -> 
         LEGEND_PROFILE,
         NotationPolicy.default(),
     ).text
-    assert text == "POD-2G (r=10) | Gaussian CG Residuals (k=20, N=5000)"
+    assert text == "POD (r=10) | CG Errors (k=20, N=5000)"
 
 
 def test_pod_method_composes_with_its_dataset_exactly_once(dataset: DatasetPresentation) -> None:
-    method = ScientificDescription("POD-2G", facts=(_int(RANK, 10),))
+    method = ScientificDescription("POD", facts=(_int(RANK, 10),))
     rendered = render_method(
         DatasetQualifiedMethodPresentation(method, dataset),
         LEGEND_PROFILE,
         NotationPolicy.default(),
     )
-    assert rendered.text == "POD-2G (r=10) | Gaussian CG Residuals (k=20, N=5000)"
+    assert rendered.text == "POD (r=10) | CG Errors (k=20, N=5000)"
 
 
 # --- cohort visibility ------------------------------------------------------------
@@ -275,7 +275,7 @@ def test_same_method_on_different_datasets_is_not_a_duplicate(
             root_seed=42,
         ),
     )
-    pod = ScientificDescription("POD-2G", facts=(_int(RANK, 10),))
+    pod = ScientificDescription("POD", facts=(_int(RANK, 10),))
     cohort = _cohort(
         scope,
         MethodPresentationCandidate(
@@ -337,11 +337,11 @@ def test_dataset_and_title_render_the_source_then_each_strategy(
 
     policy = NotationPolicy.default()
     assert render_dataset(dataset, LEGEND_PROFILE, policy).text == (
-        "Spectral 3D field | Gaussian CG Residuals (k=20, N=5000)"
+        "Spectral 3D field | CG Errors (k=20, N=5000)"
     )
     assert (
         render_title(ComparisonScopePresentation(dataset), LEGEND_PROFILE, policy).text
-        == "Spectral 3D field | Gaussian CG Residuals (k=20, N=5000)"
+        == "Spectral 3D field | CG Errors (k=20, N=5000)"
     )
     assert (
         render_title(EditorialPresentation("Spectral comparison"), LEGEND_PROFILE, policy).text

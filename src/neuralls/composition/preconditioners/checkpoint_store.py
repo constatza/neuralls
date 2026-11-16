@@ -5,7 +5,7 @@ timed build, and every build then borrows the loaded object. Builders see only t
 read side (`PreloadedCheckpoints`); `CheckpointStore` owns the objects and is the
 only place that releases them. torchalg's `NeuralPreconditioner` and neural
 coarsening never release a predictor they were given, so borrowing is safe; only
-a consumer written as ``with factory(path) as predictor`` (neural POD-2G's
+a consumer written as ``with factory(path) as predictor`` (neural POD's
 inference predictor) releases on exit, and gets a non-owning view.
 """
 

@@ -71,7 +71,7 @@ from tests.workflows.comparison_support import (
 PLAIN = NotationPolicy.default()
 FIT_DIR = Path("pod-fit")
 STAMP = "2026-01-02T03:04:05"
-DATASET_TEXT = "Test problem | Gaussian CG Residuals (k=20, N=100)"
+DATASET_TEXT = "Test problem | CG Errors (k=20, N=100)"
 
 
 class _StopAfterProvenance(Exception):
@@ -316,10 +316,10 @@ def test_configured_facts_become_stable_parameters_without_rendered_text(
 
     parameters = encode_method_parameters(prepared)
 
-    assert parameters["method.base_name"] == "POD-2G"
+    assert parameters["method.base_name"] == "POD"
     assert parameters["method.rank"] == "10"
     assert parameters == {
-        "method.base_name": "POD-2G",
+        "method.base_name": "POD",
         "method.rank": "10",
         "training_dataset.source": "Atomic test",
         "training_dataset.strategy_0.kind": "gaussian_forward",

@@ -23,11 +23,11 @@ from neuralls.composition.comparison.method_data_origin import (
 from neuralls.composition.preconditioners.descriptions import describe_configured_preconditioner
 from neuralls.domain.presentation.methods import (
     ConfiguredMethodPresentation,
-    DatasetQualifiedMethodPresentation,
     MethodPresentationCandidate,
     PreparedComparisonPresentation,
     StandaloneMethodPresentation,
     UnvalidatedComparisonPresentation,
+    qualify_method,
 )
 from neuralls.domain.presentation.planner import prepare_presentations
 from neuralls.domain.presentation.provenance import DatasetPresentation
@@ -61,11 +61,11 @@ def describe_method(
     method = describe_configured_preconditioner(cfg)
     match origin:
         case InlineFit(fit_dataset=directory):
-            return DatasetQualifiedMethodPresentation(method, load_dataset(directory))
+            return qualify_method(method, load_dataset(directory))
         case CheckpointBased(training_data=training_data):
             match training_data:
                 case VerifiedTrainingDataset(dataset=directory):
-                    return DatasetQualifiedMethodPresentation(method, load_dataset(directory))
+                    return qualify_method(method, load_dataset(directory))
                 case TrainingDataUnavailable():
                     return StandaloneMethodPresentation(method=method)
                 case unreachable:

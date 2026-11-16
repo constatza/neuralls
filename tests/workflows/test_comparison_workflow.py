@@ -176,7 +176,7 @@ def _write_train_job_config(path: Path) -> None:
 
 
 def _write_fit_job_config(path: Path, *, rank: float = 0.99) -> None:
-    """Write a minimal, fully-loadable `run.type = "fit"` (POD-2G) job config."""
+    """Write a minimal, fully-loadable `run.type = "fit"` (POD) job config."""
     path.write_text(
         "\n".join(
             [
@@ -641,15 +641,15 @@ def test_neural_specs_from_assignments_dispatches_fit_kind_to_pod_stub(
     cfg, config_dir, settings = _case_config_with_assignment(
         tmp_path,
         job_writer=lambda path: _write_fit_job_config(path, rank=0.9999),
-        assignment_id="pod2g_cg1",
+        assignment_id="pod_cg1",
         dataset_id="solutions-cg1",
-        job_id="pod-2g_cg-0",
+        job_id="pod_cg-0",
     )
     tracking = MagicMock()
     entry = AssignmentEntry(
-        id="pod2g_cg1",
+        id="pod_cg1",
         dataset="solutions-cg1",
-        job="pod-2g_cg-0",
+        job="pod_cg-0",
         display_name="Shared model label",
     )
 
@@ -668,13 +668,13 @@ def test_neural_specs_from_assignments_dispatches_fit_kind_to_pod_stub(
     assert isinstance(spec, AMGPreconditionerConfig)
     assert (
         spec.name
-        == "amg_levels2_pre2_post2_smootheromegaauto_pod_rank0p9999_n-1_raw_assignment_pod2g_cg1"
+        == "amg_levels2_pre2_post2_smootheromegaauto_pod_rank0p9999_n-1_raw_assignment_pod_cg1"
     )
     assert isinstance(spec.coarsening, PODCoarseningConfig)
-    assert spec.coarsening.assignment == "pod2g_cg1"
+    assert spec.coarsening.assignment == "pod_cg1"
     assert spec.coarsening.rank == 0.9999
     assert spec.coarsening.dataset_dir == settings.processed_dir / "solutions-cg1"
-    assert spec.coarsening.model_ref == TrainedAssignmentRefConfig(assignment_id="pod2g_cg1")
+    assert spec.coarsening.model_ref == TrainedAssignmentRefConfig(assignment_id="pod_cg1")
     tracking.client.assert_not_called()
 
 

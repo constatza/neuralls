@@ -2,8 +2,8 @@
 tracking_uri = "http://localhost:5000"
 
 [names]
-training = "Train-Spectral3DField-POD-2G-CG"
-comparison = "Compare-Spectral3DField-POD-2G-CG"
+training = "Train-Spectral3DField-POD-CG"
+comparison = "Compare-Spectral3DField-POD-CG"
 
 [comparison_baseline]
 rtol = 1.0e-6
@@ -59,14 +59,14 @@ path = "../../datasets/train/spectral-3d-field/gaussian-cg20.toml"
 path = "../../datasets/train/spectral-3d-field/smoother-filtered-probes.toml"
 
 [[jobs]]
-id = "pod-2g_rank10"
-path = "../../jobs/pod2g/pod2g-rank10.toml"
-display_name = "POD-2G (rank 10)"
+id = "pod_rank10"
+path = "../../jobs/pod/pod-rank10.toml"
+display_name = "POD (rank 10)"
 
 [[jobs]]
-id = "pod-2g_rank100"
-path = "../../jobs/pod2g/pod2g-rank100.toml"
-display_name = "POD-2G (rank 100)"
+id = "pod_rank100"
+path = "../../jobs/pod/pod-rank100.toml"
+display_name = "POD (rank 100)"
 
 # The dataset is a glob over many matrices (`*/K_ff.mtx`), so every recipe is one
 # [[comparison_sweeps]] entry solving on the first 5 matrices of the pinned test
@@ -105,16 +105,16 @@ seed = 45
 
 [[assignments]]
 dataset = "gaussian-cg20-spectral-3d-field"
-job = "pod-2g_rank10"
+job = "pod_rank10"
 
 [[assignments]]
 dataset = "gaussian-cg20-spectral-3d-field"
-job = "pod-2g_rank100"
+job = "pod_rank100"
 
 [[assignments]]
 dataset = "smoother-filtered-probes-spectral-3d-field"
-job = "pod-2g_rank10"
+job = "pod_rank10"
 
 [[assignments]]
 dataset = "smoother-filtered-probes-spectral-3d-field"
-job = "pod-2g_rank100"
+job = "pod_rank100"

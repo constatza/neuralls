@@ -49,7 +49,7 @@ path = "../../datasets/train/rectangular-high-condition/sm-startM7-stop7-step2.t
 
 [[jobs]]
 id = "pod-r50"
-path = "../../jobs/pod2g/r50.toml"
+path = "../../jobs/pod/r50.toml"
 
 [[comparisons]]
 matrix_dataset = "rhc-cg-startM1-stop30-step1"

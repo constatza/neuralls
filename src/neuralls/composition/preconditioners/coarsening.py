@@ -1,8 +1,8 @@
 """Coarsening-strategy construction for AMG preconditioners.
 
 Builds the `CoarseningStrategy` an AMG preconditioner's hierarchy is built from:
-target-dimension search, POD-2G (fit inline or reconstructed from a checkpoint),
-neural POD-2G (fit on a neural model's predictions), or aggregation.
+target-dimension search, POD (fit inline or reconstructed from a checkpoint),
+neural POD (fit on a neural model's predictions), or aggregation.
 """
 
 from __future__ import annotations
@@ -51,7 +51,7 @@ PREDICTION_BATCH_SIZE = 256
 
 
 def load_fitted_pod_model(checkpoint_path: Path) -> torch.nn.Module:
-    """Read a fitted POD-2G checkpoint and rebuild its module (disk I/O, no placement).
+    """Read a fitted POD checkpoint and rebuild its module (disk I/O, no placement).
 
     Loads the raw checkpoint dict and rebuilds the module via dlkit's generic,
     trainer-agnostic checkpoint reconstruction (`build_model_from_checkpoint`) —
@@ -70,7 +70,7 @@ def _load_fitted_pod_coarsening(
     pod_cls: type[PODStrategy],
     preloaded: PreloadedCheckpoints = NO_PRELOADED,
 ) -> PODStrategy:
-    """Reconstruct a fitted POD-2G coarsening strategy from its checkpoint.
+    """Reconstruct a fitted POD coarsening strategy from its checkpoint.
 
     The basis is matrix-independent, so when ``preloaded`` already holds the
     module for this ``(path, dtype, device)`` it is reused as is (read and moved
@@ -124,7 +124,7 @@ def _pod_coarsening(
     preloaded: PreloadedCheckpoints,
     staged_fit_data: tuple[np.ndarray, ...] | None = None,
 ) -> PODStrategy:
-    """POD-2G basis: reconstructed from a fitted checkpoint, or fit inline from snapshots.
+    """POD basis: reconstructed from a fitted checkpoint, or fit inline from snapshots.
 
     Snapshots are solution vectors, which are dense by nature; only the matrix A is
     sparse, and `build_transfer(A)` never densifies it.
@@ -162,7 +162,7 @@ def _neural_pod_coarsening(
     preloaded: PreloadedCheckpoints,
     staged_fit_data: tuple[np.ndarray, ...] | None = None,
 ) -> PODStrategy:
-    """POD-2G basis fit on a neural model's predictions over the parameter samples."""
+    """POD basis fit on a neural model's predictions over the parameter samples."""
     ckpt = cfg.active_checkpoint_path
     if ckpt is None:
         raise ValueError(
@@ -170,7 +170,7 @@ def _neural_pod_coarsening(
         )
     # Loaders are needed even when the predictor was preloaded: their device is the one the
     # prediction's memory is measured on.
-    loaders = require_loaders(loaders, "neural POD-2G coarsening")
+    loaders = require_loaders(loaders, "neural POD coarsening")
     factory = preloaded_inference_factory(loaders.inference_predictor_factory, preloaded)
 
     if staged_fit_data is None:
@@ -213,9 +213,9 @@ def _build_amg_coarsening(
     Args:
         matrix: System matrix A; used to match dtype/device of fitted snapshots.
         config: AMG preconditioner configuration.
-        loaders: Checkpoint loaders and their device, needed only by neural POD-2G
+        loaders: Checkpoint loaders and their device, needed only by neural POD
             coarsening.
-        sparse: True when A is CSR. POD-2G then uses torchalg's sparse strategy, so
+        sparse: True when A is CSR. POD then uses torchalg's sparse strategy, so
             the transfer operator is built from A without densifying it.
         preloaded: Checkpoints loaded ahead of the build (see `checkpoint_store`);
             the default loads inside the build.

@@ -149,19 +149,19 @@ Case configs bind:
 Comparison solver budgets in these cases allow up to 5000 iterations.
 
 Every family's `default.toml` is a short showcase of each algorithm, not a
-search: identity/Jacobi/IC0, AMG at coarse dim 10 and 100, and POD-2G at rank 10
+search: identity/Jacobi/IC0, AMG at coarse dim 10 and 100, and POD at rank 10
 and 100, fitted from `gaussian-cg10` and `smoother-filtered-probes` snapshots.
 Default cases reference only plain, tracked dataset configs — never sweep output.
 Neural network jobs are kept in explicit training/search variants. Parametric
 searches live in sibling case files, one searched axis per file:
-`coarse-dim-search.toml` (AMG dim / POD-2G rank in 10, 100, 200, 300, on
+`coarse-dim-search.toml` (AMG dim / POD rank in 10, 100, 200, 300, on
 `gaussian-cg50`) and `stop-search.toml` (`gaussian-cg0`/`cg10`/`cg50` snapshots
-at POD-2G rank 100). The rectangular-high-condition family adds the legacy
+at POD rank 100). The rectangular-high-condition family adds the legacy
 `sample-sweep.toml` plus focused `win.toml`, `samples.toml`, and `rank.toml`
-POD-2G studies. The 45x15randomE cases are parametric — the underlying
+POD studies. The 45x15randomE cases are parametric — the underlying
 problem is a family of ~100 stiffness matrices with randomized Young's moduli
 (E1-E4), not one fixed matrix. These CG cases use the `gaussian-cg*` datasets as
-POD-2G snapshot inputs, with
+POD snapshot inputs, with
 `gaussian-cg50` also serving as the default matrix dataset where a train dataset
 backs comparisons. Every randomE dataset uses the matrix glob
 `45x15randomE/stiffness/*_subdomain_1_Kaa.txt`, `enumerate_by = "name"`, and
@@ -176,7 +176,7 @@ generated without it has no provenance and must be regenerated before it can be
 trained on or compared.
 
 **45x15randomE train/eval matrix split**: because the same ~100-matrix family
-would otherwise back both training and POD-2G snapshot-input datasets
+would otherwise back both training and POD snapshot-input datasets
 and the comparisons, every train dataset in `datasets/train/45x15randomE/` sets
 `[source].exclude_indices` to the last 15 matrix ids (85-99, by
 `enumerate_by = "name"` order), and `datasets/test/45x15randomE/gaussian-eval.toml`
@@ -206,12 +206,12 @@ dataset. The companion 45x15
 search jobs tune learning rate, layer count, activation, bias, dropout, and
 scale-equivariant initialization/gain parameters.
 
-### Rectangular POD-2G parameter studies
+### Rectangular POD parameter studies
 
-Three compact cases isolate POD-2G dataset construction and rank effects. Their
+Three compact cases isolate POD dataset construction and rank effects. Their
 comparison defaults contain no classical preconditioners; the only compared
-preconditioners are the POD-2G artifacts generated from their fit assignments.
-The job entries intentionally omit `display_name`: a POD-2G label is built from the
+preconditioners are the POD artifacts generated from their fit assignments.
+The job entries intentionally omit `display_name`: a POD label is built from the
 fitted rank and its fit dataset's recorded provenance, so a static name would
 duplicate them. (A neural job needs a short `display_name` for its architecture;
 without one it cannot be described and the comparison is rejected before it runs.)
@@ -307,12 +307,12 @@ changing what a dataset config or case config *is*:
 
   [[assignment_sweeps]]
   dataset_sweep = "cg50-samples"
-  job = ["pod-2g_rank100", "pod-2g_rank200", "pod-2g_rank300"]
+  job = ["pod_rank100", "pod_rank200", "pod_rank300"]
   ```
 
   `job` may be a single job id (broadcast to every dataset the sweep
   produces) or a list of job ids (crossed with every dataset — e.g. testing
-  every POD-2G rank against every sample count, since rank is a fit-time
+  every POD rank against every sample count, since rank is a fit-time
   hyperparameter independent of which dataset it's fit from).
 
   A `[[dataset_sweeps]]` entry may declare multiple named axes instead of a
@@ -358,7 +358,7 @@ changing what a dataset config or case config *is*:
 
   **Caveat**: `[[assignment_sweeps]]` still binds one `job` to *every* entry
   a `dataset_sweep` produces — if different axis values need different jobs
-  (e.g. each `cg` variant has its own POD-2G fit job, as in
+  (e.g. each `cg` variant has its own POD fit job, as in
   `rectangular-high-condition/sample-sweep.toml`), keep that axis as
   separate `[[dataset_sweeps]]`/`[[assignment_sweeps]]` blocks per job
   rather than folding it into one multi-axis block.
@@ -466,8 +466,8 @@ artifacts are not evaluable until the training run is rerun or repaired.
   hand-type
 - keep shared training policy small and reusable
 - keep jobs thin
-- a job with no family-specific content (e.g. `configs/jobs/pod2g/pod2g-rank{100,200,300}.toml`
-  — a POD-2G fit job's `rank` is a hyperparameter independent of any matrix
+- a job with no family-specific content (e.g. `configs/jobs/pod/pod-rank{100,200,300}.toml`
+  — a POD fit job's `rank` is a hyperparameter independent of any matrix
   family) lives once under its own shared directory, referenced by every
   case that needs it, rather than duplicated per family
 - only special model families should define custom `data.features` / `data.targets`

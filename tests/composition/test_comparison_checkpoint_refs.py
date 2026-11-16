@@ -118,7 +118,7 @@ def test_model_resolution_needed_for_neural_model_ref(
 def test_model_resolution_needed_for_checkpoint_backed_pod_coarsening(
     make_pod_amg_spec: AmgSpecFactory, logged_ref: LoggedModelRefConfig
 ) -> None:
-    """A POD-2G basis fitted ahead of time triggers resolution like a neural spec."""
+    """A POD basis fitted ahead of time triggers resolution like a neural spec."""
     assert needs_model_resolution((make_pod_amg_spec(model_ref=logged_ref),)) is True
 
 
@@ -172,7 +172,7 @@ def test_pod_coarsening_without_checkpoint_identity_is_invisible_to_resolution(
 def test_pod_coarsening_with_assignment_exposes_its_ref(
     make_pod_amg_spec: AmgSpecFactory,
 ) -> None:
-    spec = make_pod_amg_spec(assignment="pod2g")
+    spec = make_pod_amg_spec(assignment="pod")
     assert spec.checkpoint_refs() == (("coarsening", spec.coarsening),)
 
 

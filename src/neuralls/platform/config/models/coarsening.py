@@ -41,7 +41,7 @@ def _validate_pod_rank(v: float) -> int | float:
     """Enforce the per-mode constraint matching whichever branch of ``rank`` was given.
 
     Shared by ``PODCoarseningConfig._validate_rank`` and
-    ``NeuralPODCoarseningConfig._validate_rank`` — same POD-2G rank
+    ``NeuralPODCoarseningConfig._validate_rank`` — same POD rank
     contract, only the surrounding config differs.
 
     Args:
@@ -155,7 +155,7 @@ class TargetDimCoarseningConfig(BaseModel):
 
 
 class PODCoarseningConfig(NeuralCheckpointRef):
-    """POD-2G coarsening (Nikolopoulos et al. 2022, §3.3-3.5).
+    """POD coarsening (the POD-2G of Nikolopoulos et al. 2022, §3.3-3.5).
 
     The prolongation/restriction operator is a POD basis fit to a snapshot
     ensemble of high-fidelity solutions (or, for a sharper coarse space,
@@ -167,7 +167,7 @@ class PODCoarseningConfig(NeuralCheckpointRef):
 
     Inherits the optional checkpoint-identity fields from
     ``NeuralCheckpointRef`` (``assignment``, ``model_ref``, ``checkpoint_path``,
-    ``resolved_checkpoint_path``) so a POD-2G basis can *also* be fit once
+    ``resolved_checkpoint_path``) so a POD basis can *also* be fit once
     ahead of time via a ``FitJobConfig`` assignment and reconstructed from its
     MLflow-tracked checkpoint at comparison time, instead of being refit
     inline from ``dataset_dir`` on every run — see
@@ -189,7 +189,7 @@ class PODCoarseningConfig(NeuralCheckpointRef):
     for the basis projection itself, but every CG iteration through
     `AMGPreconditioner`'s V-cycle also pays the surrounding cycle's O(n^2)
     dense fine-level smoothing/residual cost — see
-    `AMGPreconditionerConfig`'s complexity note; POD-2G's basis projection
+    `AMGPreconditionerConfig`'s complexity note; POD's basis projection
     is cheap next to that, not instead of it. See
     `torchalg.preconditioners.implementations.pod.coarsening` /
     `.basis` for the derivation.
@@ -198,7 +198,7 @@ class PODCoarseningConfig(NeuralCheckpointRef):
     method: Annotated[Literal["pod"], IDENTITY_ROLE] = "pod"
     dataset_dir: Annotated[Path, InputData(), PROVENANCE_ROLE] = Field(
         ...,
-        description="Generated dataset directory whose `solutions` array supplies POD-2G snapshots.",
+        description="Generated dataset directory whose `solutions` array supplies POD snapshots.",
     )
     rank: Annotated[int | float, Fact(RANK)] = Field(
         default=8,
@@ -275,9 +275,9 @@ class PODCoarseningConfig(NeuralCheckpointRef):
 
 
 class NeuralPODCoarseningConfig(NeuralCheckpointRef):
-    """POD-2G coarsening whose snapshot ensemble is predicted by a checkpoint.
+    """POD coarsening whose snapshot ensemble is predicted by a checkpoint.
 
-    Same POD-2G math as ``PODCoarseningConfig`` (Nikolopoulos et al. 2022,
+    Same POD math as ``PODCoarseningConfig`` (the POD-2G of Nikolopoulos et al. 2022,
     §3.3-3.5), but the high-fidelity snapshot ensemble is *predicted* by a
     trained network instead of read from precomputed solutions: ``dataset_dir``
     supplies the network's input parameter arrays (not the solutions

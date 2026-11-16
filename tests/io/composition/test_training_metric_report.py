@@ -129,7 +129,7 @@ def test_bars_are_labelled_with_the_rendered_training_presentation_not_the_assig
 
     legend = plot_fn.call_args.args[0]
     assert legend.label("a-17") == render_training_label(alpha.presentation)
-    assert legend.label("a-17") == "Alpha | Gaussian CG Residuals (k=20, N=100)"
+    assert legend.label("a-17") == "Alpha | CG Errors (k=20, N=100)"
 
 
 def test_missing_metric_warning_names_the_assignment_by_its_presentation(
@@ -144,7 +144,7 @@ def test_missing_metric_warning_names_the_assignment_by_its_presentation(
         write_metric_report(_sweep_result(missing), metric="eval/mae")
 
     assert messages == [
-        "Metric 'eval/mae' missing for assignments: Alpha | Gaussian CG Residuals (k=20, N=100)"
+        "Metric 'eval/mae' missing for assignments: Alpha | CG Errors (k=20, N=100)"
     ]
 
 

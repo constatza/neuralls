@@ -82,8 +82,8 @@ def incomplete_datasets(
             ("a", "d"),
             {"a": "a", "d": "d"},
             (
-                "Test problem | Gaussian CG Residuals (k=20, N=100)",
-                "Other problem | Gaussian CG Residuals (k=20, N=100)",
+                "Test problem | CG Errors (k=20, N=100)",
+                "Other problem | CG Errors (k=20, N=100)",
             ),
         ),
     ],
@@ -113,9 +113,9 @@ def test_history_legend_combines_dataset_and_recipe_only_when_both_vary(
 
     assert result.group_for_system == {"a": "a", "c": "c", "d": "d"}
     assert tuple(entry.text for entry in result.legend.entries.values()) == (
-        "Test problem | Gaussian CG Residuals (k=20, N=100) | Gaussian",
-        "Test problem | Gaussian CG Residuals (k=20, N=100) | Gaussian (μ=1, σ=1)",
-        "Other problem | Gaussian CG Residuals (k=20, N=100) | Gaussian",
+        "Test problem | CG Errors (k=20, N=100) | Gaussian",
+        "Test problem | CG Errors (k=20, N=100) | Gaussian (μ=1, σ=1)",
+        "Other problem | CG Errors (k=20, N=100) | Gaussian",
     )
 
 

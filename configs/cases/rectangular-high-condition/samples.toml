@@ -26,7 +26,7 @@ values = [840, 1000, 2500, 5000]
 
 [[jobs]]
 id = "pod-r50"
-path = "../../jobs/pod2g/r50.toml"
+path = "../../jobs/pod/r50.toml"
 
 [[comparisons]]
 matrix_dataset = "rhc-cg-startM1-stop30-step1-n5000"

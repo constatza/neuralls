@@ -390,7 +390,7 @@ def _report_variant(
     return WorkloadMixtureReport(**common)
 
 
-_GROUP_FILE_STEM = "Comparison_matrix_set_Test_problem_Gaussian_CG_Residuals_k_20_N_100_-_Gaussian"
+_GROUP_FILE_STEM = "Comparison_matrix_set_Test_problem_CG_Errors_k_20_N_100_-_Gaussian"
 
 _COHORT_STEMS = (
     "convergence_factor",

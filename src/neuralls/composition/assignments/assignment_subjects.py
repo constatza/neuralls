@@ -1,6 +1,6 @@
 """What each case assignment trains, and the typed subject that names its runs.
 
-An assignment's job kind decides the method it produces: a ``fit`` job is a POD-2G basis, any
+An assignment's job kind decides the method it produces: a ``fit`` job is a POD basis, any
 other trainable job a neural preconditioner. The same stubs feed the comparison's
 auto-generated preconditioners and the training and evaluation run names, so a model is
 described one way everywhere.
@@ -21,7 +21,7 @@ from neuralls.composition.assignments.presentation_preflight import (
 )
 from neuralls.composition.preconditioners.descriptions import describe_configured_preconditioner
 from neuralls.domain.presentation.methods import (
-    DatasetQualifiedMethodPresentation,
+    qualify_method,
 )
 from neuralls.domain.presentation.run_names import (
     EditorialTrainingSubject,
@@ -111,7 +111,7 @@ def pod_fit_spec_from_assignment(
     job: FitJobConfig,
     dataset_dir: Path,
 ) -> AMGPreconditionerConfig:
-    """Build an unresolved AMG/POD stub for a `fit`-kind (POD-2G) assignment.
+    """Build an unresolved AMG/POD stub for a `fit`-kind (POD) assignment.
 
     Mirrors `_neural_spec_from_assignment`'s "derived result key, unresolved
     stub referencing the assignment's training run" shape, but for
@@ -172,9 +172,7 @@ def training_subject(
             stub = neural_spec_from_assignment(
                 entry, extra_input_names=(), architecture=inputs.binding.architecture
             )
-    return DatasetQualifiedMethodPresentation(
-        method=describe_configured_preconditioner(stub), dataset=dataset
-    )
+    return qualify_method(describe_configured_preconditioner(stub), dataset)
 
 
 def case_notation(cfg: CaseConfig) -> NotationPolicy:

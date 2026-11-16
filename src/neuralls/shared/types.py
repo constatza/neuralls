@@ -176,7 +176,7 @@ class CostProvenance(StrEnum):
 class PreconditionerFamily(StrEnum):
     """Plot-style grouping for preconditioner variants that share a config `type`.
 
-    ``PreconditionerType.AMG`` covers both classical AMG and POD-2G coarsening,
+    ``PreconditionerType.AMG`` covers both classical AMG and POD coarsening,
     and ``NEURAL``/``NEURAL_AMG`` are both "neural" for comparison-plot
     purposes — these three names give those merged groups a real, checkable
     identity instead of ad hoc strings. Every other preconditioner type is
@@ -186,7 +186,7 @@ class PreconditionerFamily(StrEnum):
     """
 
     AMG = "amg"
-    POD2G = "pod2g"
+    POD = "pod"
     NEURAL = "neural"
 
     def abbreviation(self) -> str:
@@ -196,13 +196,14 @@ class PreconditionerFamily(StrEnum):
         visible update here rather than silently falling through.
 
         Returns:
-            str: e.g. ``"POD-2G"``.
+            str: e.g. ``"POD"``; a dataset-qualified POD method is renamed by its
+                snapshot source (``domain/presentation/methods.py::qualify_method``).
         """
         match self:
             case PreconditionerFamily.AMG:
                 return "AMG"
-            case PreconditionerFamily.POD2G:
-                return "POD-2G"
+            case PreconditionerFamily.POD:
+                return "POD"
             case PreconditionerFamily.NEURAL:
                 return "Neural"
 

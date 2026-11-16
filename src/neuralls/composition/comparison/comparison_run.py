@@ -62,7 +62,7 @@ from neuralls.domain.solver.models.energy_error import EnergyErrorFailed, Energy
 from neuralls.domain.solver.models.plot_style import PreconditionerPlotStyle
 from neuralls.platform.config.models.preconditioner import PreconditionerConfig, PreconditionerType
 from neuralls.platform.config.models.preconditioner_family import (
-    pod2g_style_keys,
+    pod_style_keys,
     preconditioner_family,
 )
 from neuralls.platform.config.settings import NeurallsSettings
@@ -485,7 +485,7 @@ def execute_method_workload(
             realizations.extend(result.realizations)
             del bundle
 
-    color_key, marker_key = pod2g_style_keys(method.config)
+    color_key, marker_key = pod_style_keys(method.config)
     return CompletedMethodWorkload(
         method=PreconditionerName(method.name),
         planned=tuple(planned_list),

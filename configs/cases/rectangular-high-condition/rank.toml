@@ -21,23 +21,23 @@ path = "../../datasets/train/rectangular-high-condition/sm-startM1-stop7-step1.t
 # Five round POD dimensions, ending at 300 (the rounded n/3 scale for n=840).
 [[jobs]]
 id = "pod-r5"
-path = "../../jobs/pod2g/r5.toml"
+path = "../../jobs/pod/r5.toml"
 
 [[jobs]]
 id = "pod-r25"
-path = "../../jobs/pod2g/r25.toml"
+path = "../../jobs/pod/r25.toml"
 
 [[jobs]]
 id = "pod-r50"
-path = "../../jobs/pod2g/r50.toml"
+path = "../../jobs/pod/r50.toml"
 
 [[jobs]]
 id = "pod-r100"
-path = "../../jobs/pod2g/pod2g-rank100.toml"
+path = "../../jobs/pod/pod-rank100.toml"
 
 [[jobs]]
 id = "pod-r300"
-path = "../../jobs/pod2g/pod2g-rank300.toml"
+path = "../../jobs/pod/pod-rank300.toml"
 
 [[comparisons]]
 matrix_dataset = "rhc-cg-startM1-stop30-step1"

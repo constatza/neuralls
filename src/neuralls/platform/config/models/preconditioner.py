@@ -329,7 +329,7 @@ class NeuralPreconditionerConfig(BasePreconditionerConfig, NeuralCheckpointRef):
 
 
 def _has_algebraic_levels(cfg: AMGPreconditionerConfig) -> bool:
-    """POD-2G is two-grid by construction, so its level count is not a parameter."""
+    """POD is two-grid by construction, so its level count is not a parameter."""
     return not isinstance(cfg.coarsening, PODCoarseningConfig | NeuralPODCoarseningConfig)
 
 
@@ -338,8 +338,8 @@ class AMGPreconditionerConfig(BasePreconditionerConfig):
 
     ``coarsening`` selects the strategy that builds the prolongation/
     restriction operator — ``AggregationCoarseningConfig`` (classical SA-AMG),
-    ``PODCoarseningConfig`` (POD-2G), or ``NeuralPODCoarseningConfig``
-    (checkpoint-predicted POD-2G). Required, no default: the caller must
+    ``PODCoarseningConfig`` (POD), or ``NeuralPODCoarseningConfig``
+    (checkpoint-predicted POD). Required, no default: the caller must
     state which coarsening strategy an AMG config means. A future coarsening
     strategy is added the same way: one more class in the
     ``CoarseningConfig`` union, not a new ``PreconditionerType`` and not new
@@ -411,7 +411,7 @@ class AdaptiveSAPreconditionerConfig(BasePreconditionerConfig):
     builds its whole multilevel hierarchy eagerly at construction (learned
     near-null-space candidates, symmetric Gauss-Seidel V(1,1) cycle, a
     pseudo-inverse coarse solve) and cannot be composed with
-    ``AggregationCoarsening``/``TargetDimensionCoarsening`` the way POD-2G or
+    ``AggregationCoarsening``/``TargetDimensionCoarsening`` the way POD or
     classical SA-AMG can — hence its own ``PreconditionerType`` rather than
     another ``CoarseningConfig`` union member.
 
@@ -506,14 +506,14 @@ class BootstrapAMGPreconditionerConfig(BasePreconditionerConfig):
     hierarchy eagerly at construction (compatible-relaxation coarsening,
     algebraic-distance interpolation, a bootstrap-cycle-fitted test-vector
     set) and is not a pluggable ``CoarseningStrategy`` the way classical
-    SA-AMG or POD-2G are — hence its own ``PreconditionerType`` rather than
+    SA-AMG or POD are — hence its own ``PreconditionerType`` rather than
     another ``CoarseningConfig`` union member. Field defaults mirror
     ``torchalg.preconditioners.implementations.amg.bootstrap
     .BootstrapAMGPreconditioner``'s own constructor defaults, including
     ``n_levels`` (torchalg's ``max_levels=10``).
 
     Unlike ``AMGPreconditionerConfig``'s ``n_levels=2``, this is not
-    truncated to two-grid: that default exists to match POD-2G, which is
+    truncated to two-grid: that default exists to match POD, which is
     architecturally single-basis two-grid and can't be anything else
     (``ADAPTIVE_SA_AMG``/``NEURAL_AMG`` inherited the same default, but
     nothing ties it to a general rule that every AMG-family method must

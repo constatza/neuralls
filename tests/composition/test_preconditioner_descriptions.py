@@ -104,7 +104,7 @@ POD_DATASET_DIR = Path("pod-fit-dataset")
                     dataset_dir=POD_DATASET_DIR, rank=10, assignment="fit-a"
                 )
             ),
-            "POD-2G (r=10)",
+            "POD (r=10)",
             id="pod-rank-without-dataset-or-identity",
         ),
         pytest.param(
@@ -142,7 +142,7 @@ POD_DATASET_DIR = Path("pod-fit-dataset")
                     weighting=PowerNormWeightingConfig(metric="a", beta=1.0),
                 )
             ),
-            "POD-2G (r=0.999, Nₛ=200, w=PN, p=A, β=1)",
+            "POD (r=0.999, Nₛ=200, w=PN, p=A, β=1)",
             id="pod-weighting-and-snapshots",
         ),
         pytest.param(
@@ -152,7 +152,7 @@ POD_DATASET_DIR = Path("pod-fit-dataset")
                     weighting=SmootherPersistenceWeightingConfig(steps=7),
                 )
             ),
-            "POD-2G (r=8, w=SP, ν=7)",
+            "POD (r=8, w=SP, ν=7)",
             id="pod-smoother-persistence-sweeps",
         ),
         pytest.param(
@@ -171,7 +171,7 @@ POD_DATASET_DIR = Path("pod-fit-dataset")
                     dataset_dir=POD_DATASET_DIR, rank=6, input_names=("x",)
                 )
             ),
-            "POD-2G (r=6)",
+            "POD (r=6)",
             id="neural-pod-coarsening",
         ),
         pytest.param(

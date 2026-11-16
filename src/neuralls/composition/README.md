@@ -322,7 +322,7 @@ Prepared executions key each resolved data origin by method name and require the
 
 **CLI, log and summary text.** Results carry typed presentations, never display strings: `AssignmentSucceeded.presentation`/`AssignmentFailed.presentation` (the closed `AssignmentResult` union) and `EvaluationRunResult.presentation` are `TrainingPresentation`s, and `ComparisonCompleted`/`ComparisonReused` carry the `NamedRun` MLflow opens for the system (`ComparisonCompleted` also carries the text `summary` the CLI logs) (`PreparedComparisonExecution.run_name`, built by `tracking/run_specs.py::comparison_run`). `ComparisonEntryFailed.run` is that `NamedRun`, or `UndescribedComparison` when the failure came before the methods and dataset resolved (no title exists yet). `composition/display.py` is the only place the CLI turns these into text (`comparison_label`, `assignment_label`, `generation_label`), so a printed line is the plain text of the run name MLflow shows. Training and evaluation batches log `render_training_label(presentation)`; the bar charts they upload label each bar with `training_legend` and the label-map JSON stores `assignment_label` beside the machine `assignment_id`. `training_presentations` rejects two assignments that render alike (`IndistinguishableTrainingError`) before any run opens. Comparison summaries (`format_results_summary`) head each line with the method's description; per-method and per-matrix log lines in `execute_method_workload` name the method and dataset by their presentations (`datasets` and `notation` are explicit arguments), and a skipped report group is named by its scope. `GenerationResult` carries the dataset's stamped presentation. The remaining id-bearing log lines (pre-title comparison preparation, checkpoint hashing, checkpoint resolution, solver algorithm names) are listed with reasons in the `cli-and-logs` scope of `tests/workflows/test_human_facing_text_contract.py`.
 
-**MLflow run naming.** `tracking/run_specs.py` builds every run spec from typed presentations and returns a `NamedRun` (never text): the session parent is `SessionRunName(title, timestamp, phase)` with `summarized_session_title(titles, session_counts(planned))` for comparisons and `session_title` for training and evaluation; only a comparison session labels its dataset title as a comparison matrix set, a comparison parent is `ComparisonRunName` (the comparison title plus `system_qualifier(planned)`, which adds the held-out matrix and RHS draw that tell sibling systems apart; the planner leaves an editorial display name unqualified), a method child is `MethodRunName(prepared.compact)`, and training and evaluation runs are `TrainingRunName`/`EvaluationRunName` over a `TrainingSubject`. `assignments/assignment_subjects.py::training_subject` describes what an assignment trains exactly as a comparison describes it (a `fit` job is the POD-2G basis, any other job its neural architecture, each qualified by its dataset; an explicit assignment `display_name` becomes an editorial title beside the dataset), and `training_presentations` builds all of them before the first run opens, so a missing provenance or architecture name aborts the batch. Tags keep `*_id` and `*_label` apart (`BenchmarkMethodRunTags.method_id`/`method_label`). The ad-hoc `run_inference` entry point no longer opens an MLflow run: it had no presentation to name one by.
+**MLflow run naming.** `tracking/run_specs.py` builds every run spec from typed presentations and returns a `NamedRun` (never text): the session parent is `SessionRunName(title, timestamp, phase)` with `summarized_session_title(titles, session_counts(planned))` for comparisons and `session_title` for training and evaluation; only a comparison session labels its dataset title as a comparison matrix set, a comparison parent is `ComparisonRunName` (the comparison title plus `system_qualifier(planned)`, which adds the held-out matrix and RHS draw that tell sibling systems apart; the planner leaves an editorial display name unqualified), a method child is `MethodRunName(prepared.compact)`, and training and evaluation runs are `TrainingRunName`/`EvaluationRunName` over a `TrainingSubject`. `assignments/assignment_subjects.py::training_subject` describes what an assignment trains exactly as a comparison describes it (a `fit` job is the POD basis, any other job its neural architecture, each qualified by its dataset; an explicit assignment `display_name` becomes an editorial title beside the dataset), and `training_presentations` builds all of them before the first run opens, so a missing provenance or architecture name aborts the batch. Tags keep `*_id` and `*_label` apart (`BenchmarkMethodRunTags.method_id`/`method_label`). The ad-hoc `run_inference` entry point no longer opens an MLflow run: it had no presentation to name one by.
 
 Comparison plot legends are a separate concern from that MLflow metric-key
 policy. `composition.preconditioners.descriptions` builds each display name as a
@@ -335,7 +335,7 @@ length. Figures render the structured objects under the case's
 `notation_policy` (`[comparison_baseline.presentation]`, carried to the sinks as
 `ComparisonPresentation.notation` and the sinks' constructor argument), at the
 final Matplotlib call (`platform/reporting/figure_text.py`). The case's `[comparison_baseline.figure_style]` (`FigureStyleConfig`: x-label rotation, distribution row limits, `show_titles`) is read by `case_figure_style` and passed to `MLflowReportSink` the same way. Composition supplies
-only validated workflow provenance: inline POD-2G carries its fit dataset, and a checkpoint method carries a training dataset only when its digest is verified. The comparison matrix set remains the scope for every method.
+only validated workflow provenance: inline POD carries its fit dataset, and a checkpoint method carries a training dataset only when its digest is verified. The comparison matrix set remains the scope for every method.
 The comparison summary and the figure sinks keep solver results and style metadata keyed by
 their original preconditioner key and pass a typed `Legend`; they never re-key
 results by presentation text. Assignment-generated
@@ -375,13 +375,13 @@ share a device without repeated host-to-device transfers.
 Plot *styling* (marker/color, as opposed to the label text above) is a
 further separate concern, driven by `PreconditionerComparisonEntry.color_key`/
 `.marker_key` alongside `.family`. `comparison_run.py::execute_method_workload`
-populates them via `platform/config/models/preconditioner_family.py::pod2g_style_keys`, which reads the raw (unresolved)
-`PreconditionerConfig` — POD-2G's fit dataset (`coarsening.dataset_dir`)
+populates them via `platform/config/models/preconditioner_family.py::pod_style_keys`, which reads the raw (unresolved)
+`PreconditionerConfig` — POD's fit dataset (`coarsening.dataset_dir`)
 becomes the color key and its snapshot weighting scheme
-(`coarsening.weighting.method`) becomes the marker key, so a dense POD-2G
+(`coarsening.weighting.method`) becomes the marker key, so a dense POD
 sweep (many dataset x weighting combinations in one plot) separates into
 distinct color/marker combinations instead of collapsing onto one
-family-wide marker with only color-shade differences. Non-POD-2G configs
+family-wide marker with only color-shade differences. Non-POD configs
 yield `(None, None)` and fall back to family-based styling in
 `platform.reporting.series_style.resolve_styles`.
 
@@ -617,15 +617,15 @@ config depends on into the method's `CheckpointStore`
 (`preconditioners/checkpoint_store.py`); the timed build then only borrows the
 loaded object. Which checkpoints a config needs comes from the
 `CheckpointRefBearing` protocol, and how each kind loads is the mapping in
-`preconditioners/preloading.py` (fitted POD-2G basis, neural and neural-AMG
-predictors, neural POD-2G's inference predictor) through the method's
+`preconditioners/preloading.py` (fitted POD basis, neural and neural-AMG
+predictors, neural POD's inference predictor) through the method's
 `CheckpointLoaders` (`checkpoint_store.py`: the predictor adapter, the batch-inference factory
 and the device both load on). `CheckpointLoaders.dlkit(device)` is the only place composition
 builds DLKit loaders; the comparison session resolves the device once (`comparison_batch.py`),
 passes it through `execute_all` to `execute_method_workload`, and every method's loaders, memory
-observer and neural POD-2G prediction use it. A builder never builds a default loader: a
+observer and neural POD prediction use it. A builder never builds a default loader: a
 checkpoint-backed preconditioner built without loaders raises `MissingCheckpointLoadersError`,
-and a build that loads no checkpoint needs none. A fitted POD-2G basis does not
+and a build that loads no checkpoint needs none. A fitted POD basis does not
 depend on the matrix (only the coarse operator `Phi^T A Phi` does), so it is read
 once and shared by every matrix of the dataset. A checkpoint-backed basis is therefore
 loaded outside the measured setup, whereas an inline POD fit (no checkpoint identity on

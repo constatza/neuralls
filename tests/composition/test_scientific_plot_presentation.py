@@ -129,10 +129,10 @@ STANDALONE_LEGEND = [
     "BAMG (L=10)",
 ]
 POD_LEGEND = [
-    "POD-2G (r=10) | Gaussian Solutions (μ=0, σ=1, N=8)",
-    "POD-2G (r=100) | Gaussian Solutions (μ=0, σ=1, N=8)",
-    "POD-2G (r=10) | Gaussian Solutions (μ=0, σ=1, N=4)",
-    "POD-2G (r=100) | Gaussian Solutions (μ=0, σ=1, N=4)",
+    "POD (r=10) | Gaussian Solutions (μ=0, σ=1, N=8)",
+    "POD (r=100) | Gaussian Solutions (μ=0, σ=1, N=8)",
+    "POD (r=10) | Gaussian Solutions (μ=0, σ=1, N=4)",
+    "POD (r=100) | Gaussian Solutions (μ=0, σ=1, N=4)",
 ]
 MATHTEXT_LEGEND = [
     "Identity",
@@ -143,10 +143,10 @@ MATHTEXT_LEGEND = [
     "aSA ($L=2$, $k=3$, $\\theta=0$)",
     "aSA ($L=2$, $k=7$, $\\theta=0$)",
     "BAMG ($L=10$)",
-    "POD-2G ($r=10$) | Gaussian Solutions ($\\mu=0$, $\\sigma=1$, $N=8$)",
-    "POD-2G ($r=100$) | Gaussian Solutions ($\\mu=0$, $\\sigma=1$, $N=8$)",
-    "POD-2G ($r=10$) | Gaussian Solutions ($\\mu=0$, $\\sigma=1$, $N=4$)",
-    "POD-2G ($r=100$) | Gaussian Solutions ($\\mu=0$, $\\sigma=1$, $N=4$)",
+    "POD ($r=10$) | Gaussian Solutions ($\\mu=0$, $\\sigma=1$, $N=8$)",
+    "POD ($r=100$) | Gaussian Solutions ($\\mu=0$, $\\sigma=1$, $N=8$)",
+    "POD ($r=10$) | Gaussian Solutions ($\\mu=0$, $\\sigma=1$, $N=4$)",
+    "POD ($r=100$) | Gaussian Solutions ($\\mu=0$, $\\sigma=1$, $N=4$)",
 ]
 
 

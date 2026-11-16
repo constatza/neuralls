@@ -10,7 +10,7 @@ shuffle = true
 seed = 42
 
 # "0-CG": the true 0-CG case, x ~ N(mu, sigma) with
-# b = A @ x and no CG solve at all. POD-2G fitting never sees the real
+# b = A @ x and no CG solve at all. POD fitting never sees the real
 # archived displacement solutions - solution archives are comparison-only.
 [[generation.strategy]]
 name = "gaussian_forward"

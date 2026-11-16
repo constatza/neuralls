@@ -24,7 +24,7 @@ type PreparedMethodFactory = Callable[[str], PreparedMethodPresentation]
 
 
 def pod_spec(dataset_dir: Path, rank: int, assignment: str = "fit-job") -> AMGPreconditionerConfig:
-    """A POD-2G method fitted on ``dataset_dir`` by fit assignment ``assignment``."""
+    """A POD method fitted on ``dataset_dir`` by fit assignment ``assignment``."""
     return AMGPreconditionerConfig(
         coarsening=PODCoarseningConfig(dataset_dir=dataset_dir, rank=rank, assignment=assignment)
     )

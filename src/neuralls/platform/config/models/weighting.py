@@ -1,4 +1,4 @@
-"""POD-2G snapshot-weighting configuration models."""
+"""POD snapshot-weighting configuration models."""
 
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ class RawWeightingConfig(BaseModel):
     """No snapshot weighting — every snapshot votes equally in the POD SVD.
 
     The default `PODCoarseningConfig.weighting`, reproducing the exact
-    behavior POD-2G had before per-snapshot weighting existed.
+    behavior POD had before per-snapshot weighting existed.
     """
 
     method: Annotated[Literal["raw"], IDENTITY_ROLE] = "raw"
@@ -74,7 +74,7 @@ class SmootherPersistenceWeightingConfig(BaseModel):
     contribute most. `omega` defaults to unset, matching
     `torchalg.preconditioners.implementations.amg.smoothers.JacobiSmoother`'s
     own default of auto-computing the damping per-matrix via its
-    spectral-radius rule, so this targets the same smoother POD-2G actually
+    spectral-radius rule, so this targets the same smoother POD actually
     runs alongside. See
     `torchalg.preconditioners.implementations.pod.weighting.smoother_persistence_scales`,
     which this config resolves to.

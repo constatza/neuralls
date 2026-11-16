@@ -178,7 +178,7 @@ def test_fact_identity_keeps_a_label_apart_from_text_of_the_same_spelling() -> N
 # --- base names -------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("name", ["IC0", "AMG", "POD-2G", "aSA", "BAMG", "Neural", "Neural AMG"])
+@pytest.mark.parametrize("name", ["IC0", "AMG", "POD", "aSA", "BAMG", "Neural", "Neural AMG"])
 def test_method_base_names_are_accepted(name: str) -> None:
     assert ScientificDescription(name).base_name == name
 

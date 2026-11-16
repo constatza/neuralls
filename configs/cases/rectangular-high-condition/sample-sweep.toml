@@ -2,8 +2,8 @@
 tracking_uri = "http://localhost:5000"
 
 [names]
-training = "Train-RectangularHighCondition-POD-2G-SampleSweep"
-comparison = "Compare-RectangularHighCondition-POD-2G-SampleSweep"
+training = "Train-RectangularHighCondition-POD-SampleSweep"
+comparison = "Compare-RectangularHighCondition-POD-SampleSweep"
 
 [comparison_baseline]
 rtol = 1.0e-6
@@ -29,7 +29,7 @@ name = "amg-medium-theta"
 type = "amg"
 coarsening = { method = "aggregation", theta = 0.25 }
 
-# The only searched axis is the training-set size: POD-2G (rank 100, see
+# The only searched axis is the training-set size: POD (rank 100, see
 # [[jobs]] below) is fitted against gaussian-cg50 snapshots at every sample
 # count. Each [[dataset_sweeps]] entry expands to one real [[datasets]] entry
 # per value in `values` (dataset ids are read from those real files, which
@@ -42,9 +42,9 @@ path_template = "../../datasets/train/rectangular-high-condition/_generated/gaus
 values = [1000, 5000, 10000]
 
 [[jobs]]
-id = "pod-2g_rank100"
-path = "../../jobs/pod2g/pod2g-rank100.toml"
-display_name = "POD-2G (rank 100)"
+id = "pod_rank100"
+path = "../../jobs/pod/pod-rank100.toml"
+display_name = "POD (rank 100)"
 
 [[comparisons]]
 matrix_dataset = "gaussian-cg50-rectangular-high-condition-10000"
@@ -57,4 +57,4 @@ rhs_source = { kind = "gaussian", mask = { kind = "random", density = 0.1 } }
 
 [[assignment_sweeps]]
 dataset_sweep = "cg50-samples"
-job = "pod-2g_rank100"
+job = "pod_rank100"

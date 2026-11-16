@@ -1,7 +1,7 @@
 """The complete spectral comparison keeps ids out of MLflow run names, tags and parameters.
 
 One cohort drives the check: Identity, Jacobi, IC(0), two AMGs, aSA with ``k=3`` and
-``k=7``, BAMG, and POD-2G of ranks 10 and 100 fitted on Gaussian CG residuals and on
+``k=7``, BAMG, and POD of ranks 10 and 100 fitted on Gaussian CG residuals and on
 smoother-filtered probes, all over a ``Spectral 3D field`` dataset. The real run-spec
 and parameter adapters log it against a real store; the method ids stay machine-only.
 """
