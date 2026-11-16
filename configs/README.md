@@ -172,8 +172,7 @@ searches live in sibling case files, one searched axis per file:
 `coarse-dim-search.toml` (AMG dim / POD rank in 10, 100, 200, 300, on
 `gaussian-cg50`) and `stop-search.toml` (`gaussian-cg0`/`cg10`/`cg50` snapshots
 at POD rank 100). The rectangular-high-condition family adds the legacy
-`sample-sweep.toml` plus focused `win.toml`, `samples.toml`, and `rank.toml`
-POD studies. The 45x15randomE cases are parametric — the underlying
+`sample-sweep.toml` plus the five `pod-<axis>.toml` POD parametric study cases. The 45x15randomE cases are parametric — the underlying
 problem is a family of ~100 stiffness matrices with randomized Young's moduli
 (E1-E4), not one fixed matrix. These CG cases use the `gaussian-cg*` datasets as
 POD snapshot inputs, with
@@ -223,30 +222,9 @@ scale-equivariant initialization/gain parameters.
 
 ### Rectangular POD parameter studies
 
-Three older compact cases isolate POD dataset construction and rank effects. Their
-comparison defaults contain no classical preconditioners; the only compared
-preconditioners are the POD artifacts generated from their fit assignments.
-The job entries intentionally omit `display_name`: a POD label is built from the
-fitted rank, an energy fit's inner product and its fit dataset's recorded
-provenance, so a static name would duplicate them. (A neural job needs a short `display_name` for its architecture;
-without one it cannot be described and the comparison is rejected before it runs.)
-
-- `rectangular-high-condition/win.toml` compares final-state CG snapshots at
-  trajectory caps 10 and 30 with four coarsely sampled CG histories: iterations
-  `1,3,5,7,9`, `21,23,25,27,29`, `6,12,18,24,30`, and
-  `100,200,300,400,500`. Smoother windows retain the final 1, 2, or 4 states,
-  plus the spaced history `1,3,5,7`. Every window retains at most five vectors
-  from each trace, and step 0 is excluded from every multi-row policy.
-- `rectangular-high-condition/samples.toml` sweeps `[840, 1000, 2500, 5000]`
-  rows for last-only CG-30 and smoother-7 datasets at fixed POD rank 50. Here
-  840 is the rectangular system dimension.
-- `rectangular-high-condition/rank.toml` sweeps POD ranks
-  `[5, 25, 50, 100, 300]` against fixed 10000-row CG and smoother datasets.
-  Rank 300 is the round upper point near one third of the 840-dimensional
-  system.
-
-The POD parametric study adds five `pod-<axis>.toml` cases on the same matrix,
-one varied input each, over POD-CG and POD-JP only. Every other input stays at
+The five `pod-<axis>.toml` cases share one matrix and vary one input each,
+over POD-CG and POD-JP only; their comparisons contain no classical
+preconditioners. Every other input stays at
 the baseline: rank c = 100, CG depth k = 20 (`gaussian-cg20.toml`), Jacobi
 sweeps k = 10 (`smoother-filtered-probes-nu10.toml`), N = 5000 rows. Each
 swept value is its own method, labelled from its facts, so the per-method
@@ -272,22 +250,13 @@ window excludes trajectory row 0, the untouched probe: every study dataset
 leaves `start` unset and keeps only the last row, so `stop = 1` keeps the
 iterate after one step. A window that would keep row 0 starts its grid at 2.
 
-The window policies deliberately use separate dataset TOMLs. A dataset sweep
-spec supports exactly one list-valued strategy field, while `start`, `stop`,
-and `step` are a coupled policy: independently sweeping them would create
-invalid or scientifically unhelpful combinations. Sample count is a genuine
-single axis, so `cg-startM1-stop30-step1-n.sweep.toml` and
-`sm-startM1-stop7-step1-n.sweep.toml` use normal sweep expansion. POD rank
-belongs to the fit job, so the rank case crosses two plain datasets with five
-short job ids instead of pretending rank is a dataset axis.
+The job entries intentionally omit `display_name`: a POD label is built from the
+fitted rank, an energy fit's inner product and its fit dataset's recorded
+provenance, so a static name would duplicate them. (A neural job needs a short `display_name` for its architecture;
+without one it cannot be described and the comparison is rejected before it runs.)
 
-Window dataset filename and id prefixes use the mechanical convention
-`{strategy}-start{start}-stop{stop}-step{step}` and include all three values,
-even when a value equals its default. Since `-` separates fields, a negative
-value is written with uppercase `M`: for example, `startM2` means `start = -2`.
-Additional swept parameters are appended by name, such as `-n840`. The names
-therefore encode raw configuration parameters only, without semantic terms
-such as `last`, `first`, or `width`.
+POD rank belongs to the fit job, so `pod-rank.toml` crosses the two baseline
+datasets with one job per rank instead of pretending rank is a dataset axis.
 
 ## Case Anatomy
 
