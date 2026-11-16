@@ -18,7 +18,7 @@ from neuralls.platform.config.models.preconditioner import (
 )
 from neuralls.shared.types import PreconditionerFamily
 
-__all__ = ["PreconditionerFamilyKey", "pod_style_keys", "preconditioner_family"]
+__all__ = ["PreconditionerFamilyKey", "pod_color_key", "preconditioner_family"]
 
 type PreconditionerFamilyKey = PreconditionerFamily | PreconditionerType
 """A preconditioner's family: one of the merged `PreconditionerFamily` names
@@ -56,30 +56,21 @@ def preconditioner_family(cfg: PreconditionerConfig) -> PreconditionerFamilyKey:
     return cfg.type
 
 
-def pod_style_keys(cfg: PreconditionerConfig) -> tuple[str | None, str | None]:
-    """Extract (color_key, marker_key) for a POD config, else (None, None).
+def pod_color_key(cfg: PreconditionerConfig) -> str | None:
+    """The plot colour key of a POD config: its fit dataset; ``None`` for any other config.
 
-    POD comparisons routinely sweep many (fit dataset, snapshot weighting)
-    combinations in one plot; the fit dataset drives color, the weighting
-    scheme drives marker, so a dense sweep separates into distinct
-    color/marker combinations instead of collapsing onto one family-wide
-    marker+linestyle with only color-shade differences.
+    POD comparisons routinely sweep many fit datasets in one plot; keying colour on the
+    dataset keeps same-dataset variants one colour instead of shading one family-wide
+    colour. ``None`` falls back to family-based styling.
 
     Args:
         cfg: Preconditioner configuration to inspect.
 
     Returns:
-        tuple[str | None, str | None]: ``(color_key, marker_key)``, both
-        ``None`` for non-POD configs (falls back to family-based styling).
+        str | None: The POD fit dataset directory, or ``None`` for non-POD configs.
     """
     if not isinstance(cfg, AMGPreconditionerConfig) or not isinstance(
         cfg.coarsening, PODCoarseningConfig | NeuralPODCoarseningConfig
     ):
-        return None, None
-    color_key = str(cfg.coarsening.dataset_dir)
-    # Only PODCoarseningConfig carries a snapshot weighting scheme;
-    # NeuralPODCoarseningConfig predicts snapshots from a checkpoint instead.
-    marker_key = (
-        cfg.coarsening.weighting.method if isinstance(cfg.coarsening, PODCoarseningConfig) else None
-    )
-    return color_key, marker_key
+        return None
+    return str(cfg.coarsening.dataset_dir)

@@ -309,7 +309,6 @@ CALIBER_GROWTH_PENALTY = _key("caliber_growth_penalty")
 USE_LSR = _key("use_lsr")
 RANK = _key("rank")
 SNAPSHOT_COUNT = _key("snapshot_count")
-WEIGHTING = _key("weighting")
 METRIC = _key("metric")
 BETA = _key("beta")
 MODEL_ARCHITECTURE = _key("model_architecture")
@@ -603,31 +602,15 @@ FACT_DEFINITIONS: tuple[FactDefinition, ...] = (
     ),
     _definition(SNAPSHOT_COUNT, _A, _C, 310, None, "Nₛ", "N_s", frozenset({FactValueKind.INTEGER})),
     _definition(
-        WEIGHTING,
-        _A,
-        _C,
-        320,
-        None,
-        "w",
-        "w",
-        frozenset({FactValueKind.TEXT}),
-        categories=_categories(
-            ("power_norm", "PN", "\\mathrm{PN}"),
-            ("raw", "raw", "\\mathrm{raw}"),
-            ("smoother_persistence", "SP", "\\mathrm{SP}"),
-            ("uniform", "uniform", "\\mathrm{uniform}"),
-        ),
-    ),
-    _definition(
         METRIC,
         _A,
         _C,
         330,
         None,
-        "p",
-        "p",
+        "‖·‖",
+        "\\|\\cdot\\|",
         frozenset({FactValueKind.TEXT}),
-        categories=_categories(("a", "A", "A"), ("l2", "ℓ₂", "\\ell_2")),
+        categories=_categories(("energy", "A", "A"), ("l2", "ℓ₂", "\\ell_2")),
     ),
     _definition(BETA, _A, _C, 340, 3, "β", "\\beta", frozenset({FactValueKind.DECIMAL})),
     _definition(
@@ -706,7 +689,6 @@ SHARED_SYMBOL_GROUPS: frozenset[frozenset[FieldKey]] = frozenset(
         frozenset({ITERATION_COUNT, CANDIDATE_COUNT}),
         frozenset({DAMPING, FREQUENCY}),
         frozenset({COMPATIBLE_RELAXATION_SWEEPS, STEPS}),
-        frozenset({METRIC, PROBE_DISTRIBUTION}),
     }
 )
 """Keys that deliberately share one plain symbol because they never describe the same object

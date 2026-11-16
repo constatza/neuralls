@@ -210,9 +210,6 @@ class PreconditionerComparisonEntry:
             driving shared linestyle across same-family preconditioners.
         color_key: Optional plot color-axis key (e.g. a POD fit dataset).
             Entries sharing a key share a color; ``None`` falls back to ``family``.
-        marker_key: Optional plot marker-axis key (e.g. a POD weighting
-            scheme). Entries sharing a key share a marker; ``None`` falls back
-            to ``family``.
     """
 
     name: str
@@ -220,7 +217,6 @@ class PreconditionerComparisonEntry:
     presentation: PreparedMethodPresentation
     family: PreconditionerFamilyKey
     color_key: str | None = None
-    marker_key: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

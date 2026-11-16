@@ -11,11 +11,11 @@ from neuralls.shared.scientific_description.catalog import (
     ASSIGNMENT,
     FACT_DEFINITIONS,
     ITERATION_COUNT,
+    METRIC,
     MODEL_ARCHITECTURE,
     RANK,
     SHARED_SYMBOL_GROUPS,
     THRESHOLD,
-    WEIGHTING,
     CatalogError,
     CatalogErrorReason,
     FactDefinition,
@@ -83,7 +83,7 @@ def test_factory_rejects_an_unregistered_key() -> None:
 
 def test_factory_rejects_a_bogus_category() -> None:
     with pytest.raises(UnknownCategoricalValueError):
-        make_fact(WEIGHTING, "bogus")
+        make_fact(METRIC, "bogus")
 
 
 @pytest.mark.parametrize(
@@ -102,7 +102,7 @@ def test_factory_reports_the_kind_it_got_and_the_kinds_allowed(
     assert (error.value.key, error.value.got, error.value.allowed) == (key, got, allowed)
 
 
-@pytest.mark.parametrize("key", [ITERATION_COUNT, THRESHOLD, WEIGHTING, ASSIGNMENT])
+@pytest.mark.parametrize("key", [ITERATION_COUNT, THRESHOLD, METRIC, ASSIGNMENT])
 def test_factory_rejects_bool(key: FieldKey) -> None:
     with pytest.raises(TypeError, match="bool"):
         make_fact(key, True)
@@ -163,7 +163,7 @@ def test_description_rejects_a_repeated_key(
 def test_fact_identity_separates_one_float_and_the_integer_one() -> None:
     integer = fact_identity(IntegerFact(RANK, 1))
     decimal = fact_identity(DecimalFact(RANK, 1.0))
-    text = fact_identity(TextFact(WEIGHTING, "1"))
+    text = fact_identity(TextFact(METRIC, "1"))
     assert len({integer, decimal, text}) == 3
     assert integer != decimal
     assert integer == fact_identity(IntegerFact(RANK, 1))
@@ -246,6 +246,6 @@ def test_catalog_rejects_a_declared_shared_symbol_that_no_longer_collides() -> N
 
 
 def test_definition_rejects_categories_without_a_text_kind() -> None:
-    weighting = next(d for d in FACT_DEFINITIONS if d.key == WEIGHTING)
+    metric = next(d for d in FACT_DEFINITIONS if d.key == METRIC)
     with pytest.raises(ValueError, match="categories"):
-        _clone(weighting, value_kinds=frozenset({FactValueKind.INTEGER}))
+        _clone(metric, value_kinds=frozenset({FactValueKind.INTEGER}))

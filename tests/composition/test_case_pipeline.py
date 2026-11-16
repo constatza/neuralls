@@ -89,7 +89,7 @@ def test_runs_comparison_batch_when_case_config_declares_only_sweeps() -> None:
 
 def test_skips_assignment_sweep_when_case_config_declares_none() -> None:
     """A comparison-only case config (preconditioners declared inline in
-    comparison_baseline, e.g. POD weighting variants) must not hit
+    comparison_baseline, e.g. POD bases fit inline) must not hit
     load_assignment_batch's "no assignments" error.
     """
     case_config_path = CASE_CONFIG

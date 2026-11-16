@@ -10,10 +10,6 @@ import torch
 from torchalg.preconditioners.implementations.pod import PODCoarseningStrategy
 
 from neuralls.composition.preconditioners.pod_fittable import PODCoarseningFittable
-from neuralls.platform.config.models.weighting import (
-    PowerNormWeightingConfig,
-    SmootherPersistenceWeightingConfig,
-)
 
 
 @pytest.fixture
@@ -104,48 +100,35 @@ def test_hparams_exposes_configured_rank_before_fit() -> None:
     """`.hparams` is readable before fit() — dlkit's tracking logger reads it first."""
     model = PODCoarseningFittable(rank=0.99)
 
-    assert dict(model.hparams) == {"rank": 0.99, "weighting": "raw"}
+    assert dict(model.hparams) == {"rank": 0.99}
 
 
-def test_weighting_accepts_raw_dict_like_a_toml_model_table(
+def test_dataloader_fit_forwards_row_scales_like_the_parent_tensor_fit(
     snapshot_batches: list[dict[str, dict[str, torch.Tensor]]],
 ) -> None:
-    """A plain dict (what dlkit's `extra='allow'` `[model]` table passes through) must be coerced.
+    """Explicit row scales reach the parent fit on the dataloader path unchanged."""
+    row_scales = torch.tensor([1.0, 2.0, 0.5, 3.0, 1.5], dtype=torch.float64)
+    snapshots = torch.cat([batch["targets"]["y"] for batch in snapshot_batches])
+    reference = PODCoarseningStrategy(rank=2)
+    reference.fit(snapshots, row_scales=row_scales)
+    model = PODCoarseningFittable(rank=2)
 
-    dlkit's `ModelComponentSettings` (`extra="allow"`) forwards unrecognized
-    TOML keys as plain kwargs, not validated pydantic instances — a
-    `weighting = { method = "power_norm", ... }` TOML table therefore arrives
-    here as a raw `dict`, not a `PowerNormWeightingConfig`.
-    """
-    model = PODCoarseningFittable(
-        rank=2, weighting={"method": "power_norm", "metric": "l2", "beta": 1.0}
-    )
+    model.fit(snapshot_batches, row_scales=row_scales)
 
-    model.fit(snapshot_batches)
-
-    assert model.is_fitted()
-    assert dict(model.hparams) == {"rank": 2, "weighting": "power_norm"}
+    torch.testing.assert_close(model._basis.cpu(), reference._basis, rtol=0.0, atol=0.0)
 
 
-def test_rejects_power_norm_a_at_construction() -> None:
-    """`metric='a'` needs the system matrix, which a fit job never has — must reject eagerly.
+def test_dataloader_fit_forwards_the_inner_product_like_the_parent_tensor_fit(
+    snapshot_batches: list[dict[str, dict[str, torch.Tensor]]],
+) -> None:
+    """An inner-product weight reaches the parent fit on the dataloader path unchanged."""
+    snapshots = torch.cat([batch["targets"]["y"] for batch in snapshot_batches])
+    n_dofs = snapshots.shape[1]
+    weight = torch.diag(torch.linspace(1.0, 4.0, n_dofs, dtype=torch.float64))
+    reference = PODCoarseningStrategy(rank=2)
+    reference.fit(snapshots, inner_product=weight)
+    model = PODCoarseningFittable(rank=2)
 
-    A `run.type = "fit"` job's whole premise is a dataset-only, checkpoint-
-    reusable fit; matrix-dependent weighting belongs in `PODCoarseningConfig`,
-    used inline in a comparison where the matrix is already available — see
-    the module docstring.
-    """
-    with pytest.raises(ValueError):
-        PODCoarseningFittable(rank=2, weighting=PowerNormWeightingConfig(metric="a", beta=1.0))
+    model.fit(snapshot_batches, inner_product=weight)
 
-
-def test_rejects_smoother_persistence_at_construction() -> None:
-    """`smoother_persistence` needs the system matrix — same rejection as `metric='a'`."""
-    with pytest.raises(ValueError):
-        PODCoarseningFittable(rank=2, weighting=SmootherPersistenceWeightingConfig())
-
-
-def test_rejects_matrix_needing_weighting_given_as_a_raw_dict() -> None:
-    """The rejection must also fire when `weighting` arrives as a raw dict (the real TOML path)."""
-    with pytest.raises(ValueError):
-        PODCoarseningFittable(rank=2, weighting={"method": "smoother_persistence"})
+    torch.testing.assert_close(model._basis.cpu(), reference._basis, rtol=0.0, atol=0.0)

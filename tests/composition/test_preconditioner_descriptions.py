@@ -48,11 +48,6 @@ from neuralls.platform.config.models.preconditioner import (
     PreconditionerType,
     StandardPreconditionerConfig,
 )
-from neuralls.platform.config.models.weighting import (
-    PowerNormWeightingConfig,
-    SmootherPersistenceWeightingConfig,
-    SnapshotWeightingConfig,
-)
 from neuralls.shared.fact_binding import Fact, unbound_fields
 from neuralls.shared.scientific_description.catalog import (
     COARSE_DIMENSION,
@@ -139,21 +134,10 @@ POD_DATASET_DIR = Path("pod-fit-dataset")
                     dataset_dir=POD_DATASET_DIR,
                     rank=0.999,
                     n_snapshots=200,
-                    weighting=PowerNormWeightingConfig(metric="a", beta=1.0),
                 )
             ),
-            "POD (r=0.999, Nₛ=200, w=PN, p=A, β=1)",
-            id="pod-weighting-and-snapshots",
-        ),
-        pytest.param(
-            AMGPreconditionerConfig(
-                coarsening=PODCoarseningConfig(
-                    dataset_dir=POD_DATASET_DIR,
-                    weighting=SmootherPersistenceWeightingConfig(steps=7),
-                )
-            ),
-            "POD (r=8, w=SP, ν=7)",
-            id="pod-smoother-persistence-sweeps",
+            "POD (r=0.999, Nₛ=200)",
+            id="pod-rank-and-snapshots",
         ),
         pytest.param(
             AMGPreconditionerConfig(coarsening=TargetDimCoarseningConfig(target_coarse_dim=12)),
@@ -243,7 +227,6 @@ def _config_models() -> list[type[BaseModel]]:
     unions = (
         ConcretePreconditionerConfig,
         get_args(CoarseningConfig)[0],
-        get_args(SnapshotWeightingConfig)[0],
     )
     return [model for union in unions for model in get_args(union)]
 

@@ -60,7 +60,6 @@ class GroupStyler:
             ),
             families=maps.families,
             color_keys=maps.color_keys,
-            marker_keys=maps.marker_keys,
             label_rotation_deg=self.figure_style.label_rotation_deg,
             row_limits=RowLimits(
                 self.figure_style.min_box_samples, self.figure_style.min_violin_samples

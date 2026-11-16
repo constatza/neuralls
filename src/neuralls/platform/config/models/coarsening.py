@@ -21,11 +21,9 @@ from neuralls.platform.config.models.fact_roles import (
     PROVENANCE_ROLE,
 )
 from neuralls.platform.config.models.slugs import slug_number
-from neuralls.platform.config.models.weighting import RawWeightingConfig, SnapshotWeightingConfig
 from neuralls.shared.digest import InputData
 from neuralls.shared.fact_binding import (
     Fact,
-    Nested,
     Show,
 )
 from neuralls.shared.scientific_description.catalog import (
@@ -210,14 +208,6 @@ class PODCoarseningConfig(NeuralCheckpointRef):
     n_snapshots: Annotated[int, Fact(SNAPSHOT_COUNT, show=Show.NON_DEFAULT)] = Field(
         default=-1, description="Number of snapshot files to load; -1 means all matched."
     )
-    weighting: Annotated[SnapshotWeightingConfig, Nested()] = Field(
-        default_factory=RawWeightingConfig,
-        description=(
-            "Per-snapshot row scaling applied before the POD SVD — "
-            "`RawWeightingConfig` (default) reproduces the original unweighted "
-            "fit exactly; see `SnapshotWeightingConfig`'s member configs."
-        ),
-    )
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     @field_validator("dataset_dir", mode="before")
@@ -269,7 +259,7 @@ class PODCoarseningConfig(NeuralCheckpointRef):
 
     def slug(self) -> str:
         """Deterministic slug for this coarsening, including any checkpoint identity."""
-        base = f"pod_rank{slug_number(self.rank)}_n{self.n_snapshots}_{self.weighting.slug()}"
+        base = f"pod_rank{slug_number(self.rank)}_n{self.n_snapshots}"
         ref = self.exposed_checkpoint_ref()
         return f"{base}_{ref.checkpoint_slug()}" if ref is not None else base
 

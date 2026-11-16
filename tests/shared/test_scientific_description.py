@@ -22,7 +22,7 @@ from neuralls.shared.scientific_description.render import render, render_facts
 
 ITERATION_COUNT = FieldKey("iteration_count")
 SAMPLE_COUNT = FieldKey("sample_count")
-WEIGHTING = FieldKey("weighting")
+PROBE_DISTRIBUTION = FieldKey("probe_distribution")
 
 
 @pytest.fixture
@@ -34,7 +34,7 @@ def cg_residuals_description() -> ScientificDescription:
             make_fact(ITERATION_COUNT, 15),
             make_fact(SAMPLE_COUNT, 500),
         ),
-        context_facts=(make_fact(WEIGHTING, "uniform"),),
+        context_facts=(make_fact(PROBE_DISTRIBUTION, "rademacher"),),
     )
 
 
@@ -47,20 +47,20 @@ def test_field_key_rejects_non_snake_case() -> None:
 def test_renders_default_plain_label(cg_residuals_description: ScientificDescription) -> None:
     """The canonical example renders exactly as specified in the plan."""
     rendered = render(cg_residuals_description, LOG_PROFILE, NotationPolicy.default())
-    assert rendered.text == "CG Residuals (k=15, N=500, w=uniform)"
+    assert rendered.text == "CG Residuals (k=15, N=500, p=Rad)"
 
 
 @pytest.mark.parametrize(
     ("target", "expected"),
     [
-        (RenderTarget.PLAIN, "CG Residuals (k=15, N=500, w=uniform)"),
+        (RenderTarget.PLAIN, "CG Residuals (k=15, N=500, p=Rad)"),
         (
             RenderTarget.MATHTEXT,
-            "CG Residuals ($k=15$, $N=500$, $w=\\mathrm{uniform}$)",
+            "CG Residuals ($k=15$, $N=500$, $p=\\mathrm{Rad}$)",
         ),
         (
             RenderTarget.LATEX,
-            "CG Residuals ($k=15$, $N=500$, $w=\\mathrm{uniform}$)",
+            "CG Residuals ($k=15$, $N=500$, $p=\\mathrm{Rad}$)",
         ),
     ],
 )
@@ -78,7 +78,7 @@ def test_symbol_override(cg_residuals_description: ScientificDescription) -> Non
         {ITERATION_COUNT: SymbolSpec(plain="k_CG", math="k_{\\mathrm{CG}}")}
     )
     rendered = render(cg_residuals_description, LEGEND_PROFILE, policy)
-    assert rendered.text == "CG Residuals (k_CG=15, N=500, w=uniform)"
+    assert rendered.text == "CG Residuals (k_CG=15, N=500, p=Rad)"
 
 
 def test_precision_override() -> None:
@@ -104,7 +104,7 @@ def test_length_budget_returns_breakpoints_without_dropping_facts(
 
     rendered = render(cg_residuals_description, profile, NotationPolicy.default())
 
-    assert rendered.text == "CG Residuals (k=15, N=500, w=uniform)"
+    assert rendered.text == "CG Residuals (k=15, N=500, p=Rad)"
     assert len(rendered.preferred_wrap_boundaries) == 2
 
 

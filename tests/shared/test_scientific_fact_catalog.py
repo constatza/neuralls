@@ -140,7 +140,7 @@ def test_unknown_fact_key_is_rejected(catalog: ModuleType) -> None:
 
 def test_unknown_categorical_value_is_rejected(catalog: ModuleType) -> None:
     """A category typo built around the factory must not leak its raw spelling into presentation."""
-    fact = TextFact(catalog.WEIGHTING, "unknown_weighting")
+    fact = TextFact(catalog.METRIC, "unknown_metric")
 
     with pytest.raises(catalog.UnknownCategoricalValueError):
         render_facts((fact,), NotationPolicy.default())

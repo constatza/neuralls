@@ -23,7 +23,6 @@ from torchalg.sparse.preconditioners.pod.coarsening import (
 )
 
 from neuralls.application.inference.prediction import collect_predictions, stack_predictions
-from neuralls.composition.preconditioners._weighting import resolve_row_scales
 from neuralls.composition.preconditioners.checkpoint_store import (
     NO_PRELOADED,
     CheckpointLoaders,
@@ -148,9 +147,8 @@ def _pod_coarsening(
     if cfg.n_snapshots != -1:
         solutions = solutions[: cfg.n_snapshots]
     snapshots = torch.as_tensor(solutions, dtype=matrix.dtype, device=matrix.device)
-    row_scales = resolve_row_scales(cfg.weighting, snapshots, matrix)
     coarsening = pod_cls(rank=cfg.rank)
-    coarsening.fit(snapshots, row_scales=row_scales)
+    coarsening.fit(snapshots)
     return coarsening
 
 

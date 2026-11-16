@@ -122,7 +122,6 @@ def plot_convergence_comparison(
     threshold_rel: float | None = None,
     families: Mapping[str, Hashable] | None = None,
     color_keys: Mapping[str, Hashable] | None = None,
-    marker_keys: Mapping[str, Hashable] | None = None,
     marker_size: float = DEFAULT_LINE_MARKER_SIZE,
     history_attr: str = "residual_history_rel",
     ylabel: str = "Relative Residual $\\|r\\| / \\|b\\|$",
@@ -158,7 +157,6 @@ def plot_convergence_comparison(
         threshold_rel=threshold_rel,
         families=families,
         color_keys=color_keys,
-        marker_keys=marker_keys,
         marker_size=marker_size,
         ylabel=ylabel,
         metadata=metadata,
@@ -181,7 +179,6 @@ def plot_convergence_curves(
     threshold_rel: float | None = None,
     families: Mapping[str, Hashable] | None = None,
     color_keys: Mapping[str, Hashable] | None = None,
-    marker_keys: Mapping[str, Hashable] | None = None,
     marker_size: float = DEFAULT_LINE_MARKER_SIZE,
     ylabel: str = "Relative Residual $\\|r\\| / \\|b\\|$",
     metadata: Mapping[str, Any] | None = None,
@@ -207,8 +204,6 @@ def plot_convergence_curves(
             linestyle.
         color_keys: Optional color-axis key per series; series sharing a key share a
             color. Colors come from the Okabe-Ito palette, extended with generated hues.
-        marker_keys: Optional marker-axis key per series; series sharing a key share a
-            marker.
         marker_size: Marker diameter for convergence-history points.
         ylabel: Y-axis label.
         metadata: Optional per-key training annotations appended to the legend label.
@@ -217,7 +212,7 @@ def plot_convergence_curves(
     use_headless_backend()
     fig, ax = plt.subplots(figsize=(10, 6))
     metadata = dict(metadata or {})
-    line_styles = resolve_styles(families, color_keys, marker_keys) if families else {}
+    line_styles = resolve_styles(families, color_keys) if families else {}
 
     labelled_groups: set[str] = set()
     for key, curve in curves.items():

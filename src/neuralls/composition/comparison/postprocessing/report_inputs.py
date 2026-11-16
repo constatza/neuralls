@@ -25,7 +25,7 @@ from neuralls.domain.solver.reporting.event_frames import (
 )
 from neuralls.domain.solver.reporting.observations import MethodFrames, observations_of_methods
 from neuralls.platform.config.models.preconditioner_family import (
-    pod_style_keys,
+    pod_color_key,
     preconditioner_family,
 )
 from neuralls.platform.reporting.stored_benchmark import StoredBenchmark, StoredMethod
@@ -60,7 +60,6 @@ class ReportInputs:
 
 
 def _reported_method(stored: StoredMethod) -> ReportedMethod:
-    color_key, marker_key = pod_style_keys(stored.config)
     return ReportedMethod(
         method=stored.name,
         run_id=stored.run_id,
@@ -73,8 +72,7 @@ def _reported_method(stored: StoredMethod) -> ReportedMethod:
             str(stored.name): PreconditionerPlotStyle(
                 presentation=stored.presentation.prepared,
                 family=preconditioner_family(stored.config),
-                color_key=color_key,
-                marker_key=marker_key,
+                color_key=pod_color_key(stored.config),
             )
         },
     )

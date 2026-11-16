@@ -669,7 +669,7 @@ def test_neural_specs_from_assignments_dispatches_fit_kind_to_pod_stub(
     assert isinstance(spec, AMGPreconditionerConfig)
     assert (
         spec.name
-        == "amg_levels2_pre2_post2_smootheromegaauto_pod_rank0p9999_n-1_raw_assignment_pod_cg1"
+        == "amg_levels2_pre2_post2_smootheromegaauto_pod_rank0p9999_n-1_assignment_pod_cg1"
     )
     assert isinstance(spec.coarsening, PODCoarseningConfig)
     assert spec.coarsening.assignment == "pod_cg1"
