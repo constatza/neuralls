@@ -221,7 +221,12 @@ which dataset a job fits from. A POD rank is a mode count (the coarse dimension)
 energy fraction. After the fit, `preconditioners/pod_fittable.py` measures the captured
 snapshot energy from the fitted basis (`domain/linalg.py::captured_energy_fraction`, in the
 fit's inner product and row scaling) and warns below `MIN_CAPTURED_ENERGY` (0.95). A
-comparison's inline fit skips the check, because its fit time is measured setup.
+comparison's inline fit skips the check, because its fit time is measured setup. The
+fit-kind comparison stub (`assignments/assignment_subjects.py::pod_fit_spec_from_assignment`)
+carries the job's inner product (`pod_fittable.py::configured_inner_product`, reading the
+TOML kind or the patched table) into `PODCoarseningConfig.inner_product`, so an energy fit
+is labelled `W=Ā` and has its own slug, and two fits that differ only in inner product are
+distinct methods. Euclidean labels and slugs carry nothing.
 
 Comparison consumes hashes: `comparison/input_gate.py::require_current_inputs`
 runs before any planning and checks that each `matrix_dataset` is reusable

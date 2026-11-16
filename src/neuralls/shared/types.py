@@ -139,6 +139,17 @@ class MatrixNormType(StrEnum):
     INF = "inf"
 
 
+class InnerProductKind(StrEnum):
+    """Inner product a POD basis is fitted in.
+
+    ``ENERGY`` weighs the projection error with the train-fold mean matrix, so the
+    basis minimizes the error in that matrix's energy norm instead of the Euclidean one.
+    """
+
+    EUCLIDEAN = "euclidean"
+    ENERGY = "energy"
+
+
 class RowKind(int, Enum):
     """Semantic category of a dataset row."""
 

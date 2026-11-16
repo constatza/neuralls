@@ -38,6 +38,7 @@ from neuralls.platform.config.models.coarsening import (
     TargetDimCoarseningConfig,
 )
 from neuralls.platform.config.models.preconditioner import AMGPreconditionerConfig
+from neuralls.shared.types import InnerProductKind
 
 if TYPE_CHECKING:
     from torchalg.preconditioners.implementations.amg.protocols import CoarseningStrategy
@@ -133,6 +134,12 @@ def _pod_coarsening(
         # Fitted ahead of time by a `FitJobConfig` assignment (kind dispatch in
         # composition/assignments/comparison_batch.py); the basis is loaded, not refit.
         return _load_fitted_pod_coarsening(ckpt, matrix, pod_cls, preloaded)
+    if cfg.inner_product is InnerProductKind.ENERGY:
+        # The inline fit is Euclidean; fitting it would mislabel the method as energy.
+        raise ValueError(
+            f"Energy POD for dataset_dir={cfg.dataset_dir!r} has no fitted checkpoint; "
+            "set model_ref or checkpoint_path to the energy fit job's checkpoint"
+        )
 
     match staged_fit_data:
         case (_, solutions):

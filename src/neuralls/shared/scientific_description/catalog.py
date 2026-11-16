@@ -309,6 +309,7 @@ CALIBER_GROWTH_PENALTY = _key("caliber_growth_penalty")
 USE_LSR = _key("use_lsr")
 RANK = _key("rank")
 SNAPSHOT_COUNT = _key("snapshot_count")
+INNER_PRODUCT = _key("inner_product")
 METRIC = _key("metric")
 BETA = _key("beta")
 MODEL_ARCHITECTURE = _key("model_architecture")
@@ -599,6 +600,17 @@ FACT_DEFINITIONS: tuple[FactDefinition, ...] = (
     ),
     _definition(RANK, _A, _C, 300, None, "c", "c", frozenset({FactValueKind.INTEGER})),
     _definition(SNAPSHOT_COUNT, _A, _C, 310, None, "Nₛ", "N_s", frozenset({FactValueKind.INTEGER})),
+    _definition(
+        INNER_PRODUCT,
+        _A,
+        _C,
+        320,
+        None,
+        "W",
+        "W",
+        frozenset({FactValueKind.TEXT}),
+        categories=_categories(("euclidean", "I", "I"), ("energy", "Ā", "\\bar{A}")),
+    ),
     _definition(
         METRIC,
         _A,

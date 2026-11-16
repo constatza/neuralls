@@ -20,6 +20,7 @@ from neuralls.composition.assignments.presentation_preflight import (
     DatasetPresentationLoader,
 )
 from neuralls.composition.preconditioners.descriptions import describe_configured_preconditioner
+from neuralls.composition.preconditioners.pod_fittable import configured_inner_product
 from neuralls.domain.presentation.methods import (
     qualify_method,
 )
@@ -119,7 +120,8 @@ def pod_fit_spec_from_assignment(
     `NeuralPreconditionerConfig` — the checkpoint-shaped side of the kind
     dispatch in `neural_specs_from_assignments`. `dataset_dir`/`rank` are
     populated from the assignment's own job/dataset so the config stays
-    valid (required fields) even before resolution runs; once
+    valid (required fields) even before resolution runs, and the job's inner
+    product is carried so an energy fit is labelled as one; once
     `resolved_checkpoint_path` is set by
     `resolve_preconditioner_models_with_warnings`, the factory reconstructs
     the fitted basis from the checkpoint and never reads these.
@@ -135,6 +137,7 @@ def pod_fit_spec_from_assignment(
         coarsening=PODCoarseningConfig(
             dataset_dir=dataset_dir,
             rank=rank,
+            inner_product=configured_inner_product(job.model.model_extra or {}),
             assignment=entry.id,
             model_ref=TrainedAssignmentRefConfig(assignment_id=entry.id),
         ),

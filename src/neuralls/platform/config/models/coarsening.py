@@ -11,6 +11,7 @@ from pydantic import (
     Field,
     ValidationInfo,
     field_validator,
+    model_validator,
 )
 
 from neuralls.platform.config.context import expand_path_field
@@ -25,14 +26,17 @@ from neuralls.shared.digest import InputData
 from neuralls.shared.fact_binding import (
     Fact,
     Show,
+    enum_value,
 )
 from neuralls.shared.scientific_description.catalog import (
     DAMPING,
+    INNER_PRODUCT,
     RANK,
     SNAPSHOT_COUNT,
     TARGET_COARSE_DIMENSION,
     THRESHOLD,
 )
+from neuralls.shared.types import InnerProductKind
 
 
 class AggregationCoarseningConfig(BaseModel):
@@ -186,7 +190,30 @@ class PODCoarseningConfig(NeuralCheckpointRef):
     n_snapshots: Annotated[int, Fact(SNAPSHOT_COUNT, show=Show.NON_DEFAULT)] = Field(
         default=-1, description="Number of snapshot files to load; -1 means all matched."
     )
+    inner_product: Annotated[
+        InnerProductKind, Fact(INNER_PRODUCT, convert=enum_value, show=Show.NON_DEFAULT)
+    ] = Field(
+        default=InnerProductKind.EUCLIDEAN,
+        description=(
+            "Inner product the basis was fitted in. Energy needs a checkpoint identity: "
+            "only the offline fit job computes the energy weight."
+        ),
+    )
     model_config = ConfigDict(extra="forbid", frozen=True)
+
+    @model_validator(mode="after")
+    def _energy_needs_a_fitted_checkpoint(self) -> PODCoarseningConfig:
+        """Reject an energy inner product on an inline fit.
+
+        The inline fit runs inside the comparison's measured setup and always fits in the
+        Euclidean inner product, so an energy POD exists only as a fit job's checkpoint.
+        """
+        if self.inner_product is InnerProductKind.ENERGY and self.exposed_checkpoint_ref() is None:
+            raise ValueError(
+                "An energy inner product needs a checkpoint identity (assignment, model_ref "
+                "or checkpoint_path): the inline POD fit is Euclidean only"
+            )
+        return self
 
     @field_validator("dataset_dir", mode="before")
     @classmethod
@@ -221,6 +248,8 @@ class PODCoarseningConfig(NeuralCheckpointRef):
     def slug(self) -> str:
         """Deterministic slug for this coarsening, including any checkpoint identity."""
         base = f"pod_rank{slug_number(self.rank)}_n{self.n_snapshots}"
+        if self.inner_product is InnerProductKind.ENERGY:
+            base = f"{base}_energy"
         ref = self.exposed_checkpoint_ref()
         return f"{base}_{ref.checkpoint_slug()}" if ref is not None else base
 

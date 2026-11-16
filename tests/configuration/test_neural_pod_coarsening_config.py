@@ -2,7 +2,7 @@
 
 Only schema/validity is tested here (per project convention: no tests
 asserting on specific values inside a checked-in TOML) — parsing, discriminated
-union resolution, and the rank's mode-count rule.
+union resolution, the rank's mode-count rule, and the POD inner product's rules.
 """
 
 from __future__ import annotations
@@ -17,6 +17,7 @@ from neuralls.platform.config.models.coarsening import (
     PODCoarseningConfig,
 )
 from neuralls.platform.config.models.preconditioner import AMGPreconditionerConfig
+from neuralls.shared.types import InnerProductKind
 
 WORKSPACE = Path("workspace")
 
@@ -75,3 +76,21 @@ def test_a_pod_rank_is_a_positive_mode_count(
         else:
             PODCoarseningConfig.model_validate({"dataset_dir": WORKSPACE, "rank": rank})
     assert [item["loc"] for item in error.value.errors()] == [("rank",)]
+
+
+def test_an_energy_inner_product_on_an_inline_fit_is_rejected() -> None:
+    """Only a fit job's checkpoint carries an energy basis; the inline fit is Euclidean."""
+    with pytest.raises(ValidationError) as error:
+        PODCoarseningConfig.model_validate({"dataset_dir": WORKSPACE, "inner_product": "energy"})
+    assert [(item["type"], item["loc"]) for item in error.value.errors()] == [("value_error", ())]
+
+
+def test_an_energy_fit_has_its_own_slug_and_a_euclidean_one_keeps_its_slug() -> None:
+    """The inner product separates two otherwise equal fitted bases in every path."""
+    euclidean = PODCoarseningConfig(dataset_dir=WORKSPACE, rank=10, assignment="fit_job_1")
+    energy = euclidean.model_copy(update={"inner_product": InnerProductKind.ENERGY})
+
+    assert (euclidean.slug(), energy.slug()) == (
+        f"pod_rank10_n-1_{euclidean.checkpoint_slug()}",
+        f"pod_rank10_n-1_energy_{euclidean.checkpoint_slug()}",
+    )

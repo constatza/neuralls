@@ -45,11 +45,12 @@ from neuralls.composition.assignments.runtime_dataset_contract import (
 from neuralls.composition.generation.default_services import FS_SPLIT_STORE
 from neuralls.composition.preconditioners.reference_matrix import mean_train_matrix
 from neuralls.domain.linalg import captured_energy_fraction
+from neuralls.shared.types import InnerProductKind
 
 _DEFAULT_TARGET_NAME = default_training_dataset_contract().target_name
 
-EUCLIDEAN_INNER_PRODUCT = "euclidean"
-ENERGY_INNER_PRODUCT = "energy"
+INNER_PRODUCT_FIELD = "inner_product"
+"""`[model]` key naming the inner product of a POD fit job."""
 MIN_CAPTURED_ENERGY = 0.95
 """Captured snapshot-energy fraction below which a fitted rank is warned about."""
 
@@ -57,7 +58,7 @@ MIN_CAPTURED_ENERGY = 0.95
 class EuclideanInnerProduct(BaseModel):
     """Fit the POD basis in the Euclidean inner product."""
 
-    kind: Literal["euclidean"] = EUCLIDEAN_INNER_PRODUCT
+    kind: Literal[InnerProductKind.EUCLIDEAN] = InnerProductKind.EUCLIDEAN
     model_config = ConfigDict(extra="forbid", frozen=True)
 
 
@@ -68,7 +69,7 @@ class EnergyInnerProduct(BaseModel):
     dataset the job fits from, whose train-fold matrices define the weight.
     """
 
-    kind: Literal["energy"] = ENERGY_INNER_PRODUCT
+    kind: Literal[InnerProductKind.ENERGY] = InnerProductKind.ENERGY
     dataset_dir: Path
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -86,6 +87,21 @@ def parse_inner_product(
     if isinstance(value, str):
         return _INNER_PRODUCT.validate_python({"kind": value})
     return _INNER_PRODUCT.validate_python(value)
+
+
+def configured_inner_product(model_extra: Mapping[str, Any]) -> InnerProductKind:
+    """The inner product a fit job's `[model]` table names; Euclidean when it names none.
+
+    Reads both shapes the key takes: the TOML's kind name, and the table the runtime
+    patcher writes for an energy fit.
+    """
+    match model_extra.get(INNER_PRODUCT_FIELD):
+        case None:
+            return InnerProductKind.EUCLIDEAN
+        case str() as kind:
+            return InnerProductKind(kind)
+        case value:
+            return parse_inner_product(value).kind
 
 
 class PODCoarseningFittable(PODCoarseningStrategy):
@@ -113,7 +129,7 @@ class PODCoarseningFittable(PODCoarseningStrategy):
         self,
         rank: int,
         target_name: str = _DEFAULT_TARGET_NAME,
-        inner_product: str | Mapping[str, Any] = EUCLIDEAN_INNER_PRODUCT,
+        inner_product: str | Mapping[str, Any] = InnerProductKind.EUCLIDEAN,
     ) -> None:
         """Store the target rank, dataloader batch key and inner product; unfitted until `fit()`.
 
