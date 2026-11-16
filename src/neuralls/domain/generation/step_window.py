@@ -1,9 +1,9 @@
 """Which steps of a bounded iterative trajectory to run and keep.
 
-The CG-trace strategy (`residuals.py`) and the
-weighted-Jacobi smoother-probe strategy (`smoother_probes.py`) harvest
-snapshots from a bounded iterative trajectory of a single linear system —
-CG iterates in the first case, Jacobi damping sweeps in the second. `krylov.py`
+The trajectory propagations in `trajectory.py` (CG for `residuals` and
+`cg_errors`, weighted-Jacobi damping for `jacobi_probes`) harvest snapshots
+from a bounded iterative trajectory of a single linear system — CG iterates
+in the first case, Jacobi damping sweeps in the second. `krylov.py`
 has no trajectory (random basis combinations, not sequential iterates), so it
 has no use for this module.
 

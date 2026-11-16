@@ -7,13 +7,15 @@ from typing import Any, Protocol
 
 from numpy.typing import NDArray
 
+from neuralls.shared.types import SystemMatrix
+
 
 class TracingSolverPort(Protocol):
     """Callable protocol for traced linear solves."""
 
     def __call__(
         self,
-        A: NDArray,
+        A: SystemMatrix,
         b: NDArray,
         x0: NDArray,
         *,

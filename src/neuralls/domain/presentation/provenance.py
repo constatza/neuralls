@@ -44,8 +44,8 @@ type StrategySeed = ExplicitSeed | DerivedSeed | NoSeed
 _COUNT_AFTER_LEADING_FACT = frozenset(
     {
         GenerationStrategyKind.RESIDUALS,
-        GenerationStrategyKind.GAUSSIAN_RESIDUALS,
-        GenerationStrategyKind.SMOOTHER_FILTERED_PROBES,
+        GenerationStrategyKind.CG_ERRORS,
+        GenerationStrategyKind.JACOBI_PROBES,
     }
 )
 """Trajectory strategies read "k=20, N=5000, ..." (the cap, the count, the rest); every

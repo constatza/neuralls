@@ -2,7 +2,7 @@
 
 One cohort drives the check: Identity, Jacobi, IC(0), two AMGs, aSA with ``k=3`` and
 ``k=7``, BAMG, and POD of ranks 10 and 100 fitted on Gaussian CG residuals and on
-smoother-filtered probes, all over a ``Spectral 3D field`` dataset. The real run-spec
+Jacobi-filtered probes, all over a ``Spectral 3D field`` dataset. The real run-spec
 and parameter adapters log it against a real store; the method ids stay machine-only.
 """
 
@@ -104,12 +104,10 @@ def spectral_dataset(matrix_glob: str, tmp_path: Path) -> DatasetPresentation:
 
 @pytest.fixture
 def fit_dirs(matrix_glob: str, tmp_path: Path) -> tuple[Path, Path]:
-    """POD fit datasets: Gaussian CG residuals, and smoother-filtered probes."""
+    """POD fit datasets: CG errors, and Jacobi-filtered probes."""
     gaussian_cg, filtered_probes = (
         _generate(matrix_glob, tmp_path / name, _trace_mixture(strategy))
-        for name, strategy in zip(
-            FIT_DIR_NAMES, ("gaussian_residuals", "smoother_filtered_probes"), strict=True
-        )
+        for name, strategy in zip(FIT_DIR_NAMES, ("cg_errors", "jacobi_probes"), strict=True)
     )
     return gaussian_cg, filtered_probes
 
@@ -202,7 +200,7 @@ def test_mlflow_runs_share_the_legend_presentation_and_keep_ids_in_tags_and_fact
         assert [leak for text in visible for leak in _forbidden(text)] == []
         assert run.data.params
         assert all(key.startswith(("method.", "training_dataset.")) for key in run.data.params)
-        # Parameters are machine-readable: stable enum values such as `gaussian_residuals` are
+        # Parameters are machine-readable: stable enum values such as `cg_errors` are
         # intended; only ids, slugs, paths and brackets are leaks.
         assert [
             leak for value in run.data.params.values() for leak in _forbidden(value, blobs=False)

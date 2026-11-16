@@ -10,6 +10,7 @@ import pytest
 from numpy.typing import NDArray
 
 from neuralls.domain.generation.interfaces import TracingSolverCallable
+from neuralls.shared.types import SystemMatrix
 
 
 @pytest.fixture
@@ -57,7 +58,7 @@ def spy_solver(
     recorder = _SolverCallRecorder()
 
     def wrapped(
-        A: NDArray, b: NDArray, x0: NDArray, *, maxiter: int, rtol: float, atol: float
+        A: SystemMatrix, b: NDArray, x0: NDArray, *, maxiter: int, rtol: float, atol: float
     ) -> tuple[NDArray, Any]:
         recorder.calls.append({"maxiter": maxiter, "rtol": rtol, "atol": atol})
         return residual_solver(A, b, x0, maxiter=maxiter, rtol=rtol, atol=atol)

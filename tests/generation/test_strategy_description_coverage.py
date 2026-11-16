@@ -14,8 +14,8 @@ import_module("neuralls.domain.generation.strategies")  # registers every strate
 
 _REQUIRED_FIELDS: dict[str, dict[str, object]] = {
     "residuals": {"stop": 5},
-    "gaussian_residuals": {"stop": 5},
-    "smoother_filtered_probes": {"stop": 5},
+    "cg_errors": {"stop": 5},
+    "jacobi_probes": {"stop": 5},
     "rhs_archive": {"rhs_glob": "rhs/*.npy"},
     "scaled_solutions": {"solutions_glob": "x/*.npy"},
     "solution_archive": {"solutions_glob": "x/*.npy"},

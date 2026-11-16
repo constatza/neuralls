@@ -33,10 +33,10 @@ _MATRIX_COUNT = 2
 _MATRIX_SIZE = 5
 
 
-_COUNTS = {"gaussian_forward": 6, "gaussian_residuals": 6}
+_COUNTS = {"gaussian_forward": 6, "cg_errors": 6}
 
 
-_STRATEGY_OVERRIDES = {"gaussian_residuals": {"stop": 3, "start": 1}}
+_STRATEGY_OVERRIDES = {"cg_errors": {"stop": 3, "start": 1}}
 
 
 @pytest.fixture

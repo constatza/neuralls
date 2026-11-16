@@ -27,19 +27,19 @@ def _with_strategies(
 @pytest.mark.parametrize(
     ("kinds", "base_name", "expected"),
     [
-        ((GenerationStrategyKind.GAUSSIAN_RESIDUALS,), "POD", "POD-CG"),
+        ((GenerationStrategyKind.CG_ERRORS,), "POD", "POD-CG"),
         ((GenerationStrategyKind.RESIDUALS,), "POD", "POD-CG"),
-        ((GenerationStrategyKind.SMOOTHER_FILTERED_PROBES,), "POD", "POD-JP"),
+        ((GenerationStrategyKind.JACOBI_PROBES,), "POD", "POD-JP"),
         ((GenerationStrategyKind.GAUSSIAN_FORWARD,), "POD", "POD"),
         (
             (
-                GenerationStrategyKind.GAUSSIAN_RESIDUALS,
-                GenerationStrategyKind.SMOOTHER_FILTERED_PROBES,
+                GenerationStrategyKind.CG_ERRORS,
+                GenerationStrategyKind.JACOBI_PROBES,
             ),
             "POD",
             "POD",
         ),
-        ((GenerationStrategyKind.GAUSSIAN_RESIDUALS,), "Neural", "Neural"),
+        ((GenerationStrategyKind.CG_ERRORS,), "Neural", "Neural"),
     ],
 )
 def test_qualified_method_names_its_snapshot_source(

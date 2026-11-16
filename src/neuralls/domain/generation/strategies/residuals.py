@@ -1,56 +1,34 @@
-"""Residual trace strategies with error targets.
+"""Archive-backed residual trace strategy with error targets.
 
-Architecture:
-    Layer 1: Archive/File or Gaussian providers → generate true solutions
-    Layer 2: ComputeRhsTransform → compute RHS = A @ x
-    Layer 3: SciPyCGSolver → run CG with iteration history tracking
-    Layer 4: Collect residual and error traces from iteration history
-
-These strategies run CG and collect residual vectors together with exact error
-targets dx_k = x_true - x_k at each iteration.
+True solutions come from archive files (or the explicit solution rows), their RHS is
+``b = A x`` (or the archived RHS), and CG runs from ``x_0 = 0`` through the shared
+``trajectory.cg_error_traces`` propagation, keeping the residuals together with the
+exact error targets ``e_k = x_true - x_k`` of the selected iterations. These rows are
+neural-network training data; the random-probe POD snapshot source is ``cg_errors``.
 """
 
 from __future__ import annotations
 
 import numpy as np
-import torch
 
-from neuralls.domain.normalization import ErrorTraceSamples
-
-from ..counts import (
-    _build_trace_indices,
-    resolve_trace_generation_counts,
-    trace_rows_per_base_system,
-)
+from ..counts import resolve_trace_generation_counts, trace_rows_per_base_system
 from ..interfaces import ArchiveData, ArchiveField, ErrorTraceRows, TracingSolverCallable
 from ..matrix_operator import MatrixOperator
 from ..ports import ArchiveSource
-from ..providers import HybridInputProvider, RandomInputProvider, provide_solutions
+from ..providers import HybridInputProvider, provide_solutions
 from ..runner import register_single_rhs_strategy
 from ..strategy_configs import ResidualErrorConfig
-from ..trace_utils import (
-    _referenced_sample_count,
-    _trim_error_traces,
-    require_full_trajectory,
-)
+from ..trace_utils import _referenced_sample_count, _trim_error_traces
+from ..trajectory import cg_error_traces
 from ..transforms import ComputeRhsTransform
 
-_TRAJECTORY_UNREACHABLE_TOLERANCE = 1e-20
-"""Below float64 machine epsilon (~2.2e-16), so CG can never satisfy it and every
-trajectory runs exactly `window.stop` iterations. Passed explicitly because
-torchalg's own defaults (1e-6 / 1e-14) are reachable and would stop early,
-producing a trajectory shorter than the window and a TrajectoryShortfallError."""
 
-
-def _tensor_trace_to_numpy(value: torch.Tensor | None) -> np.ndarray:
-    if value is None:
-        return np.array([])
-    return value.detach().cpu().numpy()
-
-
-class _BaseResidualsStrategy:
+@register_single_rhs_strategy(
+    rows_per_base_system=trace_rows_per_base_system(ResidualErrorConfig),
+)
+class ResidualsStrategy:
     ConfigType = ResidualErrorConfig
-    name: str
+    name = "residuals"
 
     def _resolve_available_systems(
         self,
@@ -145,8 +123,6 @@ class _BaseResidualsStrategy:
             strategy_name=self.name,
         )
 
-        n = matrix.shape[0]
-
         # Choose mode based on single_rhs parameter
         if single_rhs is not None:
             # Mode 1: Single RHS - run CG multiple times on the SAME RHS
@@ -183,52 +159,7 @@ class _BaseResidualsStrategy:
                 transform = ComputeRhsTransform(matrix)
                 rhs_samples = transform.transform(sols)
 
-        residual_blocks: list[np.ndarray] = []
-        solution_current_blocks: list[np.ndarray] = []
-        error_blocks: list[np.ndarray] = []
-        sample_indices: list[np.ndarray] = []
-        iteration_indices: list[np.ndarray] = []
-
-        for sample_idx, (rhs_vec, true_sol) in enumerate(zip(rhs_samples, sols)):
-            _, info = solver(
-                matrix,
-                rhs_vec,
-                np.zeros(n, dtype=np.float64),
-                maxiter=window.stop,
-                rtol=_TRAJECTORY_UNREACHABLE_TOLERANCE,
-                atol=_TRAJECTORY_UNREACHABLE_TOLERANCE,
-            )
-
-            residual_seq_full = _tensor_trace_to_numpy(info.residual_vectors)
-            solution_seq_full = _tensor_trace_to_numpy(info.solution_vectors)
-
-            residual_seq, indices = window.select_with_indices(residual_seq_full)
-            require_full_trajectory(
-                indices, window.resolve_indices(window.stop + 1), sample_idx, window.stop
-            )
-            solution_seq = (
-                window.select(solution_seq_full)
-                if solution_seq_full.size > 0
-                else solution_seq_full
-            )
-
-            error_seq = np.array([true_sol - x_k for x_k in solution_seq], dtype=np.float64)
-
-            residual_blocks.append(residual_seq)
-            solution_current_blocks.append(solution_seq)
-            error_blocks.append(error_seq)
-            sidx, iidx = _build_trace_indices(sample_idx, indices)
-            sample_indices.append(sidx)
-            iteration_indices.append(iidx)
-
-        error_traces = ErrorTraceSamples(
-            residuals=np.vstack(residual_blocks),
-            solutions_current=np.vstack(solution_current_blocks),
-            errors=np.vstack(error_blocks),
-            true_solutions=sols,
-            sample_indices=np.concatenate(sample_indices),
-            iteration_indices=np.concatenate(iteration_indices),
-        )
+        error_traces = cg_error_traces(matrix, rhs_samples, sols, window, solver)
         error_traces = _trim_error_traces(error_traces, final_rows)
         referenced_samples = _referenced_sample_count(error_traces.sample_indices)
 
@@ -238,40 +169,3 @@ class _BaseResidualsStrategy:
             solutions=sols[:referenced_samples],
             error_traces=error_traces,
         )
-
-
-@register_single_rhs_strategy(
-    rows_per_base_system=trace_rows_per_base_system(ResidualErrorConfig),
-)
-class ResidualsStrategy(_BaseResidualsStrategy):
-    name = "residuals"
-
-
-@register_single_rhs_strategy(
-    rows_per_base_system=trace_rows_per_base_system(ResidualErrorConfig),
-)
-class GaussianResidualsStrategy(_BaseResidualsStrategy):
-    name = "gaussian_residuals"
-
-    def _resolve_available_systems(
-        self,
-        matrix: np.ndarray,
-        config: ResidualErrorConfig,
-        archive_source: ArchiveSource,
-        archive: ArchiveData | None,
-        rng: np.random.Generator,
-    ) -> int | None:
-        # ponytail: random probes have no finite pool, so no glob caps the sample count.
-        return None
-
-    def _provide_true_solutions(
-        self,
-        matrix: np.ndarray,
-        count: int,
-        config: ResidualErrorConfig,
-        archive_source: ArchiveSource,
-        archive: ArchiveData | None,
-        rng: np.random.Generator,
-    ) -> np.ndarray:
-        provider = RandomInputProvider(seed=config.seed, scale=1.0)
-        return provider.provide(matrix, count=count, rng=rng)

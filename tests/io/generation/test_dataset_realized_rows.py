@@ -75,10 +75,7 @@ def _generated(kind: GenerationStrategyKind, archives: Mapping[str, str]) -> Cas
         case GenerationStrategyKind.RESIDUALS:
             window = {**_WINDOW, "solutions_glob": archives["solutions_glob"]}
             return Case({name: _BUDGET}, {name: window})
-        case (
-            GenerationStrategyKind.GAUSSIAN_RESIDUALS
-            | GenerationStrategyKind.SMOOTHER_FILTERED_PROBES
-        ):
+        case GenerationStrategyKind.CG_ERRORS | GenerationStrategyKind.JACOBI_PROBES:
             return Case({name: _BUDGET}, {name: _WINDOW})
         case GenerationStrategyKind.SPARSE_RHS:
             return Case({name: 3}, {name: {"indices": [0], "values": [1.0]}})
@@ -120,7 +117,7 @@ def _produced_rows(source: SourceSpec, spec: DatasetSpec) -> Counter[str]:
             total=mixture.total,
             seed=mixture.seed,
             strategy_overrides=mixture.strategy_overrides,
-            solver_overrides={"residuals": solver, "gaussian_residuals": solver},
+            solver_overrides={"residuals": solver, "cg_errors": solver},
         ),
         scaling=spec.scaling,
     )
@@ -162,7 +159,7 @@ def test_every_strategy_records_the_rows_it_produced(
     _assert_recorded_rows_match_reality(source_spec, spec, Path(dataset_dir))
 
 
-@pytest.mark.parametrize("name", ["residuals", "gaussian_residuals", "smoother_filtered_probes"])
+@pytest.mark.parametrize("name", ["residuals", "cg_errors", "jacobi_probes"])
 def test_trace_budget_is_a_row_budget_not_a_base_system_count(
     name: str,
     case_for: Callable[[GenerationStrategyKind], Case],

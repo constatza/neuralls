@@ -112,10 +112,10 @@ def multi_matrix_mixture_dataset(
         ),
         DatasetSpec(
             mixture=MixtureSpec(
-                counts={"gaussian_forward": 6, "gaussian_residuals": 6},
+                counts={"gaussian_forward": 6, "cg_errors": 6},
                 seed=1234,
                 shuffle=False,
-                strategy_overrides={"gaussian_residuals": {"stop": 3, "start": 1}},
+                strategy_overrides={"cg_errors": {"stop": 3, "start": 1}},
                 solver_overrides=solver_overrides,
             ),
             scaling=GershgorinScaling(),
@@ -134,10 +134,10 @@ def test_multi_matrix_mixture_allocation(multi_matrix_mixture_dataset: Path) -> 
     test the storage layout rather than the allocation; rows are only required to be
     finite and nonzero, so none is a zero-filled placeholder.
 
-    Hand derivation, 3 matrices, gaussian_forward 6 rows, gaussian_residuals 6 rows:
+    Hand derivation, 3 matrices, gaussian_forward 6 rows, cg_errors 6 rows:
 
     - gaussian_forward: 6 // 3 = 2 STANDARD rows per matrix, remainder 0.
-    - gaussian_residuals: window 1..3 gives K_rows = 3 - 1 + 1 = 3, so B = ceil(6 / 3) = 2
+    - cg_errors: window 1..3 gives K_rows = 3 - 1 + 1 = 3, so B = ceil(6 / 3) = 2
       base systems. Two of the three matrices get one base system (3 rows each) and one
       gets none, which matrix is chosen by the seed. Overshoot is 0. Iteration 0, the base
       pair, is never emitted, so every residual row is CG_INTERNAL.

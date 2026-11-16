@@ -22,7 +22,7 @@ def _stored_id(path: Path) -> str:
 
 def test_find_swept_field_rejects_no_list_valued_field(dataset_sweep_module: ModuleType) -> None:
     with pytest.raises(ValueError):
-        dataset_sweep_module._find_swept_field({"name": "gaussian_residuals", "samples": 500})
+        dataset_sweep_module._find_swept_field({"name": "cg_errors", "samples": 500})
 
 
 def test_find_swept_field_rejects_multiple_list_valued_fields(
@@ -30,7 +30,7 @@ def test_find_swept_field_rejects_multiple_list_valued_fields(
 ) -> None:
     with pytest.raises(ValueError):
         dataset_sweep_module._find_swept_field(
-            {"name": "gaussian_residuals", "samples": [1, 2], "stop": [10, 20]}
+            {"name": "cg_errors", "samples": [1, 2], "stop": [10, 20]}
         )
 
 
@@ -66,7 +66,7 @@ def test_expand_sweep_writes_one_file_per_value(
             "scaling": {"kind": "gershgorin", "dimension_factor": "sqrt_n"},
             "shuffle": True,
             "seed": 42,
-            "strategy": [{"name": "gaussian_residuals", "samples": [1000, 5000], "stop": 50}],
+            "strategy": [{"name": "cg_errors", "samples": [1000, 5000], "stop": 50}],
         },
         "output": {"data_dir": "${NEURALLS_PROCESSED_DIR}"},
     }
@@ -80,7 +80,7 @@ def test_expand_sweep_writes_one_file_per_value(
             "id": f"gaussian-cg50-rectangular-high-condition-{samples}",
             "generation": {
                 **spec["generation"],
-                "strategy": [{"name": "gaussian_residuals", "samples": samples, "stop": 50}],
+                "strategy": [{"name": "cg_errors", "samples": samples, "stop": 50}],
             },
         }
         for samples in (1000, 5000)
@@ -104,7 +104,7 @@ def test_expand_sweep_id_template_places_value_mid_id(
             "scaling": {"kind": "gershgorin", "dimension_factor": "sqrt_n"},
             "shuffle": True,
             "seed": 42,
-            "strategy": [{"name": "gaussian_residuals", "samples": 5000, "stop": [10, 50]}],
+            "strategy": [{"name": "cg_errors", "samples": 5000, "stop": [10, 50]}],
         },
         "output": {"data_dir": "${NEURALLS_PROCESSED_DIR}"},
     }
@@ -167,7 +167,7 @@ def sweep_spec_toml_lines() -> list[str]:
         "seed = 42",
         "",
         "[[generation.strategy]]",
-        'name = "gaussian_residuals"',
+        'name = "cg_errors"',
         "samples = 1000",
         "stop = [10, 50]",
         "",
@@ -266,7 +266,7 @@ def test_expand_sweep_writes_the_strategy_comment_above_the_strategy_table(
         "id": "commented",
         "strategy_comment": ["first line", "second line"],
         "source": {"problem": "P", "matrix_path": "m.txt"},
-        "generation": {"strategy": [{"name": "gaussian_residuals", "samples": [10]}]},
+        "generation": {"strategy": [{"name": "cg_errors", "samples": [10]}]},
         "output": {"data_dir": "out"},
     }
 

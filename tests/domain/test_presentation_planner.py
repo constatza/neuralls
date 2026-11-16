@@ -92,7 +92,7 @@ def dataset() -> DatasetPresentation:
         generation=DatasetGenerationProvenance(
             strategies=(
                 StrategyProvenance(
-                    GenerationStrategyKind.GAUSSIAN_RESIDUALS,
+                    GenerationStrategyKind.CG_ERRORS,
                     rows=5000,
                     parameters=(_int(ITERATION_COUNT, 20),),
                     seed=DerivedSeed(),
@@ -266,11 +266,7 @@ def test_same_method_on_different_datasets_is_not_a_duplicate(
     other = DatasetPresentation(
         dataset.source,
         DatasetGenerationProvenance(
-            (
-                StrategyProvenance(
-                    GenerationStrategyKind.SMOOTHER_FILTERED_PROBES, 10, (), DerivedSeed()
-                ),
-            ),
+            (StrategyProvenance(GenerationStrategyKind.JACOBI_PROBES, 10, (), DerivedSeed()),),
             generated_rows=10,
             scaling=GershgorinScaling(),
             root_seed=42,

@@ -1,4 +1,4 @@
-"""CSR input for SmootherFilteredProbesStrategy must match the dense result.
+"""CSR input for JacobiProbesStrategy must match the dense result.
 
 The strategy's damping sweep runs on the matrix in whichever format it
 arrives; these tests pin that the sparse path reproduces the dense output
@@ -20,7 +20,7 @@ from tests.generation_support import residual_trace_rows
 SPD_DIM = 12
 SPD_SEED = 3
 PROBE_SEED = 11
-STRATEGY = "smoother_filtered_probes"
+STRATEGY = "jacobi_probes"
 
 
 @pytest.fixture

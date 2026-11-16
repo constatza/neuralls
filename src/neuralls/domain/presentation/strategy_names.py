@@ -7,9 +7,9 @@ from typing import assert_never
 from neuralls.shared.types import GenerationStrategyKind
 
 _SNAPSHOT_SOURCES: dict[GenerationStrategyKind, str] = {
-    GenerationStrategyKind.GAUSSIAN_RESIDUALS: "CG",
+    GenerationStrategyKind.CG_ERRORS: "CG",
     GenerationStrategyKind.RESIDUALS: "CG",
-    GenerationStrategyKind.SMOOTHER_FILTERED_PROBES: "JP",
+    GenerationStrategyKind.JACOBI_PROBES: "JP",
 }
 """Short snapshot-source names that complete a POD method's name (POD-CG, POD-JP)."""
 
@@ -38,7 +38,7 @@ def strategy_base_name(kind: GenerationStrategyKind) -> str:
             return "Sparse RHS Solves"
         case GenerationStrategyKind.RESIDUALS:
             return "Archived CG Errors"
-        case GenerationStrategyKind.GAUSSIAN_RESIDUALS:
+        case GenerationStrategyKind.CG_ERRORS:
             return "CG Errors"
         case GenerationStrategyKind.EIGENVECTOR_FORWARD:
             return "Eigenvector Solutions"
@@ -58,7 +58,7 @@ def strategy_base_name(kind: GenerationStrategyKind) -> str:
             return "Constant RHS Solves"
         case GenerationStrategyKind.NEUTRAL_ONES:
             return "Ones Solutions"
-        case GenerationStrategyKind.SMOOTHER_FILTERED_PROBES:
+        case GenerationStrategyKind.JACOBI_PROBES:
             return "Jacobi-Filtered Probes"
         case GenerationStrategyKind.SINUSOIDAL_FIELD:
             return "Sinusoidal RHS Solves"

@@ -184,22 +184,22 @@ def test_build_dataset_persists_residuals_pairs(tmp_path: Path) -> None:
     np.testing.assert_allclose(saved_solutions @ matrix.T, saved_rhs, atol=1e-10)
 
 
-def test_build_dataset_persists_gaussian_residual_pairs(tmp_path: Path) -> None:
+def test_build_dataset_persists_cg_error_pairs(tmp_path: Path) -> None:
     matrix = np.array([[3.0, 1.0], [1.0, 2.0]], dtype=np.float64)
     matrix_path = tmp_path / "matrix.npy"
     np.save(matrix_path, matrix)
 
-    out_dir = tmp_path / "gaussian_residual_dataset"
+    out_dir = tmp_path / "cg_error_dataset"
     build_test_dataset(
         SourceSpec(
             matrix_path=str(matrix_path),
         ),
         DatasetSpec(
             mixture=MixtureSpec(
-                counts={"gaussian_residuals": 4},
+                counts={"cg_errors": 4},
                 seed=7,
                 shuffle=False,
-                strategy_overrides={"gaussian_residuals": {"stop": 2, "start": 1}},
+                strategy_overrides={"cg_errors": {"stop": 2, "start": 1}},
             ),
             scaling=NoScaling(),
         ),
@@ -257,10 +257,10 @@ def test_build_dataset_marks_residual_error_rows_with_kind_codes(tmp_path: Path)
         ),
         DatasetSpec(
             mixture=MixtureSpec(
-                counts={"gaussian_residuals": 2},
+                counts={"cg_errors": 2},
                 seed=7,
                 shuffle=False,
-                strategy_overrides={"gaussian_residuals": {"stop": 2, "start": 1}},
+                strategy_overrides={"cg_errors": {"stop": 2, "start": 1}},
             ),
             scaling=NoScaling(),
         ),

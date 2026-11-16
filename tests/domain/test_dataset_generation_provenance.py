@@ -85,7 +85,7 @@ def test_the_count_and_the_seed_cannot_be_stored_as_parameters(key: FieldKey) ->
 
 def test_the_count_fact_is_derived_from_rows_after_the_leading_trajectory_cap() -> None:
     trace = StrategyProvenance(
-        GenerationStrategyKind.GAUSSIAN_RESIDUALS,
+        GenerationStrategyKind.CG_ERRORS,
         rows=5000,
         parameters=(make_fact(ITERATION_COUNT, 20),),
         seed=ExplicitSeed(4),

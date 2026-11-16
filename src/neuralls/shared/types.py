@@ -224,7 +224,7 @@ class GenerationStrategyKind(StrEnum):
     SCALED_SOLUTIONS = "scaled_solutions"
     SPARSE_RHS = "sparse_rhs"
     RESIDUALS = "residuals"
-    GAUSSIAN_RESIDUALS = "gaussian_residuals"
+    CG_ERRORS = "cg_errors"
     EIGENVECTOR_FORWARD = "eigenvector_forward"
     EIGENVECTOR_INVERSE = "eigenvector_inverse"
     GAUSSIAN_FORWARD = "gaussian_forward"
@@ -234,7 +234,7 @@ class GenerationStrategyKind(StrEnum):
     CONSTANT_FORWARD = "constant_forward"
     CONSTANT_INVERSE = "constant_inverse"
     NEUTRAL_ONES = "neutral_ones"
-    SMOOTHER_FILTERED_PROBES = "smoother_filtered_probes"
+    JACOBI_PROBES = "jacobi_probes"
     SINUSOIDAL_FIELD = "sinusoidal_field"
 
 

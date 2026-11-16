@@ -82,10 +82,10 @@ gets more than one leftover sample. Every strategy accepts any number of matrice
 mixture may combine archive and generated strategies. `replacement = true` is rejected
 (config validation, `GenerationConfig._reject_replacement`, and `_reject_replacement_request`).
 
-Trajectory strategies (`residuals`, `gaussian_residuals`,
-`smoother_filtered_probes`) take a row budget. They differ in where their starting systems come from:
+Trajectory strategies (`residuals`, `cg_errors`,
+`jacobi_probes`) take a row budget. They differ in where their starting systems come from:
 `residuals` is archive-backed (a `solutions_glob` or the explicit solution rows, each file used once),
-while `gaussian_residuals` and `smoother_filtered_probes` draw random probe vectors and have no file pool,
+while `cg_errors` and `jacobi_probes` draw random probe vectors and have no file pool,
 so no glob caps their sample count. Each base system (one solve) yields
 K_rows rows, where K_rows = `len(window.resolve_indices(stop + 1))`, the number of kept steps. For a
 positive start this is `ceil((stop - start + 1) / step)`. It is fixed, independent of the initial guess,
@@ -198,8 +198,8 @@ Start with the simplest family that matches the model target.
 | Intermediate | `solution_archive` | `(b, x)` |
 | Advanced | `residual_traces` | `(r_k, x_k)` |
 | Advanced | `residuals` | `(r_k, x_true - x_k)` |
-| Advanced | `gaussian_residuals` | `(r_k, x_true - x_k)` |
-| Advanced | `smoother_filtered_probes` | trace pairs, `x` = random probes damped by weighted-Jacobi sweeps |
+| Advanced | `cg_errors` | `(r_k, e_k)`, `e_k = z - x_k` for Gaussian probes `z` (POD-CG snapshots) |
+| Advanced | `jacobi_probes` | `(A e_k, e_k)`, `e_k` = random probes damped by weighted-Jacobi sweeps (POD-JP snapshots) |
 | Basic | `sinusoidal_field` | `(b, x)`, `b[i]` = `sin(omega/n * i + phi)` |
 
 ## Sinusoidal Field
@@ -223,40 +223,54 @@ can instead use the `sinusoidal` `rhs_source` kind
 same `sin(omega/n * i + phi)` formula computed on the fly from the matrix
 dimension alone — see `composition/README.md`'s generated-RHS-kinds note.
 
-## Smoother-Filtered Probes
+## Snapshot Trajectories
 
-`smoother_filtered_probes` (`strategies/smoother_probes.py`) synthesizes
-"algebraically smooth" error snapshots directly, instead of deriving them
-incidentally from a CG trajectory: `samples` random probe vectors (Gaussian
-or Rademacher, via `probe_distribution`) are passed through `window.stop`
-sweeps of the weighted-Jacobi error-propagation map
-`v <- v - omega * D^-1 A v` (`omega` defaults to unset, matching
-`torchalg.preconditioners.implementations.amg.smoothers.JacobiSmoother`'s own
-default of auto-computing the damping per-matrix via its spectral-radius rule).
-For CSR matrices, the torch CSR constructor checks index and shape invariants,
-then the sparse smoother prepares its matrix-dependent state once before
-sweeping the probes.
+`cg_errors` (`strategies/cg_errors.py`) and `jacobi_probes`
+(`strategies/jacobi_probes.py`) are thin strategies over one pure module,
+`trajectory.py`, which holds every step they share:
 
-Directions the smoother handles well are quickly attenuated, so what
-survives after `window.stop` sweeps is, by construction, smoother-resistant
-— the directions a POD coarse space needs to cover. Reuses torchalg's
-`apply_jacobi_damping_trajectory` for the damping sweep itself (a brief
-numpy/torch round-trip, the one exception to this package's otherwise
-numpy-only strategies) so "smooth" means the exact same thing here as it
-does in `composition/preconditioners/_weighting.py`'s
-`smoother_persistence` snapshot weighting, which targets the same operator
-— that function returns every intermediate sweep (not just the final one),
-so `window` (see "Step Selection" below) can pick any sweep depth or range
-of depths, not only the fully-damped result. Output is a `ResidualTraceSamples`
-(the same container `residuals.py` populates) — one `(A @ x, x)`
-row per kept sweep per probe, always 2D regardless of how many sweeps are
-kept.
+1. `draw_probes(rng, count, n, distribution)`: Gaussian or Rademacher probes `z`,
+   not normalized, drawn from the strategy's seeded generator.
+2. Propagation. `cg_error_traces` is the known-solution CG realization:
+   `b = A z`, `x_0 = 0`, exactly `window.stop` iterations through the injected
+   tracing solver at an unreachable tolerance, rows `(r_k, e_k = z - x_k)` with
+   `r_k = b - A x_k` as the solver returns it. The archive-backed `residuals`
+   strategy runs the same function on its archived solutions. `jacobi_probe_traces`
+   runs `window.stop` sweeps of the weighted-Jacobi error propagation
+   `v <- v - omega * D^-1 A v` (torchalg's `apply_jacobi_damping_trajectory` for
+   dense matrices; its sparse `JacobiSmoother` for CSR, whose torch CSR constructor
+   checks index and shape invariants and which prepares its matrix-dependent state
+   once), rows `(A e_k, e_k)`. `omega` defaults to unset, matching
+   `torchalg.preconditioners.implementations.amg.smoothers.JacobiSmoother`'s own
+   spectral-radius rule, so "smooth" means the same weighted-Jacobi map the AMG
+   smoother runs.
+3. Window selection with the shared `StepWindow` (below); a trajectory shorter
+   than the window raises `TrajectoryShortfallError`.
+4. `scale_rows(residuals, errors, scaling)`: the strategy's `snapshot_scaling`
+   (`NoSnapshotScaling`, the default, or `NormSnapshotScaling(norm, power)`)
+   multiplies each pair by `c_k = ||e_k||^-power`, with `||e_k||_2` or the energy
+   norm `||e_k||_A = sqrt(e_k . r_k)` (no extra matrix product, since `r_k = A e_k`;
+   `A` is the scaled matrix of the binding). Both rows get the same factor, so
+   every stored pair still satisfies `A e = r`; a zero row is left unchanged.
+   `power = 1` gives unit-norm errors and `power = 0` is the identity.
+
+Jacobi directions the smoother handles well are quickly attenuated, so what
+survives after `window.stop` sweeps is, by construction, smoother-resistant —
+the directions a POD coarse space needs to cover. CG errors after `k` iterations
+are the components Krylov acceleration has not yet removed. Both strategies emit
+`ResidualTraceRows` (`residuals` = `r_k`, `solutions` = `e_k`), one row per kept
+step per probe; `cg_errors` draws Gaussian probes only. The probes are the
+strategy's own systems: `cg_errors` is registered as a single-RHS strategy only to
+receive the tracing solver and ignores any binding RHS or solution sample.
+`stop` is not comparable between them: CG is Krylov-optimal and converges whatever
+the condition number, while weighted-Jacobi damping depends on
+`rho(I - omega D^-1 A) < 1`.
 
 ## Step Selection
 
 `StepWindow` (`step_window.py`) is the one shared abstraction for "which
-steps of a trajectory to run and keep," used by `residuals.py`,
-and `smoother_probes.py` — every strategy that
+steps of a trajectory to run and keep," used by `trajectory.py`
+(and so by `residuals`, `cg_errors` and `jacobi_probes`) — every strategy that
 harvests snapshots from a bounded iterative trajectory of a single system
 (`krylov.py` is not a consumer: its samples are random basis combinations,
 not sequential iterates). It replaced the `cg_iters`/`every_n`/`steps`
@@ -277,8 +291,8 @@ Mirrors Python's own `slice`/`range` vocabulary — `stop`/`start`/`step`:
   the true solution into the dataset as trajectory rows. The rule is
   enforced once, in `_StepWindowFields`, by resolving the window against a
   full-length trajectory and rejecting it if the first kept index is 0, so
-  every trajectory config (`residuals`, `gaussian_residuals`,
-  `smoother_filtered_probes`) inherits it. Zero and
+  every trajectory config (`residuals`, `cg_errors`,
+  `jacobi_probes`) inherits it. Zero and
   starts below `-stop` are rejected. Row count per base system is
   `len(window.resolve_indices(stop + 1))`, fixed and independent of x0; no
   value-based trimming or scanning is done.
@@ -297,8 +311,8 @@ mistake.
 
 ### Trajectory CG tolerance
 
-`residuals.py` passes a fixed tolerance of `1e-20` to the solver
-(`_TRAJECTORY_UNREACHABLE_TOLERANCE`). That value is below float64 machine
+`trajectory.cg_error_traces` passes a fixed tolerance of `1e-20` to the solver
+(`TRAJECTORY_UNREACHABLE_TOLERANCE`). That value is below float64 machine
 epsilon, so CG can never satisfy it and always runs exactly `stop`
 iterations. It must be passed explicitly: torchalg's defaults (`1e-6` /
 `1e-14`) are reachable and would stop the trajectory early.
@@ -306,10 +320,9 @@ iterations. It must be passed explicitly: torchalg's defaults (`1e-6` /
 The row budget assumes every base system yields exactly K_rows rows, which holds only
 when its solve runs to `window.stop`. A base system that converges earlier is an error:
 `trace_utils.require_full_trajectory` raises `TrajectoryShortfallError` (a `RuntimeError`)
-on its raw rows, before trimming, in `residuals` and
-`smoother_filtered_probes`. Padding a short trajectory would hide the early stop, so it is
+on its raw rows, before trimming, in both trajectory propagations. Padding a short trajectory would hide the early stop, so it is
 not done. A window the solver cannot reach is therefore a config error: tighten `stop` or
-pick a window the solver reaches. `smoother_filtered_probes` always runs
+pick a window the solver reaches. `jacobi_probes` always runs
 exactly `window.stop` sweeps, so it never raises this error.
 
 ## Residual Families
@@ -318,7 +331,7 @@ The repo now uses explicit residual strategy names:
 
 - `residual_traces` for residual-to-iterate pairs
 - `residuals` for residual-to-error pairs
-- `gaussian_residuals` for residual-to-error pairs without archive solutions
+- `cg_errors` for residual-to-error pairs from random Gaussian probes
 
 These names are the supported user-facing identifiers in dataset configs and
 tests.
@@ -337,8 +350,7 @@ pool, so every binding of a multi-matrix archive draws its own disjoint files.
 
 `FileInputProvider` (in `providers.py`) reads every file through the injected `ArchiveSource`
 and caches nothing itself. Every archive-backed strategy (`solution_archive`, `rhs_archive`,
-`scaled_solutions`, `validated_archive`, and `residuals`/`gaussian_residuals` when
-`solutions_glob` is set) routes through it. Composition gives each generation run its own
+`scaled_solutions`, `validated_archive`, and `residuals`) routes through it. Composition gives each generation run its own
 `CachingArchiveSource` (`platform/storage/archive_source.py`), so an archive shared across many
 matrix bindings is read from disk once per file within the run, and nothing loaded outlives the
 run. The cache is not shared between runs: each dataset config in a `generate-all` batch
@@ -510,11 +522,14 @@ above the file's `K` rows is capped at `K` per binding and reported as one `Rows
   early); it and `EigenvectorCombinationTransform` wrap the `SystemMatrix` in a `MatrixOperator`
 - `interfaces.py`: the strategy protocols and `GeneratedSamples`, the closed union of what one
   strategy run emits: `SolvedRows` (rhs/solution pairs and their notices), `ResidualTraceRows`
-  (smoother-probe traces) or `ErrorTraceRows` (CG trajectory traces). Each variant knows its
+  (`(r_k, e_k)` snapshot traces of `cg_errors` and `jacobi_probes`) or `ErrorTraceRows`
+  (archive-backed CG traces of `residuals`, with their base systems). Each variant knows its
   `row_count`, and `strategy_rows.py` turns any of them into training pairs with one `match`
 - `trace_utils.py`: trace trimming, offsets, and indexing helpers;
   `TrajectoryShortfallError` and `require_full_trajectory` reject base systems that
   converged before `window.stop`
+- `trajectory.py`: the pure snapshot-trajectory steps (`draw_probes`, `cg_error_traces`,
+  `jacobi_probe_traces`, `scale_rows`) shared by the trajectory strategies
 - `step_window.py`: `StepWindow` — which steps of a bounded trajectory to
   run and keep (see "Step Selection" above)
 - `strategies/`: concrete generation implementations
@@ -525,7 +540,7 @@ above the file's `K` rows is capped at `K` per binding and reported as one `Rows
   `derive_strategy_seed`, `rng_from_seed`) — every random stream that must not repeat
   another one takes its own label path under the mixture seed, hashed with CRC32 so string
   labels are stable across processes.
-- `descriptions.py`: describes strategies as scientific facts. `describe_strategy` turns one validated strategy config into its facts: every algorithmic parameter (a Krylov dataset states its subspace dimension `m`, a probe dataset its sweeps `ν`, count `N`, and distribution `p`, an inverse-mode strategy its solver and tolerances) plus the strategy's realized row count and a closed seed value (`ExplicitSeed`, `DerivedSeed` or `NoSeed`) that `StrategyProvenance` keeps as typed fields, deriving the `N` and `s` facts from them instead of storing them; archive globs, file selection, and row-storage flags are provenance or operational and are never facts. Names come from the shared strategy-name table (`Krylov Subspace Solutions`, `Jacobi-Filtered Probes`, ...), so a name states what the data is and an unknown strategy raises rather than echoing its identifier. `describe_generation_result()` is the realized form (`N`) that composition logs once per strategy after the run. Every field of a strategy config (and of `SolveConfig`) is annotated `Fact(KEY)`, `Nested()` or `Omitted(role)` in `strategy_configs.py`, and `describe_strategy` walks them with `shared/fact_binding.describe_model`; a field with no binding raises `UnboundFieldError`, and a registry-wide test enforces that every registered config binds all its fields. A parameterless config is simply one whose fields are all omitted (`NeutralOnesConfig`, `SolutionArchiveConfig`).
+- `descriptions.py`: describes strategies as scientific facts. `describe_strategy` turns one validated strategy config into its facts: every algorithmic parameter (a Krylov dataset states its subspace dimension `m`, a probe dataset its sweeps `ν`, count `N`, distribution `p` and, when set, its snapshot scaling norm `‖·‖` and power `β`, an inverse-mode strategy its solver and tolerances) plus the strategy's realized row count and a closed seed value (`ExplicitSeed`, `DerivedSeed` or `NoSeed`) that `StrategyProvenance` keeps as typed fields, deriving the `N` and `s` facts from them instead of storing them; archive globs, file selection, and row-storage flags are provenance or operational and are never facts. Names come from the shared strategy-name table (`Krylov Subspace Solutions`, `Jacobi-Filtered Probes`, ...), so a name states what the data is and an unknown strategy raises rather than echoing its identifier. `describe_generation_result()` is the realized form (`N`) that composition logs once per strategy after the run. Every field of a strategy config (and of `SolveConfig`) is annotated `Fact(KEY)`, `Nested()` or `Omitted(role)` in `strategy_configs.py`, and `describe_strategy` walks them with `shared/fact_binding.describe_model`; a field with no binding raises `UnboundFieldError`, and a registry-wide test enforces that every registered config binds all its fields. A parameterless config is simply one whose fields are all omitted (`NeutralOnesConfig`, `SolutionArchiveConfig`).
 - `provenance.py`: `describe_dataset_generation(spec, realized)` describes each strategy the `SampleWriter` recorded rows for, validates its options with its registered config class, and returns the `DatasetGenerationProvenance` that `build_dataset` stamps into the manifest. Row counts come only from `realized` (`DatasetArtifacts.strategy_rows`, counted from the batches actually written), never from the spec: a trace strategy's mixture count is already a row budget, an archive count may be `-1`, and a mixture splits one total across strategies. A strategy whose options carry a `seed` stamps it (`None` means unseeded); otherwise generation derives each binding's stream from the mixture seed (`derive_seed(seed, "binding", i)`, then the strategy label), so the provenance stamps the mixture seed once as `root_seed` and no per-stream value that no stream used. Strategies that wrote no rows are absent.
 - `counts.py`: strategy sample counts (`rounded_counts`, `resolve_strategy_counts`) and
   trace-row counts for trajectory-harvesting strategies (`trace_rows_per_system`,
@@ -567,7 +582,7 @@ Stored order is generation order: rows are written binding by binding, and strat
 The matrix format is chosen by `[output].matrix_format` and threaded to the
 streamed writer. A CSR run keeps every sample sparse end to end: the
 source loads as `csr_array`, scaling divides the stored values without densifying,
-the operator-based solves and the smoother-filtered probes accept csr matrices,
+the operator-based solves and both snapshot trajectories (`cg_errors`, `jacobi_probes`) accept csr matrices,
 and the CSR stream stores each sample as-is. Strategies outside that set have
 not been checked against csr input, and `random` eigenvector selection is
 rejected for csr by config validation. CSR storage is written by the zarr and hdf5 dataset formats (npy is refused at generation), and a dataset cannot mix dense and CSR samples.

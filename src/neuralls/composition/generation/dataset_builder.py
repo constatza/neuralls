@@ -44,7 +44,7 @@ type StreamedWriter = Callable[
 _DEFAULT_SOLVER = make_solver()
 _DEFAULT_SOLVER_OVERRIDES: dict[str, Any] = {
     "residuals": _DEFAULT_SOLVER,
-    "gaussian_residuals": _DEFAULT_SOLVER,
+    "cg_errors": _DEFAULT_SOLVER,
 }
 
 

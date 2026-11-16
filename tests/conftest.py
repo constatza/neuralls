@@ -558,7 +558,7 @@ def dataset_presentation() -> DatasetPresentation:
         generation=DatasetGenerationProvenance(
             strategies=(
                 StrategyProvenance(
-                    GenerationStrategyKind.GAUSSIAN_RESIDUALS,
+                    GenerationStrategyKind.CG_ERRORS,
                     rows=100,
                     parameters=(make_fact(ITERATION_COUNT, 20),),
                     seed=DerivedSeed(),

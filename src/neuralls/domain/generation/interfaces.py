@@ -24,7 +24,7 @@ class TracingSolverCallable(Protocol):
 
     def __call__(
         self,
-        A: NDArray,
+        A: SystemMatrix,
         b: NDArray,
         x0: NDArray,
         *,
@@ -58,11 +58,13 @@ class SolvedRows:
 
 @dataclass(frozen=True, slots=True)
 class ResidualTraceRows:
-    """Smoother-probe traces: the training rows are (A @ p_k, p_k).
+    """Snapshot traces of ``cg_errors`` and ``jacobi_probes``: the training rows are (r_k, e_k).
+
+    ``r_k = A e_k`` for every row (up to CG rounding), whatever row scaling was applied.
 
     Attributes:
         matrix: System matrix the traces belong to.
-        residual_traces: The traced residuals and probe vectors.
+        residual_traces: The kept residuals ``r_k`` and errors ``e_k``.
     """
 
     matrix: SystemMatrix

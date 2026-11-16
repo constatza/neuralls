@@ -67,7 +67,7 @@ def binding_matrices() -> list[np.ndarray]:
 
 @pytest.fixture
 def residual_solver() -> TracingSolverCallable:
-    """Default tracing solver for residuals / gaussian_residuals strategies."""
+    """Default tracing solver for residuals / cg_errors strategies."""
     from neuralls.composition.generation.default_services import make_solver
 
     return make_solver()
@@ -78,7 +78,7 @@ def solver_overrides(residual_solver: TracingSolverCallable) -> dict[str, Any]:
     """Solver overrides covering every single-RHS (trace) strategy."""
     return {
         "residuals": residual_solver,
-        "gaussian_residuals": residual_solver,
+        "cg_errors": residual_solver,
     }
 
 
@@ -169,7 +169,7 @@ def error_trace_rows(result: GeneratedSamples) -> ErrorTraceRows:
 
 
 def residual_trace_rows(result: GeneratedSamples) -> ResidualTraceRows:
-    """The result of a smoother-probe strategy; any other shape fails."""
+    """The result of a snapshot strategy (``cg_errors``, ``jacobi_probes``); any other shape fails."""
     match result:
         case ResidualTraceRows():
             return result

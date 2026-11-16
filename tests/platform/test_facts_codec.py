@@ -61,7 +61,7 @@ def dataset() -> DatasetPresentation:
         generation=DatasetGenerationProvenance(
             strategies=(
                 StrategyProvenance(
-                    GenerationStrategyKind.SMOOTHER_FILTERED_PROBES,
+                    GenerationStrategyKind.JACOBI_PROBES,
                     rows=5000,
                     parameters=(make_fact(PROBE_DISTRIBUTION, "gaussian"),),
                     seed=ExplicitSeed(7),

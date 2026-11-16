@@ -24,6 +24,7 @@ from neuralls.shared.fact_binding import (
     on_off,
 )
 from neuralls.shared.scientific_description.catalog import (
+    BETA,
     CONSTANT_VALUE,
     DAMPING,
     EIGENVALUE_SELECTION,
@@ -34,6 +35,7 @@ from neuralls.shared.scientific_description.catalog import (
     KRYLOV_DIMENSION,
     LOWER_BOUND,
     MEAN,
+    METRIC,
     PROBE_DISTRIBUTION,
     RHS_SCALE,
     SOLUTION_SCALE,
@@ -58,6 +60,7 @@ from .step_window import StepWindow
 _OPERATIONAL = Omitted(FactRole.OPERATIONAL)
 _PROVENANCE = Omitted(FactRole.PROVENANCE)
 _REPRODUCIBILITY = Omitted(FactRole.REPRODUCIBILITY)
+_IDENTITY = Omitted(FactRole.IDENTITY)
 
 
 def _is_cg(solve: SolveConfig) -> bool:
@@ -270,8 +273,63 @@ class KrylovConfig(BaseStrategyConfig):
     )
 
 
-class SmootherFilteredProbesConfig(BaseStrategyConfig, _StepWindowFields):
-    """Configuration for SmootherFilteredProbesStrategy.
+type ProbeDistribution = Literal["gaussian", "rademacher"]
+"""Distribution of a probe vector's entries: standard normal or uniform +-1."""
+
+
+class NoSnapshotScaling(BaseModel):
+    """Keep every snapshot row as generated."""
+
+    kind: Annotated[Literal["none"], _IDENTITY] = "none"
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+
+class NormSnapshotScaling(BaseModel):
+    """Scale each row pair ``(r_k, e_k)`` by ``||e_k||^-power``.
+
+    ``norm="l2"`` uses ``||e_k||_2``; ``norm="energy"`` uses ``||e_k||_A = sqrt(e_k . r_k)``
+    with ``A`` the scaled matrix the rows were generated with. ``power=1`` gives unit-norm
+    errors, ``power=0`` leaves the rows unchanged. Both members of the pair get the same
+    factor, so ``A e_k = r_k`` still holds up to CG rounding; a zero row is left unchanged.
+    """
+
+    kind: Annotated[Literal["norm"], _IDENTITY] = "norm"
+    norm: Annotated[Literal["l2", "energy"], Fact(METRIC)]
+    power: Annotated[float, Fact(BETA)] = Field(1.0, ge=0.0, description="Norm exponent.")
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+
+type SnapshotScaling = Annotated[
+    NoSnapshotScaling | NormSnapshotScaling, Field(discriminator="kind")
+]
+
+
+class _SnapshotTrajectoryConfig(BaseStrategyConfig, _StepWindowFields):
+    """Fields shared by the probe-trajectory snapshot strategies (CG errors, Jacobi probes)."""
+
+    samples: Annotated[int, _OPERATIONAL] = Field(
+        ...,
+        description="Number of snapshot rows to generate. (>0=exact count)",
+        ge=1,  # narrower than BaseStrategyConfig's ge=-1: random probes have no finite
+        # source, so samples=-1 ("all") is never meaningful — reject it at construction.
+    )
+    snapshot_scaling: Annotated[SnapshotScaling, Nested()] = Field(
+        default_factory=NoSnapshotScaling,
+        description="Per-row scaling of the kept (r_k, e_k) pairs.",
+    )
+
+
+class CgErrorsConfig(_SnapshotTrajectoryConfig):
+    """Configuration for CgErrorsStrategy.
+
+    Each Gaussian probe ``z`` is the known solution of ``A x = A z``; CG runs exactly
+    ``stop`` iterations from ``x_0 = 0`` and ``window`` keeps the error/residual pairs
+    ``(r_k, e_k = z - x_k)`` of the selected iterations.
+    """
+
+
+class JacobiProbesConfig(_SnapshotTrajectoryConfig):
+    """Configuration for JacobiProbesStrategy.
 
     Random probe vectors are damped by `stop` weighted-Jacobi sweeps before
     being kept (per `window`) as error snapshots — the directions that
@@ -286,18 +344,9 @@ class SmootherFilteredProbesConfig(BaseStrategyConfig, _StepWindowFields):
         description="Iteration/sweep cap — the solver/smoother runs exactly this many steps, never more.",
         ge=1,
     )
-    samples: Annotated[int, _OPERATIONAL] = Field(
-        ...,
-        description="Number of probes to generate. (>0=exact count)",
-        ge=1,  # narrower than BaseStrategyConfig's ge=-1: no archive/finite
-        # source exists for this strategy, so samples=-1 ("all") is never
-        # meaningful — reject it at construction, not deep inside generate().
-    )
-    probe_distribution: Annotated[Literal["gaussian", "rademacher"], Fact(PROBE_DISTRIBUTION)] = (
-        Field(
-            "gaussian",
-            description="Distribution the initial, unfiltered probe vectors are drawn from.",
-        )
+    probe_distribution: Annotated[ProbeDistribution, Fact(PROBE_DISTRIBUTION)] = Field(
+        "gaussian",
+        description="Distribution the initial, unfiltered probe vectors are drawn from.",
     )
     omega: Annotated[float | None, Fact(DAMPING, convert=auto_if_none)] = Field(
         None,

@@ -22,10 +22,10 @@ def multi_matrix_spec() -> DatasetSpec:
     """Two generated strategies over several matrices, with a residual window override."""
     return DatasetSpec(
         mixture=MixtureSpec(
-            counts={"gaussian_forward": 6, "gaussian_residuals": 6},
+            counts={"gaussian_forward": 6, "cg_errors": 6},
             seed=1234,
             shuffle=False,
-            strategy_overrides={"gaussian_residuals": {"stop": 3, "start": 1}},
+            strategy_overrides={"cg_errors": {"stop": 3, "start": 1}},
         ),
         scaling=GershgorinScaling(),
     )

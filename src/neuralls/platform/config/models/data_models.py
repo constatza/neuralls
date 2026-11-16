@@ -237,7 +237,7 @@ class StrategyConfig(BaseModel):
 
     name: str = Field(
         ...,
-        description="Strategy name (residual_traces, residuals, gaussian_residuals, solution_archive, etc.)",
+        description="Strategy name (residuals, cg_errors, jacobi_probes, solution_archive, etc.)",
     )
     samples: int = Field(
         default=0,
