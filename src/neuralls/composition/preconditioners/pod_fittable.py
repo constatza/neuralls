@@ -34,6 +34,7 @@ from pathlib import Path
 from typing import Annotated, Any, Literal, assert_never
 
 import torch
+from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 from torchalg.preconditioners.implementations.pod import PODCoarseningStrategy
 from torchalg.utils.device import resolve_device
@@ -43,11 +44,14 @@ from neuralls.composition.assignments.runtime_dataset_contract import (
 )
 from neuralls.composition.generation.default_services import FS_SPLIT_STORE
 from neuralls.composition.preconditioners.reference_matrix import mean_train_matrix
+from neuralls.domain.linalg import captured_energy_fraction
 
 _DEFAULT_TARGET_NAME = default_training_dataset_contract().target_name
 
 EUCLIDEAN_INNER_PRODUCT = "euclidean"
 ENERGY_INNER_PRODUCT = "energy"
+MIN_CAPTURED_ENERGY = 0.95
+"""Captured snapshot-energy fraction below which a fitted rank is warned about."""
 
 
 class EuclideanInnerProduct(BaseModel):
@@ -107,7 +111,7 @@ class PODCoarseningFittable(PODCoarseningStrategy):
 
     def __init__(
         self,
-        rank: float,
+        rank: int,
         target_name: str = _DEFAULT_TARGET_NAME,
         inner_product: str | Mapping[str, Any] = EUCLIDEAN_INNER_PRODUCT,
     ) -> None:
@@ -115,10 +119,11 @@ class PODCoarseningFittable(PODCoarseningStrategy):
 
         Nothing is read here: a checkpoint rebuild calls this with the job's `[model]`
         table, so the dataset named by an energy inner product need not exist then.
+        The rank is checked here, because torchalg still accepts an energy fraction and the
+        comparison's `PODCoarseningConfig` would otherwise reject it only after the fit.
 
         Args:
-            rank: Fixed mode count (int) or minimum cumulative captured
-                energy (float in (0, 1]) — forwarded unchanged to
+            rank: Number of POD modes (the coarse dimension), forwarded unchanged to
                 `PODCoarseningStrategy.__init__`.
             target_name: Batch key (under `batch["targets"]`) supplying the
                 snapshot ensemble to fit from. Defaults to
@@ -129,6 +134,8 @@ class PODCoarseningFittable(PODCoarseningStrategy):
             inner_product: `"euclidean"` (default), or the energy inner product as
                 patched by the runtime job patcher (`{kind = "energy", dataset_dir}`).
         """
+        if isinstance(rank, bool) or not isinstance(rank, int) or rank < 1:
+            raise ValueError(f"POD rank must be a positive mode count, got {rank!r}")
         super().__init__(rank=rank)
         self._target_name = target_name
         self._inner_product = parse_inner_product(inner_product)
@@ -184,8 +191,7 @@ class PODCoarseningFittable(PODCoarseningStrategy):
             ValueError: If `snapshots` is a dataloader that yields no batches.
         """
         if isinstance(snapshots, torch.Tensor):
-            weight = self._weight(inner_product, snapshots)
-            super().fit(snapshots, row_scales=row_scales, inner_product=weight)
+            self._fit_tensor(snapshots, row_scales, inner_product)
             return
         # Single pass over the dataloader — never list(snapshots). Each batch is a
         # pin_memory'd TensorDict; materializing the whole dataloader up front would
@@ -205,8 +211,31 @@ class PODCoarseningFittable(PODCoarseningStrategy):
         # `concatenated` lives, and resolve_device() is the same GPU-if-available
         # convention comparison_run.py/domain/solver/comparison.py already use.
         concatenated = torch.cat(chunks, dim=0).to(resolve_device())
-        weight = self._weight(inner_product, concatenated)
-        super().fit(concatenated, row_scales=row_scales, inner_product=weight)
+        self._fit_tensor(concatenated, row_scales, inner_product)
+
+    def _fit_tensor(
+        self,
+        snapshots: torch.Tensor,
+        row_scales: torch.Tensor | None,
+        inner_product: torch.Tensor | None,
+    ) -> None:
+        """Fit the basis, then warn when it captures little of the snapshot energy.
+
+        The check runs here, in the offline fit job, and not in a comparison's inline
+        fit, whose fit time is part of the measured setup.
+        """
+        weight = self._weight(inner_product, snapshots)
+        super().fit(snapshots, row_scales=row_scales, inner_product=weight)
+        captured = captured_energy_fraction(snapshots, self._basis, row_scales, weight)
+        if captured < MIN_CAPTURED_ENERGY:
+            logger.warning(
+                "POD basis of rank {} captures {:.4f} of the snapshot energy over {} rows, "
+                "below {}; consider a larger rank",
+                self.rank,
+                captured,
+                snapshots.shape[0],
+                MIN_CAPTURED_ENERGY,
+            )
 
     def _weight(
         self, explicit: torch.Tensor | None, snapshots: torch.Tensor

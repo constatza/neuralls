@@ -125,11 +125,6 @@ def test_numeric_fact_constructors_reject_bool(
         constructor(key, True)
 
 
-def test_rank_takes_a_count_or_an_energy_fraction() -> None:
-    assert make_fact(RANK, 10) == IntegerFact(RANK, 10)
-    assert make_fact(RANK, 0.99) == DecimalFact(RANK, 0.99)
-
-
 # --- unique keys ----------------------------------------------------------------------
 
 

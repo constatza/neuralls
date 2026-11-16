@@ -35,30 +35,6 @@ from neuralls.shared.scientific_description.catalog import (
 )
 
 
-def _validate_pod_rank(v: float) -> int | float:
-    """Enforce the per-mode constraint matching whichever branch of ``rank`` was given.
-
-    Shared by ``PODCoarseningConfig._validate_rank`` and
-    ``NeuralPODCoarseningConfig._validate_rank`` — same POD rank
-    contract, only the surrounding config differs.
-
-    Args:
-        v: The parsed ``rank`` value — an int (mode count) or float
-            (energy threshold).
-
-    Returns:
-        The validated value, unchanged.
-
-    Raises:
-        ValueError: If an int rank is < 1, or a float rank is outside (0, 1].
-    """
-    if isinstance(v, float) and not (0.0 < v <= 1.0):
-        raise ValueError(f"rank as an energy threshold must be in (0, 1], got {v}")
-    if not isinstance(v, float) and v < 1:
-        raise ValueError(f"rank as a mode count must be >= 1, got {v}")
-    return v
-
-
 class AggregationCoarseningConfig(BaseModel):
     """Classical smoothed-aggregation coarsening (SA-AMG).
 
@@ -198,11 +174,13 @@ class PODCoarseningConfig(NeuralCheckpointRef):
         ...,
         description="Generated dataset directory whose `solutions` array supplies POD snapshots.",
     )
-    rank: Annotated[int | float, Fact(RANK)] = Field(
+    rank: Annotated[int, Fact(RANK)] = Field(
         default=8,
+        ge=1,
+        strict=True,
         description=(
-            "Fixed number of POD modes to retain (int), or minimum cumulative "
-            "captured energy to retain (float in (0, 1] — e.g. 0.9999)."
+            "Number of POD modes to retain: the coarse dimension. A rank that captures "
+            "little of the snapshot energy is warned about at fit time."
         ),
     )
     n_snapshots: Annotated[int, Fact(SNAPSHOT_COUNT, show=Show.NON_DEFAULT)] = Field(
@@ -223,23 +201,6 @@ class PODCoarseningConfig(NeuralCheckpointRef):
             Anchored path string, or original value if not a string.
         """
         return expand_path_field(v, info)
-
-    @field_validator("rank")
-    @classmethod
-    def _validate_rank(cls, v: float) -> int | float:
-        """Enforce the per-mode constraint matching whichever branch was matched.
-
-        Args:
-            v: The parsed ``rank`` value — an int (mode count) or float
-                (energy threshold).
-
-        Returns:
-            The validated value, unchanged.
-
-        Raises:
-            ValueError: If an int rank is < 1, or a float rank is outside (0, 1].
-        """
-        return _validate_pod_rank(v)
 
     def exposed_checkpoint_ref(self) -> NeuralCheckpointRef | None:
         """Opt into checkpoint resolution only when a resolvable identity is set.
@@ -302,11 +263,13 @@ class NeuralPODCoarseningConfig(NeuralCheckpointRef):
             "explicitly (mirrors NeuralPreconditionerConfig.extra_input_names)."
         ),
     )
-    rank: Annotated[int | float, Fact(RANK)] = Field(
+    rank: Annotated[int, Fact(RANK)] = Field(
         default=8,
+        ge=1,
+        strict=True,
         description=(
-            "Fixed number of POD modes to retain (int), or minimum cumulative "
-            "captured energy to retain (float in (0, 1] — e.g. 0.9999)."
+            "Number of POD modes to retain: the coarse dimension. A rank that captures "
+            "little of the snapshot energy is warned about at fit time."
         ),
     )
     n_snapshots: Annotated[int, Fact(SNAPSHOT_COUNT, show=Show.NON_DEFAULT)] = Field(
@@ -342,23 +305,6 @@ class NeuralPODCoarseningConfig(NeuralCheckpointRef):
         if isinstance(v, (list, tuple)):
             return tuple(str(x) for x in v)
         return v
-
-    @field_validator("rank")
-    @classmethod
-    def _validate_rank(cls, v: float) -> int | float:
-        """Enforce the per-mode constraint matching whichever branch was matched.
-
-        Args:
-            v: The parsed ``rank`` value — an int (mode count) or float
-                (energy threshold).
-
-        Returns:
-            The validated value, unchanged.
-
-        Raises:
-            ValueError: If an int rank is < 1, or a float rank is outside (0, 1].
-        """
-        return _validate_pod_rank(v)
 
     def exposed_checkpoint_ref(self) -> NeuralCheckpointRef:
         """Always checkpoint-backed — its snapshot ensemble only exists via a checkpoint."""

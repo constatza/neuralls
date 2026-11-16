@@ -176,7 +176,7 @@ def _write_train_job_config(path: Path) -> None:
     )
 
 
-def _write_fit_job_config(path: Path, *, rank: float = 0.99) -> None:
+def _write_fit_job_config(path: Path, *, rank: int = 10) -> None:
     """Write a minimal, fully-loadable `run.type = "fit"` (POD) job config."""
     path.write_text(
         "\n".join(
@@ -641,7 +641,7 @@ def test_neural_specs_from_assignments_dispatches_fit_kind_to_pod_stub(
     """A `run.type = "fit"` assignment yields an unresolved AMG/POD stub, not neural."""
     cfg, config_dir, settings = _case_config_with_assignment(
         tmp_path,
-        job_writer=lambda path: _write_fit_job_config(path, rank=0.9999),
+        job_writer=lambda path: _write_fit_job_config(path, rank=25),
         assignment_id="pod_cg1",
         dataset_id="solutions-cg1",
         job_id="pod_cg-0",
@@ -667,13 +667,10 @@ def test_neural_specs_from_assignments_dispatches_fit_kind_to_pod_stub(
     assert len(specs) == 1
     spec = specs[0]
     assert isinstance(spec, AMGPreconditionerConfig)
-    assert (
-        spec.name
-        == "amg_levels2_pre2_post2_smootheromegaauto_pod_rank0p9999_n-1_assignment_pod_cg1"
-    )
+    assert spec.name == "amg_levels2_pre2_post2_smootheromegaauto_pod_rank25_n-1_assignment_pod_cg1"
     assert isinstance(spec.coarsening, PODCoarseningConfig)
     assert spec.coarsening.assignment == "pod_cg1"
-    assert spec.coarsening.rank == 0.9999
+    assert spec.coarsening.rank == 25
     assert spec.coarsening.dataset_dir == settings.processed_dir / "solutions-cg1"
     assert spec.coarsening.model_ref == TrainedAssignmentRefConfig(assignment_id="pod_cg1")
     tracking.client.assert_not_called()

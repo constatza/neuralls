@@ -5,13 +5,10 @@ from __future__ import annotations
 import pytest
 
 from neuralls.domain.presentation.methods import (
-    MethodPresentationCandidate,
     PreparedMethodPresentation,
     StandaloneMethodPresentation,
     SystemRealization,
-    UnvalidatedComparisonPresentation,
 )
-from neuralls.domain.presentation.planner import prepare_presentations
 from neuralls.domain.presentation.provenance import (
     DatasetPresentation,
     DerivedSeed,
@@ -23,7 +20,6 @@ from neuralls.shared.scientific_description.catalog import (
     COARSE_DIMENSION,
     ITERATION_COUNT,
     MULTIGRID_LEVELS,
-    RANK,
     THRESHOLD,
     make_fact,
 )
@@ -107,20 +103,3 @@ def test_group_presentation_rejects_repeated_invariant_facts(
     fact = make_fact(COARSE_DIMENSION, 12)
     with pytest.raises(DuplicateFactKeyError):
         GroupMethodPresentation(prepared=_prepared(amg, ()), invariant_facts=(fact, fact))
-
-
-def test_a_rank_of_ten_and_a_rank_of_ten_point_zero_are_different_methods(
-    scope: ComparisonScopePresentation,
-) -> None:
-    """Python equates 10 and 10.0; the cohort must not report them as identical labels."""
-
-    def method(name: str, rank: float) -> MethodPresentationCandidate:
-        description = ScientificDescription("POD", facts=(make_fact(RANK, rank),))
-        return MethodPresentationCandidate(
-            PreconditionerName(name), StandaloneMethodPresentation(description)
-        )
-
-    cohort = UnvalidatedComparisonPresentation(
-        methods=(method("count", 10), method("fraction", 10.0)), scope=scope
-    )
-    assert len(prepare_presentations(cohort).methods) == 2

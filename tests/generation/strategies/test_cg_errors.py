@@ -24,7 +24,6 @@ from neuralls.shared.scientific_description.catalog import (
     DAMPING,
     ITERATION_COUNT,
     METRIC,
-    PROBE_DISTRIBUTION,
     STEPS,
     make_fact,
 )
@@ -160,6 +159,5 @@ def test_jacobi_probes_facts_without_snapshot_scaling() -> None:
 
     assert describe_model(config) == (
         make_fact(STEPS, 5),
-        make_fact(PROBE_DISTRIBUTION, "gaussian"),
         make_fact(DAMPING, "auto"),
     )

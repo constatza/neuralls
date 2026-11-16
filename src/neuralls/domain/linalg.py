@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 import numpy as np
+import torch
 from scipy.linalg import norm
 
 from neuralls.shared.types import MatrixNormType
@@ -198,3 +199,23 @@ def compute_rhs_norms(rhs_samples: np.ndarray) -> np.ndarray:
         Array of L2 norms, shape (N,)
     """
     return np.array([compute_rhs_norm(rhs) for rhs in rhs_samples])
+
+
+def captured_energy_fraction(
+    snapshots: torch.Tensor,
+    basis: torch.Tensor,
+    row_scales: torch.Tensor | None = None,
+    weight: torch.Tensor | None = None,
+) -> float:
+    """Fraction of the snapshot energy a POD basis captures in its inner product.
+
+    With ``X`` the (row-scaled) snapshots, one per row, and ``W`` the inner-product weight
+    (the identity when ``None``), a ``W``-orthonormal basis ``Φ`` captures
+    ``‖X W Φ‖²_F / tr(X W Xᵀ)``: the sum of the kept squared singular values over their
+    total. Computed from the fitted basis, so it needs no access to the SVD.
+    """
+    snapshots = snapshots.to(basis)
+    scaled = snapshots if row_scales is None else snapshots * row_scales.to(basis).unsqueeze(-1)
+    weighted = scaled if weight is None else scaled @ weight.to(basis)
+    total = (weighted * scaled).sum()
+    return float((weighted @ basis).square().sum() / total)

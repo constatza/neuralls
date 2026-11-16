@@ -11,6 +11,7 @@ from neuralls.domain.presentation.methods import (
     ConfiguredMethodPresentation,
     DatasetQualifiedMethodPresentation,
     StandaloneMethodPresentation,
+    pod_source_name,
 )
 from neuralls.domain.presentation.provenance import DatasetPresentation
 from neuralls.domain.presentation.qualifier import dataset_qualifier
@@ -60,19 +61,38 @@ def _render_chain(
     )
 
 
+def _method_parts(configured: ConfiguredMethodPresentation) -> tuple[ScientificDescription, ...]:
+    """The descriptions a method's label is made of, method first.
+
+    A POD method named by its snapshot source (POD-CG, POD-JP) already says which strategy
+    made its data, so that strategy's facts join the method's own parenthesis
+    (``POD-CG (c=100, k=20, N=5000)``) instead of following a dataset qualifier.
+    """
+    match configured:
+        case StandaloneMethodPresentation(method=method):
+            return (method,)
+        case DatasetQualifiedMethodPresentation(method=method, dataset=dataset):
+            qualifier = dataset_qualifier(dataset)
+            match qualifier:
+                case (strategy,) if method.base_name == pod_source_name(dataset):
+                    folded = ScientificDescription(
+                        base_name=method.base_name,
+                        facts=(*method.facts, *strategy.facts),
+                        context_facts=(*method.context_facts, *strategy.context_facts),
+                    )
+                    return (folded,)
+            return (method, *qualifier)
+        case _:
+            assert_never(configured)
+
+
 def render_method(
     configured: ConfiguredMethodPresentation,
     profile: RenderProfile,
     policy: NotationPolicy,
 ) -> RenderedScientificDescription:
-    """Render a method, appending its training dataset exactly once when it has one."""
-    match configured:
-        case StandaloneMethodPresentation(method=method):
-            return render(method, profile, policy)
-        case DatasetQualifiedMethodPresentation(method=method, dataset=dataset):
-            return _render_chain((method, *dataset_qualifier(dataset)), profile, policy)
-        case _:
-            assert_never(configured)
+    """Render a method, stating its training dataset exactly once when it has one."""
+    return _render_chain(_method_parts(configured), profile, policy)
 
 
 def render_dataset(
@@ -122,16 +142,9 @@ class DistinctRendering:
 
 
 def _decimal_keys(configured: ConfiguredMethodPresentation) -> frozenset[FieldKey]:
-    match configured:
-        case StandaloneMethodPresentation(method=method):
-            parts = (method,)
-        case DatasetQualifiedMethodPresentation(method=method, dataset=dataset):
-            parts = (method, *dataset_qualifier(dataset))
-        case _:
-            assert_never(configured)
     return frozenset(
         fact.key
-        for part in parts
+        for part in _method_parts(configured)
         for fact in (*part.facts, *part.context_facts)
         if isinstance(fact, DecimalFact)
     )

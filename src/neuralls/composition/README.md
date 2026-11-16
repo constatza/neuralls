@@ -217,7 +217,11 @@ right after dataset entries are injected, then
 `assignments/runtime_model_patcher.py::patch_energy_inner_product`: a fit job whose
 `[model]` sets `inner_product = "energy"` gets the job's dataset directory, because the
 energy weight is the mean of that dataset's train-fold matrices and only the runtime knows
-which dataset a job fits from.
+which dataset a job fits from. A POD rank is a mode count (the coarse dimension), never an
+energy fraction. After the fit, `preconditioners/pod_fittable.py` measures the captured
+snapshot energy from the fitted basis (`domain/linalg.py::captured_energy_fraction`, in the
+fit's inner product and row scaling) and warns below `MIN_CAPTURED_ENERGY` (0.95). A
+comparison's inline fit skips the check, because its fit time is measured setup.
 
 Comparison consumes hashes: `comparison/input_gate.py::require_current_inputs`
 runs before any planning and checks that each `matrix_dataset` is reusable
@@ -334,7 +338,8 @@ policy. `composition.preconditioners.descriptions` builds each display name as a
 algorithmic parameter with defaults included, seeds for aSA/BAMG, scheduling
 controls only when non-default, a neural model's validated `architecture` name, taken only from the job registry entry's `architecture`, never its `display_name` title) and
 *realized* facts read from the constructed `torchalg` object (the realized coarse
-dimension and, for aSA/BAMG, the realized level count). No fact is dropped for
+dimension of aggregation and target-dimension AMG and, for aSA/BAMG, the realized level
+count; POD realizes nothing, since its configured rank is its coarse dimension). No fact is dropped for
 length. Figures render the structured objects under the case's
 `notation_policy` (`[comparison_baseline.presentation]`, carried to the sinks as
 `ComparisonPresentation.notation` and the sinks' constructor argument), at the

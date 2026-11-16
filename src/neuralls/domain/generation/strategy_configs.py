@@ -344,7 +344,9 @@ class JacobiProbesConfig(_SnapshotTrajectoryConfig):
         description="Iteration/sweep cap — the solver/smoother runs exactly this many steps, never more.",
         ge=1,
     )
-    probe_distribution: Annotated[ProbeDistribution, Fact(PROBE_DISTRIBUTION)] = Field(
+    probe_distribution: Annotated[
+        ProbeDistribution, Fact(PROBE_DISTRIBUTION, show=Show.NON_DEFAULT)
+    ] = Field(
         "gaussian",
         description="Distribution the initial, unfiltered probe vectors are drawn from.",
     )

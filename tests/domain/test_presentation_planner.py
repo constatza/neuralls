@@ -151,7 +151,7 @@ def test_assignment_identity_is_never_rendered(dataset: DatasetPresentation) -> 
         LEGEND_PROFILE,
         NotationPolicy.default(),
     ).text
-    assert text == "POD (r=10) | CG Errors (k=20, N=5000)"
+    assert text == "POD (c=10) | CG Errors (k=20, N=5000)"
 
 
 def test_pod_method_composes_with_its_dataset_exactly_once(dataset: DatasetPresentation) -> None:
@@ -161,7 +161,7 @@ def test_pod_method_composes_with_its_dataset_exactly_once(dataset: DatasetPrese
         LEGEND_PROFILE,
         NotationPolicy.default(),
     )
-    assert rendered.text == "POD (r=10) | CG Errors (k=20, N=5000)"
+    assert rendered.text == "POD (c=10) | CG Errors (k=20, N=5000)"
 
 
 # --- cohort visibility ------------------------------------------------------------

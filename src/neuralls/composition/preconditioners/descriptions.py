@@ -127,7 +127,8 @@ def _coarsening_facts(coarsening: CoarseningStrategy, precond: AMGPreconditioner
 @_coarsening_facts.register(PODCoarseningStrategy)
 @_coarsening_facts.register(SparsePODCoarseningStrategy)
 def _(coarsening: PODStrategy, precond: AMGPreconditioner) -> Facts:
-    return (make_fact(COARSE_DIMENSION, coarsening.rank),)
+    # The configured rank is the coarse dimension (rank is a mode count, never a fraction).
+    return ()
 
 
 @_coarsening_facts.register(AggregationCoarsening)

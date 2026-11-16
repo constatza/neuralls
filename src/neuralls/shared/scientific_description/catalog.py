@@ -361,7 +361,7 @@ FACT_DEFINITIONS: tuple[FactDefinition, ...] = (
         frozenset({FactValueKind.TEXT, FactValueKind.DECIMAL}),
         categories=_categories(("auto", "auto", "\\mathrm{auto}")),
     ),
-    _definition(STEPS, _A, _C, 350, None, "ν", "\\nu", frozenset({FactValueKind.INTEGER})),
+    _definition(STEPS, _A, _C, 350, None, "p", "p", frozenset({FactValueKind.INTEGER})),
     # --- Generation-strategy facts ---
     _definition(KRYLOV_DIMENSION, _A, _C, 40, None, "m", "m", frozenset({FactValueKind.INTEGER})),
     _definition(MEAN, _A, _C, 110, 3, "μ", "\\mu", frozenset({FactValueKind.DECIMAL})),
@@ -376,8 +376,8 @@ FACT_DEFINITIONS: tuple[FactDefinition, ...] = (
         _C,
         360,
         None,
-        "p",
-        "p",
+        "𝒟",
+        "\\mathcal{D}",
         frozenset({FactValueKind.TEXT}),
         categories=_categories(
             ("gaussian", "𝒩", "\\mathcal{N}"), ("rademacher", "Rad", "\\mathrm{Rad}")
@@ -532,7 +532,7 @@ FACT_DEFINITIONS: tuple[FactDefinition, ...] = (
         frozenset({FactValueKind.TEXT, FactValueKind.DECIMAL}),
         categories=_categories(("auto", "auto", "\\mathrm{auto}")),
     ),
-    _definition(CANDIDATE_COUNT, _A, _C, 190, None, "k", "k", frozenset({FactValueKind.INTEGER})),
+    _definition(CANDIDATE_COUNT, _A, _C, 190, None, "m", "m_c", frozenset({FactValueKind.INTEGER})),
     _definition(
         CANDIDATE_ITERATIONS,
         _A,
@@ -597,9 +597,7 @@ FACT_DEFINITIONS: tuple[FactDefinition, ...] = (
         frozenset({FactValueKind.TEXT}),
         categories=_categories(("off", "off", "\\mathrm{off}"), ("on", "on", "\\mathrm{on}")),
     ),
-    _definition(
-        RANK, _A, _C, 300, 4, "r", "r", frozenset({FactValueKind.INTEGER, FactValueKind.DECIMAL})
-    ),
+    _definition(RANK, _A, _C, 300, None, "c", "c", frozenset({FactValueKind.INTEGER})),
     _definition(SNAPSHOT_COUNT, _A, _C, 310, None, "Nₛ", "N_s", frozenset({FactValueKind.INTEGER})),
     _definition(
         METRIC,
@@ -686,14 +684,16 @@ FACT_DEFINITIONS: tuple[FactDefinition, ...] = (
 
 SHARED_SYMBOL_GROUPS: frozenset[frozenset[FieldKey]] = frozenset(
     {
-        frozenset({ITERATION_COUNT, CANDIDATE_COUNT}),
+        frozenset({RANK, COARSE_DIMENSION}),
+        frozenset({KRYLOV_DIMENSION, CANDIDATE_COUNT}),
         frozenset({DAMPING, FREQUENCY}),
-        frozenset({COMPATIBLE_RELAXATION_SWEEPS, STEPS}),
     }
 )
 """Keys that deliberately share one plain symbol because they never describe the same object
-(for example the iteration count of a residual trace and the candidate count of an adaptive
-hierarchy). Any other repeated symbol is a catalog error."""
+(for example a POD method's configured coarse dimension, its rank, and the realized coarse
+dimension of an aggregation hierarchy). Any other repeated symbol is a catalog error. The
+candidate count shares only its plain symbol with the Krylov dimension; its MathText is
+``m_c``."""
 
 
 def validate_catalog(

@@ -90,9 +90,8 @@ def create_preconditioner_with_coarsening(
 
     This is the single construction path; `create_preconditioner` returns its first
     element. AMG's realized coarse dimension is only knowable from the coarsening
-    strategy actually used to build the hierarchy, not from config alone (POD's
-    ``rank`` is often an energy threshold; AMG's ``theta`` yields an emergent
-    aggregate count). Diagnostics that need the realized dimension must reuse this
+    strategy actually used to build the hierarchy, not from config alone (AMG's
+    ``theta`` yields an emergent aggregate count). Diagnostics that need the realized dimension must reuse this
     coarsening object rather than fitting a second one.
 
     The sparse AMG preset builds its aggregation internally and does not expose a

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import numpy as np
@@ -105,9 +105,9 @@ def test_fit_rejects_empty_dataloader() -> None:
 
 def test_hparams_exposes_configured_rank_before_fit() -> None:
     """`.hparams` is readable before fit() — dlkit's tracking logger reads it first."""
-    model = PODCoarseningFittable(rank=0.99)
+    model = PODCoarseningFittable(rank=7)
 
-    assert dict(model.hparams) == {"rank": 0.99, "inner_product": "euclidean"}
+    assert dict(model.hparams) == {"rank": 7, "inner_product": "euclidean"}
 
 
 def test_dataloader_fit_forwards_row_scales_like_the_parent_tensor_fit(
@@ -182,3 +182,25 @@ def test_explicit_weight_wins_and_construction_reads_nothing(
     model.fit(snapshots, inner_product=weight)
 
     torch.testing.assert_close(model._basis, reference._basis, rtol=0.0, atol=0.0)
+
+
+@pytest.mark.parametrize(("rank", "warned"), [(1, True), (5, False)])
+def test_fit_warns_only_when_the_rank_captures_too_little_energy(
+    snapshot_batches: list[dict[str, dict[str, torch.Tensor]]],
+    captured_log: Callable[[str], list[str]],
+    rank: int,
+    warned: bool,
+) -> None:
+    """Five generic snapshots: one mode keeps well under 95%, five keep all of it."""
+    warnings = captured_log("WARNING")
+
+    PODCoarseningFittable(rank=rank).fit(snapshot_batches)
+
+    assert len(warnings) == int(warned)
+
+
+@pytest.mark.parametrize("rank", [0.9999, 10.0, 0, True])
+def test_a_fit_job_rejects_a_rank_that_is_not_a_mode_count(rank: object) -> None:
+    """torchalg accepts an energy fraction; a fit job does not, so it fails before fitting."""
+    with pytest.raises(ValueError):
+        PODCoarseningFittable(rank=rank)

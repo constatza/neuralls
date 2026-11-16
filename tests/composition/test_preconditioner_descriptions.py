@@ -85,7 +85,7 @@ POD_DATASET_DIR = Path("pod-fit-dataset")
         ),
         pytest.param(
             AdaptiveSAPreconditionerConfig(theta=0.05),
-            "aSA (L=2, k=3, θ=0.05, s=0)",
+            "aSA (L=2, m=3, θ=0.05, s=0)",
             id="asa-candidates-levels-coarse-limit",
         ),
         pytest.param(
@@ -99,7 +99,7 @@ POD_DATASET_DIR = Path("pod-fit-dataset")
                     dataset_dir=POD_DATASET_DIR, rank=10, assignment="fit-a"
                 )
             ),
-            "POD (r=10)",
+            "POD (c=10)",
             id="pod-rank-without-dataset-or-identity",
         ),
         pytest.param(
@@ -132,11 +132,11 @@ POD_DATASET_DIR = Path("pod-fit-dataset")
             AMGPreconditionerConfig(
                 coarsening=PODCoarseningConfig(
                     dataset_dir=POD_DATASET_DIR,
-                    rank=0.999,
+                    rank=50,
                     n_snapshots=200,
                 )
             ),
-            "POD (r=0.999, Nₛ=200)",
+            "POD (c=50, Nₛ=200)",
             id="pod-rank-and-snapshots",
         ),
         pytest.param(
@@ -155,7 +155,7 @@ POD_DATASET_DIR = Path("pod-fit-dataset")
                     dataset_dir=POD_DATASET_DIR, rank=6, input_names=("x",)
                 )
             ),
-            "POD (r=6)",
+            "POD (c=6)",
             id="neural-pod-coarsening",
         ),
         pytest.param(
@@ -271,7 +271,7 @@ def pod_amg(tridiag_spd_matrix: torch.Tensor) -> AMGPreconditioner:
     generator = torch.Generator().manual_seed(0)
     ensemble = torch.randn(2, 5, generator=generator, dtype=torch.float64)
     coeffs = torch.randn(6, 2, generator=generator, dtype=torch.float64)
-    coarsening = PODCoarseningStrategy(rank=0.999)
+    coarsening = PODCoarseningStrategy(rank=2)
     coarsening.fit(coeffs @ ensemble)
     cycle = VCycle(smoother=JacobiSmoother(omega=0.67), n_pre=2, n_post=2)
     return AMGPreconditioner(tridiag_spd_matrix, coarsening=coarsening, cycle=cycle, n_levels=2)
@@ -284,11 +284,11 @@ def test_realized_aggregation_reports_the_coarse_dimension(
     assert [(fact.key, fact.value) for fact in facts] == [(COARSE_DIMENSION, 2)]
 
 
-def test_realized_pod_reports_the_fitted_width_not_the_energy_threshold(
+def test_realized_pod_adds_no_fact_to_its_configured_rank(
     pod_amg: AMGPreconditioner,
 ) -> None:
-    facts = describe_realized_preconditioner(pod_amg)
-    assert [(fact.key, fact.value) for fact in facts] == [(COARSE_DIMENSION, 2)]
+    """The configured rank is the coarse dimension, so setup realizes nothing new."""
+    assert describe_realized_preconditioner(pod_amg) == ()
 
 
 def test_realized_hierarchy_of_adaptive_sa_reports_levels_and_coarsest_size(

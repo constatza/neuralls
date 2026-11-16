@@ -70,20 +70,32 @@ class DatasetQualifiedMethodPresentation:
     dataset: DatasetPresentation
 
 
+def pod_source_name(dataset: DatasetPresentation) -> str | None:
+    """The name of a POD method fit on ``dataset`` (POD-CG, POD-JP), if its data names one.
+
+    Only fit data of one snapshot strategy names the method; a mixture, or a strategy that
+    is not a snapshot source, leaves the plain POD name.
+    """
+    match dataset.generation.strategies:
+        case (single,):
+            source = snapshot_source(single.kind)
+            if source is not None:
+                return f"{PreconditionerFamily.POD.abbreviation()}-{source}"
+    return None
+
+
 def qualify_method(
     method: ScientificDescription, dataset: DatasetPresentation
 ) -> DatasetQualifiedMethodPresentation:
     """Qualify a dataset-trained method by its data; a POD method names its snapshot source.
 
     POD-CG (truncated-CG errors) and POD-JP (Jacobi-filtered probes) are distinct methods,
-    so the source belongs in the method name, not only in the dataset qualifier. Fit data
-    mixing several strategies keeps the plain POD name.
+    so the source belongs in the method name, and the renderer then states the strategy's
+    facts inside the method's own parenthesis instead of after a dataset qualifier.
     """
-    match dataset.generation.strategies:
-        case (single,) if method.base_name == PreconditionerFamily.POD.abbreviation():
-            source = snapshot_source(single.kind)
-            if source is not None:
-                method = replace(method, base_name=f"{method.base_name}-{source}")
+    name = pod_source_name(dataset)
+    if name is not None and method.base_name == PreconditionerFamily.POD.abbreviation():
+        method = replace(method, base_name=name)
     return DatasetQualifiedMethodPresentation(method, dataset)
 
 
