@@ -1,6 +1,6 @@
 # POD parametric study, snapshot count N in {500, 1000, 2000, 5000, 10000}.
 # N = 5000 is the baseline file, kept outside the sweep so it is generated once.
-# Baseline: c = 100, k = 20 (POD-CG), p = 10 (POD-JP), N = 5000. Only POD-CG and POD-JP
+# Baseline: c = 100, k = 20 (POD-CG), k = 10 (POD-JP), N = 5000. Only POD-CG and POD-JP
 # methods are compared; each swept value is its own method, labelled from its facts.
 
 [mlflow]

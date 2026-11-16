@@ -1,6 +1,6 @@
-# POD parametric study, CG depth k and Jacobi sweeps p, both in {1, 2, 5, 10, 20}.
+# POD parametric study, snapshot depth k (CG iterations or Jacobi sweeps) in {1, 2, 5, 10, 20}.
 # Every dataset keeps only the last trajectory row (`start` unset), so no kept window holds row 0.
-# Baseline: c = 100, k = 20 (POD-CG), p = 10 (POD-JP), N = 5000. Only POD-CG and POD-JP
+# Baseline: c = 100, k = 20 (POD-CG), k = 10 (POD-JP), N = 5000. Only POD-CG and POD-JP
 # methods are compared; each swept value is its own method, labelled from its facts.
 
 [mlflow]

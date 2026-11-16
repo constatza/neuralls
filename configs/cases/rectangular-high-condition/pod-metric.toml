@@ -1,5 +1,5 @@
 # POD parametric study, POD inner product W: Euclidean or energy (W = A-bar, the train-fold mean matrix).
-# Baseline: c = 100, k = 20 (POD-CG), p = 10 (POD-JP), N = 5000. Only POD-CG and POD-JP
+# Baseline: c = 100, k = 20 (POD-CG), k = 10 (POD-JP), N = 5000. Only POD-CG and POD-JP
 # methods are compared; each swept value is its own method, labelled from its facts.
 
 [mlflow]

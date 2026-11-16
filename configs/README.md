@@ -248,7 +248,7 @@ without one it cannot be described and the comparison is rejected before it runs
 The POD parametric study adds five `pod-<axis>.toml` cases on the same matrix,
 one varied input each, over POD-CG and POD-JP only. Every other input stays at
 the baseline: rank c = 100, CG depth k = 20 (`gaussian-cg20.toml`), Jacobi
-sweeps p = 10 (`smoother-filtered-probes-nu10.toml`), N = 5000 rows. Each
+sweeps k = 10 (`smoother-filtered-probes-nu10.toml`), N = 5000 rows. Each
 swept value is its own method, labelled from its facts, so the per-method
 figures compare them directly. Every case solves the same 80 systems: four
 RHS recipes (Gaussian, masked Gaussian, low- and high-frequency sinusoidal,
@@ -257,7 +257,7 @@ seeds 42-45) with `rhs_count = 20` each, on `gaussian-cg20`'s matrix.
 - `pod-rank.toml`: c in `{5, 10, 20, 50, 100, 200}`, one fit job per rank.
 - `pod-samples.toml`: N in `{500, 1000, 2000, 5000, 10000}`
   (`gaussian-cg20.sweep.toml`, `smoother-filtered-probes-nu10.sweep.toml`).
-- `pod-depth.toml`: k and p in `{1, 2, 5, 10, 20}`
+- `pod-depth.toml`: depth k (CG iterations or Jacobi sweeps) in `{1, 2, 5, 10, 20}`
   (`gaussian-cg-depth.sweep.toml`, `smoother-filtered-probes-depth.sweep.toml`,
   plus the tracked `gaussian-cg10.toml`).
 - `pod-snapshot-scaling.toml`: per-row scaling none, `l2` or `energy` norm at
