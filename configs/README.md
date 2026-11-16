@@ -21,7 +21,7 @@ Dataset configs own:
 
 - raw input paths
 - generation strategy
-- normalization and output settings
+- system scaling (`[generation] scaling`, default `{ kind = "gershgorin", dimension_factor = "sqrt_n" }`) and output settings
 - processed dataset identity
 
 There should be as many dataset configs as there are real dataset variants.

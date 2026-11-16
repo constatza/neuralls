@@ -380,8 +380,8 @@ above the file's `K` rows is capped at `K` per binding and reported as one `Rows
   `run_generation()` (`runner.py`) and returns its `_StrategyRows` (rhs, solutions, row-kind
   codes), classifying each row's `RowKind` from the strategy's trace iteration indices when
   present (`_row_kind_codes_for`).
-- `matrix_cache.py`: `_cached_matrix_loader()` returns a loader that normalizes and measures one
-  matrix sample per call, keeping only the most recently requested sample (`_CachedMatrix`)
+- `matrix_cache.py`: `_cached_matrix_loader()` returns a loader that scales and measures one
+  matrix sample per call (`alpha = scale_factor(A, spec.scaling)`, stored matrix `A / alpha`), keeping only the most recently requested sample (`_CachedMatrix`)
   cached — bindings are visited in order, so one matrix in memory at a time is enough. The
   single-entry cache is a `single_slot.SingleSlot`, not `functools.lru_cache`, so the "one
   slot, most recent wins" rule is explicit rather than a decorator depending on call order.
@@ -418,10 +418,12 @@ above the file's `K` rows is capped at `K` per binding and reported as one `Rows
   the plan, closes the store, and returns `DatasetArtifacts` (array names, shapes, dtypes).
   Arrays are created lazily at the first batch, at the plan's full row count. It has no
   read methods.
-- `scalar_aggregate.py`: `ScalarAggregator` keeps the first binding's matrix norm, value
-  scale and scale payload, plus the set of `ScaleField`s some binding disagreed on, so its
-  state is constant in the number of bindings. `ScaleSummary.disagreements` carries that set
-  to composition, which logs one warning per field
+- `scalar_aggregate.py`: `ScalarAggregator` keeps the first binding's scaled-matrix norm
+  (with the set of `ScaleField`s some binding disagreed on) and one `alpha` per matrix sample
+  id, so its state grows with the number of distinct matrices, never with the number of
+  bindings. A matrix seen twice with a different `alpha` raises `ConflictingMatrixScaleError`.
+  `ScaleSummary.matrix_scales` becomes the manifest's per-matrix factors and
+  `ScaleSummary.disagreements` goes to composition, which logs one warning per field
 - `notices.py`: the outcomes generation reports instead of logging: `RowsCapped` (a request its
   source could not fill, known at planning time) and `SolveNotice`, the closed union of what a
   strategy finds while producing rows: `SolveNotConverged` (a CG row that stopped early) and
@@ -431,7 +433,7 @@ above the file's `K` rows is capped at `K` per binding and reported as one `Rows
   `composition/generation/generation_log.py` renders and logs every notice
 - `specs.py`: frozen input DTOs mirroring the config's own `[source]`/`[generation]`
   sections — `SourceSpec` (where samples come from), `MixtureSpec` (strategy mixing + RNG),
-  `DatasetSpec` (assembly: mixture + replacement/normalize/norm-type). `open_batch_stream()`
+  `DatasetSpec` (assembly: mixture + replacement/scaling/norm-type). `open_batch_stream()`
   and `build_dataset()` accept these instead of the same ~15-20 fields re-declared as loose
   kwargs at every call-chain layer
 - `ports.py`: `ArrayStore` (the write-only dense store that `SampleWriter` depends on),
@@ -529,8 +531,6 @@ above the file's `K` rows is capped at `K` per binding and reported as one `Rows
   trace-row counts for trajectory-harvesting strategies (`trace_rows_per_system`,
   `trace_rows_per_base_system`, `required_trace_systems`, `resolve_trace_generation_counts`,
   `_build_trace_indices`).
-- `scaling.py`: matrix normalization for synthetic generation (`normalize_matrix_for_generation`)
-  and scale-metadata serialization for the manifest (`serialize_scale_metadata`).
 - `linear_solve.py`: `_solve_linear_systems(operator, rhs, SolveConfig)` dispatches through the
   `_SOLVERS` registry, keyed by `SolveConfig.method` (`"direct"`, `"cg"`), a closed set the
   config validates once. `"direct"` calls `MatrixOperator.solve_direct` (cached factor), and
@@ -566,7 +566,7 @@ Stored order is generation order: rows are written binding by binding, and strat
 
 The matrix format is chosen by `[output].matrix_format` and threaded to the
 streamed writer. A CSR run keeps every sample sparse end to end: the
-source loads as `csr_array`, normalization scales the data without densifying,
+source loads as `csr_array`, scaling divides the stored values without densifying,
 the operator-based solves and the smoother-filtered probes accept csr matrices,
 and the CSR stream stores each sample as-is. Strategies outside that set have
 not been checked against csr input, and `random` eigenvector selection is
@@ -598,19 +598,18 @@ those enums as compact integer arrays through shared pure codecs. Safe
 comparison selection is derived from the persisted `row_kind` metadata rather
 than from a separate stored allowlist.
 
-## Normalization Metadata
+## System Scaling
 
-Generation writes normalized matrix samples, RHS vectors, and solutions as one
-consistent system. The dataset manifest stores one dataset-level normalization
-block only.
+`[generation] scaling` is a `SystemScaling` (`shared/system_scaling.py`): `{ kind = "none" }`
+or `{ kind = "gershgorin", dimension_factor = "one" | "sqrt_n" }`, default Gershgorin with
+`sqrt_n`. Each matrix sample is divided by its own `alpha`, and an archived single RHS
+bound to it is divided by the same `alpha`, so matrix samples, RHS vectors and solutions
+are one consistent system with the raw solution.
 
-For single-matrix datasets, that manifest block may include reversible scale
-metadata such as `spectral_radius_bound` and `dimension_scale`.
-
-For multi-matrix datasets, each matrix is still normalized independently before
-storage. If those bindings do not share one exact scale payload, the manifest
-intentionally leaves `normalization.scale` empty instead of pretending there is
-one dataset-wide reversible scale.
+The manifest's `scaling` block records the scaling, a representative matrix norm and one
+`alpha` per matrix sample id (`matrix_scales`, JSON keys are the ids as strings). A
+comparison divides a raw external RHS by the `alpha` of the matrix it is solved on, so
+multi-matrix datasets keep every matrix's factor rather than one dataset-wide value.
 
 Comparison safety semantics apply to RHS rows, not matrices. A single persisted
 matrix may legitimately pair with both safe non-residual RHS rows and unsafe
@@ -631,7 +630,7 @@ When adding a strategy:
 Generation stays inside the domain layer and depends only on:
 
 - solver tracing for CG-derived strategies
-- normalization trace containers
+- the trace-sample containers in `domain/normalization.py`
 - shared constants and math helpers
 
 `build_dataset()` in `neuralls.composition.generation.dataset_builder` is the only generation path.

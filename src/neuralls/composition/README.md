@@ -394,8 +394,17 @@ held-out row. `gaussian` and `sinusoidal` are the two *generated* RHS
 kinds (`composition/comparison/rhs_generation.py`, dispatched through the one
 `GeneratedSourceHandler`): each synthesizes its vector on the fly from `dim`
 alone, independent of any dataset row, and is therefore never rescaled by a
-matrix-derived normalization scale (the `generated` trait of its source model,
+matrix-derived scale (the `generated` trait of its source model,
 `platform/config/models/comparison.py`, read by `_linear_system.py::_rhs_is_generated`).
+`_linear_system.py` applies the case's `system_scaling` (a `SystemScaling`, default
+Gershgorin with `sqrt_n`) and then its `rhs_scaling` (`none`, or `unit`: divide the RHS by
+its own 2-norm, a zero RHS left alone). A matrix loaded from a dataset carries its stored
+`PersistedMatrixScaling` (the dataset's scaling and that matrix's `alpha`, read by matrix
+id from the manifest): it is never rescaled, a case asking for a different scaling raises
+`ScalingMismatchError(dataset_scaling, case_scaling)`, and only a `raw_rhs` vector is
+divided by that `alpha`; `dataset`, `raw_lhs` and generated RHS are already consistent or
+independently configured. A raw matrix file gets one fresh `alpha` for the matrix and (unless
+generated) the RHS. A known solution is checked against `Ax = b` before the RHS scaling.
 `sinusoidal`'s `omega` is total phase swept across the vector (e.g. `2*pi*k`
 for `k` full cycles), normalized by vector length the same way as the
 `sinusoidal_field` generation strategy, so it reads as a cycle count
