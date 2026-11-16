@@ -131,7 +131,8 @@ def test_zero_count_binding_is_not_planned_and_leaves_scale_unchanged(
 ) -> None:
     """With one sample over two matrices, binding 0 gets zero: it is absent and not observed.
 
-    The dataset scale then equals the scale of a run over the emitting matrix alone.
+    The dataset scale then equals the scale of a run over the emitting matrix alone, recorded
+    under that matrix's own sample id.
     """
     stream = open_binding_stream(two_matrix_source, {"neutral_ones": PER_BINDING_SAMPLES})
     batches = list(stream.batches)
@@ -148,4 +149,9 @@ def test_zero_count_binding_is_not_planned_and_leaves_scale_unchanged(
         {"neutral_ones": PER_BINDING_SAMPLES},
     )
     list(alone.batches)
-    assert stream.scale.result() == alone.scale.result()
+    summary, alone_summary = stream.scale.result(), alone.scale.result()
+    assert summary.matrix_scales.keys() == {1}
+    assert (summary.matrix_norm, list(summary.matrix_scales.values())) == (
+        alone_summary.matrix_norm,
+        list(alone_summary.matrix_scales.values()),
+    )

@@ -33,7 +33,7 @@ problem = "Test problem"
 solutions_path = "{(solutions_dir / "solution_*.txt").as_posix()}"
 
 [generation]
-normalize = "matrix"
+scaling = {{ kind = "gershgorin", dimension_factor = "sqrt_n" }}
 
 [[generation.strategy]]
 name = "solution_archive"
@@ -71,7 +71,7 @@ problem = "Test problem"
 enumerate_by = "name"
 
 [generation]
-normalize = "none"
+scaling = {{ kind = "none" }}
 
 [[generation.strategy]]
 name = "neutral_ones"
@@ -103,7 +103,7 @@ problem = "Test problem"
 enumerate_by = "name"
 
 [generation]
-normalize = "none"
+scaling = {{ kind = "none" }}
 
 [[generation.strategy]]
 name = "random"

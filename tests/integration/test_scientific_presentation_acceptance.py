@@ -41,6 +41,7 @@ from neuralls.platform.tracking.run_writer import MlflowRunWriter, open_run
 from neuralls.shared.digest import canonical_digest
 from neuralls.shared.scientific_description.models import ScientificDescription
 from neuralls.shared.scientific_description.policy import NotationPolicy, RenderTarget
+from neuralls.shared.system_scaling import GershgorinScaling
 
 PLAIN = NotationPolicy.default(RenderTarget.PLAIN)
 
@@ -76,7 +77,7 @@ def _generate(matrix_glob: str, target: Path, mixture: MixtureSpec) -> Path:
     """Generate one dataset of the spectral source with real structured provenance."""
     build_test_dataset(
         SourceSpec(matrix_path=matrix_glob),
-        DatasetSpec(mixture=mixture, normalize="matrix", write_batch_size=4),
+        DatasetSpec(mixture=mixture, scaling=GershgorinScaling(), write_batch_size=4),
         str(target),
         source_provenance=DatasetSourceProvenance(ScientificDescription(SOURCE_PROBLEM)),
     )

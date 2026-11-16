@@ -34,6 +34,7 @@ from neuralls.platform.storage.datasets import (
     load_dense_training_arrays,
     load_matrix_dense_sample,
 )
+from neuralls.shared.system_scaling import GershgorinScaling, NoScaling
 from neuralls.shared.types import MatrixFormat, RowKind
 
 _FLOAT_RTOL = 1e-12
@@ -41,7 +42,7 @@ _FLOAT_RTOL = 1e-12
 noise of differing BLAS/LAPACK builds, far below any real change to generation."""
 
 _FIRST_MATRIX_SCALE = 0.023875774080666406
-"""The factor matrix normalization applies to the first source matrix of the mixture."""
+"""The factor ``1 / alpha`` the Gershgorin scaling applies to the first source matrix."""
 
 _PARAMETER_STREAM_SOLUTIONS = np.array(
     [
@@ -117,7 +118,7 @@ def multi_matrix_mixture_dataset(
                 strategy_overrides={"gaussian_residuals": {"stop": 3, "start": 1}},
                 solver_overrides=solver_overrides,
             ),
-            normalize="matrix",
+            scaling=GershgorinScaling(),
         ),
         str(out_dir),
         dataset_format="hdf5",
@@ -172,9 +173,11 @@ def test_multi_matrix_mixture_stored_matrix_and_manifest(
 
     manifest = load_dataset_manifest(multi_matrix_mixture_dataset)
     assert manifest["matrix"]["shape"] == [12, 5, 5]
-    assert manifest["normalization"]["type"] == "matrix"
-    assert manifest["normalization"]["matrix_norm"] == pytest.approx(0.36070429238817936)
-    assert manifest["normalization"]["scale"] == {}
+    scaling = manifest["scaling"]
+    assert scaling["scaling"] == {"kind": "gershgorin", "dimension_factor": "sqrt_n"}
+    assert scaling["matrix_norm"] == pytest.approx(0.36070429238817936)
+    assert scaling["matrix_scales"].keys() == {"0", "1", "2"}
+    assert scaling["matrix_scales"]["0"] == pytest.approx(1 / _FIRST_MATRIX_SCALE, rel=_FLOAT_RTOL)
 
 
 @pytest.fixture
@@ -203,7 +206,7 @@ def multi_matrix_archive_dataset(
                     }
                 },
             ),
-            normalize="none",
+            scaling=NoScaling(),
         ),
         str(out_dir),
         dataset_format="hdf5",
@@ -255,7 +258,7 @@ def single_matrix_parameter_stream_dataset(
                 seed=7,
                 shuffle=True,
             ),
-            normalize="matrix",
+            scaling=GershgorinScaling(),
         ),
         str(out_dir),
         dataset_format="hdf5",
@@ -333,7 +336,7 @@ problem = "Test problem"
 rhs_path = "{(rhs_archive_dir / "b_*.txt").as_posix()}"
 
 [generation]
-normalize = "none"
+scaling = {{ kind = "none" }}
 shuffle = false
 
 [[generation.strategy]]
@@ -375,7 +378,7 @@ problem = "Test problem"
 solutions_path = "{(solutions_dir / "x_*.txt").as_posix()}"
 
 [generation]
-normalize = "none"
+scaling = {{ kind = "none" }}
 shuffle = false
 
 [[generation.strategy]]
@@ -427,7 +430,7 @@ matrix_path = "{identity_matrix_file.as_posix()}"
 problem = "Test problem"
 
 [generation]
-normalize = "none"
+scaling = {{ kind = "none" }}
 shuffle = false
 
 [[generation.strategy]]

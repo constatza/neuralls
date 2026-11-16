@@ -11,6 +11,7 @@ from neuralls.domain.generation.binding_allocation import _resolve_binding_strat
 from neuralls.domain.generation.bindings import SystemBinding
 from neuralls.domain.generation.helpers import resolve_strategy_counts
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec
+from neuralls.shared.system_scaling import GershgorinScaling
 from tests.fakes.archive_source import InMemoryArchiveSource
 
 _NUM_MATRICES = 3
@@ -26,7 +27,7 @@ def multi_matrix_spec() -> DatasetSpec:
             shuffle=False,
             strategy_overrides={"gaussian_residuals": {"stop": 3, "start": 1}},
         ),
-        normalize="matrix",
+        scaling=GershgorinScaling(),
     )
 
 

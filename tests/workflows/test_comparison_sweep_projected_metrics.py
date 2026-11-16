@@ -48,6 +48,7 @@ def _write_sweep_config(path: Path, tmp_path: Path) -> None:
             "max_iterations": 10,
             "stopping_criterion": "residual_norm",
             "m_max": 20,
+            "system_scaling": {"kind": "none"},
             "preconditioners": [{"name": "identity", "type": "identity"}],
         },
         "datasets": [{"id": "solutions", "path": "datasets/solutions.toml"}],

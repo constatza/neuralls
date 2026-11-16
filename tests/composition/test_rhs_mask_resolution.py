@@ -11,6 +11,7 @@ from neuralls.composition.comparison._input_resolution import resolve_comparison
 from neuralls.composition.comparison.models import ResolvedComparisonInput
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
 from neuralls.domain.solver.models.provenance import SharedSingleMatrix
+from neuralls.shared.system_scaling import NoScaling
 from neuralls.shared.types import ComparisonRhsSourceKind, RowKind
 from tests.dataset_support import build_test_dataset
 
@@ -46,7 +47,7 @@ def dataset_dir(tmp_path: Path) -> Path:
         SourceSpec(matrix_path=str(matrix_path)),
         DatasetSpec(
             mixture=MixtureSpec(counts={"neutral_ones": 3}, seed=42, shuffle=False),
-            normalize="none",
+            scaling=NoScaling(),
         ),
         str(out),
         dataset_format="hdf5",

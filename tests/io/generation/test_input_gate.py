@@ -126,6 +126,20 @@ def test_a_dataset_generated_before_provenance_existed_is_stale_and_names_the_co
     )
 
 
+def test_a_dataset_with_a_pre_scaling_manifest_is_stale(
+    data_config: DataConfigFile,
+    served_config: list[DataConfigFile],
+    rewrite_as_pre_scaling_manifest: Callable[[Path], None],
+) -> None:
+    served_config.append(data_config)
+    rewrite_as_pre_scaling_manifest(_generate_and_pin(data_config))
+
+    with pytest.raises(StageInputsStale) as raised:
+        _gate(data_config)
+
+    assert raised.value.reason is StageInputsStaleReason.DATASET_STALE
+
+
 def test_the_gate_reports_what_the_pinned_split_holds_out(
     data_config: DataConfigFile, served_config: list[DataConfigFile]
 ) -> None:

@@ -72,6 +72,7 @@ from neuralls.platform.tracking.run_names import run_name_text
 from neuralls.shared.digest import canonical_digest
 from neuralls.shared.scientific_description.models import ScientificDescription
 from neuralls.shared.scientific_description.policy import NotationPolicy
+from neuralls.shared.system_scaling import GershgorinScaling, RhsScaling
 from neuralls.shared.types import DatasetId, MatrixId, NoFitDataEvidence, PreconditionerName
 from neuralls.shared.workflow_failures import (
     ComparisonMatrixFailureContext,
@@ -106,7 +107,8 @@ def _system(dataset: str, matrix: int, entry_id: str = "system") -> MagicMock:
         stopping_criterion="residual_norm",
         m_max=5,
     )
-    system.cfg.general.data.normalize_system = "matrix"
+    system.cfg.general.data.system_scaling = GershgorinScaling()
+    system.cfg.general.data.rhs_scaling = RhsScaling.NONE
     system.__dict__["settings"] = MagicMock()
     system.cfg.notation_policy = NotationPolicy.default()
     system.__dict__["presentation"] = MagicMock()
@@ -217,8 +219,9 @@ def test_method_schedule_rejects_mixed_matrix_and_solver_semantics() -> None:
             stopping_criterion="residual_norm",
             m_max=5,
         )
-        system.cfg.general.data.normalize_system = "matrix"
-    second.cfg.general.data.normalize_system = "rhs"
+        system.cfg.general.data.system_scaling = GershgorinScaling()
+        system.cfg.general.data.rhs_scaling = RhsScaling.NONE
+    second.cfg.general.data.rhs_scaling = RhsScaling.UNIT
 
     with pytest.raises(ValueError):
         method_major_schedule((first, second))

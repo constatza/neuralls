@@ -45,7 +45,7 @@ problem = "Test problem"
 enumerate_by = "name"
 
 [generation]
-normalize = "none"
+scaling = {{ kind = "none" }}
 
 [[generation.strategy]]
 name = "neutral_ones"

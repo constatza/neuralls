@@ -15,6 +15,7 @@ import pytest
 from neuralls.composition.generation.csr_streaming import write_csr_streamed
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
 from neuralls.platform.storage.manifest_io import read_dataset_manifest
+from neuralls.shared.system_scaling import GershgorinScaling
 from neuralls.shared.types import DatasetFormat, LayoutType, SparsityPattern
 
 pytestmark = pytest.mark.deferred_io("dataset-fixture-io")
@@ -36,7 +37,7 @@ def dataset_format(request: pytest.FixtureRequest) -> DatasetFormat:
 def spec() -> DatasetSpec:
     return DatasetSpec(
         mixture=MixtureSpec(counts={"gaussian_forward": _ROWS}, seed=_SEED, shuffle=False),
-        normalize="matrix",
+        scaling=GershgorinScaling(),
         write_batch_size=_BATCH_ROWS,
     )
 

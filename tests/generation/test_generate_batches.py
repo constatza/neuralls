@@ -27,6 +27,7 @@ from neuralls.domain.generation.orchestration import (
     _prepare_generation_context,
 )
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
+from neuralls.shared.system_scaling import GershgorinScaling
 from neuralls.shared.types import MatrixFormat
 from tests.fakes.archive_source import InMemoryArchiveSource
 
@@ -91,7 +92,7 @@ def generation_order_spec(solver_overrides: dict[str, Any]) -> DatasetSpec:
             strategy_overrides={"gaussian_residuals": {"stop": 3, "start": 1}},
             solver_overrides=solver_overrides,
         ),
-        normalize="matrix",
+        scaling=GershgorinScaling(),
     )
 
 

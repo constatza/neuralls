@@ -20,6 +20,7 @@ from tests.dataset_support import build_test_dataset
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
 from neuralls.platform.storage.dataset_readers import load_matrix_sparse_sample
 from neuralls.platform.storage.datasets import load_dense_training_arrays
+from neuralls.shared.system_scaling import NoScaling
 from neuralls.shared.types import MatrixFormat
 
 _SIZE = 4
@@ -61,7 +62,7 @@ def test_directory_per_sample_glob_builds_two_distinct_csr_matrices(
                 seed=_SEED,
                 shuffle=False,
             ),
-            normalize="none",
+            scaling=NoScaling(),
         ),
         str(out_dir),
         dataset_format=dataset_format,

@@ -29,6 +29,7 @@ from neuralls.platform.storage.dataset_digest import (
     stat_digest,
 )
 from neuralls.platform.storage.dataset_readers import resolve_dataset_artifacts
+from neuralls.platform.storage.manifest import InvalidDatasetManifestError
 from neuralls.platform.storage.manifest_io import read_dataset_manifest, save_dataset_manifest
 from neuralls.shared.types import DatasetFormat
 
@@ -324,3 +325,31 @@ def test_legacy_manifest_without_digests_is_recomputed(generated_dataset_dir: Pa
     reloaded = read_dataset_manifest(generated_dataset_dir)
     assert reloaded.content_digest is None
     assert current_dataset_digest(generated_dataset_dir) == manifest.content_digest
+
+
+# --- manifests written before system scaling ------------------------------------
+
+
+def test_a_pre_scaling_manifest_is_an_invalid_manifest_naming_its_scaling_block(
+    data_config: DataConfigFile, rewrite_as_pre_scaling_manifest: Callable[[Path], None]
+) -> None:
+    dataset_dir = _generate(data_config)
+    rewrite_as_pre_scaling_manifest(dataset_dir)
+
+    with pytest.raises(InvalidDatasetManifestError) as error:
+        read_dataset_manifest(dataset_dir)
+
+    assert (error.value.dataset_dir, error.value.field) == (dataset_dir, "scaling")
+
+
+def test_a_pre_scaling_dataset_is_not_reusable_and_forced_generation_rewrites_it(
+    data_config: DataConfigFile, rewrite_as_pre_scaling_manifest: Callable[[Path], None]
+) -> None:
+    dataset_dir = _generate(data_config)
+    rewrite_as_pre_scaling_manifest(dataset_dir)
+
+    assert not dataset_builder.is_dataset_reusable(dataset_dir, generation_identity(data_config))
+
+    _generate(data_config, force=True)
+
+    assert read_dataset_manifest(dataset_dir).scaling.scaling == data_config.generation.scaling

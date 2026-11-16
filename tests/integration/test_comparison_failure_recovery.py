@@ -51,7 +51,7 @@ def _write_case(
             "max_iterations": max_iterations,
             "stopping_criterion": "residual_norm",
             "m_max": 5,
-            "normalize_system": "none",
+            "system_scaling": {"kind": "none"},
             "reference_preconditioner": "jacobi",
             "preconditioners": [
                 {"name": "identity", "type": "identity"},

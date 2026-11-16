@@ -22,6 +22,7 @@ from neuralls.platform.storage.dataset_readers import (
     load_row_kind_codes,
 )
 from neuralls.platform.storage.datasets import load_dense_training_arrays
+from neuralls.shared.system_scaling import GershgorinScaling
 
 _SEED = 1234
 
@@ -67,7 +68,7 @@ def _build(
                 solver_overrides=solver_overrides,
                 **mixture_kwargs,
             ),
-            normalize="matrix",
+            scaling=GershgorinScaling(),
         ),
         str(out_dir),
         dataset_format="hdf5",

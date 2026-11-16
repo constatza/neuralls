@@ -1,12 +1,11 @@
-"""Test that data generation maintains A @ x = b consistency after normalization.
+"""Test that data generation maintains A @ x = b consistency after system scaling.
 
-This test verifies that the orchestration layer does not double-normalize data
-returned by strategies. Strategies receive a normalized matrix and produce
-normalized data (RHS and solutions). The orchestration layer should NOT apply
-additional normalization to this data.
+This test verifies that the orchestration layer does not scale data twice.
+Strategies receive the scaled matrix and produce RHS and solutions of the scaled
+system. The orchestration layer must not scale that data again.
 
-Regression test for bug where build_test_dataset() was applying scale.scale_rhs()
-and scale.scale_solution() to data that was already normalized by strategies.
+Regression test for a bug where the dataset builder rescaled the RHS and solutions
+that strategies had already produced for the scaled matrix.
 """
 
 from __future__ import annotations
@@ -22,6 +21,7 @@ from neuralls.platform.storage.datasets import (
     load_dense_training_arrays,
     load_matrix_dense_sample,
 )
+from neuralls.shared.system_scaling import GershgorinScaling, NoScaling
 
 
 @pytest.fixture
@@ -59,10 +59,10 @@ def solutions_glob(tmp_path: Path, matrix_path: str) -> str:
 
 
 def verify_dataset_consistency(dataset_dir: Path) -> tuple[bool, float]:
-    """Verify that A_norm @ x == b_norm for all samples in dataset.
+    """Verify that (A / alpha) @ x == b / alpha for all samples in dataset.
 
-    The zarr pack stores A_norm directly (already in normalized space). RHS and
-    solutions are also in normalized space, so no additional scaling is needed.
+    The dataset stores the scaled matrix A / alpha directly, and RHS and solutions
+    belong to that scaled system, so no additional scaling is needed.
 
     Args:
         dataset_dir: Path to dataset directory.
@@ -105,7 +105,7 @@ def test_solution_archive_consistency(
                     }
                 },
             ),
-            normalize="matrix",
+            scaling=GershgorinScaling(),
         ),
         str(tmp_path / "solution-archive"),
     )
@@ -126,7 +126,7 @@ def test_eigenvector_forward_consistency(tmp_path: Path, matrix_path: str) -> No
                 seed=42,
                 shuffle=False,
             ),
-            normalize="matrix",
+            scaling=GershgorinScaling(),
         ),
         str(tmp_path / "eigenvector-forward"),
     )
@@ -147,7 +147,7 @@ def test_eigenvector_inverse_consistency(tmp_path: Path, matrix_path: str) -> No
                 seed=42,
                 shuffle=False,
             ),
-            normalize="matrix",
+            scaling=GershgorinScaling(),
         ),
         str(tmp_path / "eigenvector-inverse"),
     )
@@ -156,10 +156,8 @@ def test_eigenvector_inverse_consistency(tmp_path: Path, matrix_path: str) -> No
     assert is_consistent, f"eigenvector_inverse: A @ x != b, max error = {max_error:.2e}"
 
 
-def test_no_normalization_consistency(
-    tmp_path: Path, matrix_path: str, solutions_glob: str
-) -> None:
-    """Test that consistency holds with normalize='none'."""
+def test_no_scaling_consistency(tmp_path: Path, matrix_path: str, solutions_glob: str) -> None:
+    """Test that consistency holds with NoScaling."""
     dataset_dir = build_test_dataset(
         SourceSpec(
             matrix_path=matrix_path,
@@ -176,13 +174,13 @@ def test_no_normalization_consistency(
                     }
                 },
             ),
-            normalize="none",
+            scaling=NoScaling(),
         ),
-        str(tmp_path / "no-normalization"),
+        str(tmp_path / "no-scaling"),
     )
 
     is_consistent, max_error = verify_dataset_consistency(Path(dataset_dir))
-    assert is_consistent, f"normalize='none': A @ x != b, max error = {max_error:.2e}"
+    assert is_consistent, f"NoScaling: A @ x != b, max error = {max_error:.2e}"
 
 
 def test_mixed_strategies_consistency(
@@ -191,7 +189,7 @@ def test_mixed_strategies_consistency(
     """Test that mixing multiple strategies maintains A @ x = b for all samples.
 
     This verifies that the orchestration correctly handles data from different
-    strategies without double-normalization or inconsistencies.
+    strategies without double scaling or inconsistencies.
     """
     dataset_dir = build_test_dataset(
         SourceSpec(
@@ -213,7 +211,7 @@ def test_mixed_strategies_consistency(
                     }
                 },
             ),
-            normalize="matrix",
+            scaling=GershgorinScaling(),
         ),
         str(tmp_path / "mixed-strategies"),
     )
@@ -253,7 +251,7 @@ def test_mixed_archive_and_synthetic_strategies(
                     }
                 },
             ),
-            normalize="matrix",
+            scaling=GershgorinScaling(),
         ),
         str(tmp_path / "archive-and-synthetic"),
     )
@@ -291,7 +289,7 @@ def test_large_mixed_dataset_consistency(
                     }
                 },
             ),
-            normalize="matrix",
+            scaling=GershgorinScaling(),
         ),
         str(tmp_path / "large-mixed"),
     )
@@ -331,7 +329,7 @@ def test_mixed_strategies_with_shuffling(
                     }
                 },
             ),
-            normalize="matrix",
+            scaling=GershgorinScaling(),
         ),
         str(tmp_path / "shuffled-mixed"),
     )

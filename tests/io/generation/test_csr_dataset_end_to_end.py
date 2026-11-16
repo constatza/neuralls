@@ -18,6 +18,7 @@ from tests.dataset_support import build_test_dataset
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
 from neuralls.platform.storage.dataset_readers import load_matrix_sparse_sample
 from neuralls.platform.storage.datasets import load_dense_training_arrays
+from neuralls.shared.system_scaling import NoScaling
 from neuralls.shared.types import MatrixFormat
 
 _SIZE = 6
@@ -51,7 +52,7 @@ def test_csr_generation_stores_the_source_matrix_and_consistent_systems(
                 seed=_SEED,
                 shuffle=False,
             ),
-            normalize="none",
+            scaling=NoScaling(),
         ),
         str(out_dir),
         dataset_format="zarr",
@@ -81,7 +82,7 @@ def test_dense_and_csr_builds_generate_the_same_rows(sparse_spd_mtx: Path, tmp_p
             seed=_SEED,
             shuffle=False,
         ),
-        normalize="none",
+        scaling=NoScaling(),
     )
     source = SourceSpec(matrix_path=str(sparse_spd_mtx))
     dense_dir = tmp_path / "dense"

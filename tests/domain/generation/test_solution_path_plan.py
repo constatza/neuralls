@@ -17,6 +17,7 @@ from neuralls.domain.generation.batch_plan import ALL_SAMPLES, plan_batches
 from neuralls.domain.generation.binding_allocation import _resolve_binding_strategy_counts
 from neuralls.domain.generation.bindings import SystemBinding
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec
+from neuralls.shared.system_scaling import GershgorinScaling
 from tests.fakes.archive_source import InMemoryArchiveSource
 
 _SOLUTION_STRATEGY = "solution_archive"
@@ -49,7 +50,7 @@ def solution_file(
 def _open_ended_solution_spec() -> DatasetSpec:
     return DatasetSpec(
         mixture=MixtureSpec(counts={_SOLUTION_STRATEGY: ALL_SAMPLES}, seed=0),
-        normalize="matrix",
+        scaling=GershgorinScaling(),
     )
 
 

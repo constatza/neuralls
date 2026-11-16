@@ -84,7 +84,7 @@ id = "test-data"
 matrix_path = "{matrix_path.as_posix()}"
 
 [generation]
-normalize = "matrix"
+scaling = {{ kind = "gershgorin", dimension_factor = "sqrt_n" }}
 """,
         encoding="utf-8",
     )

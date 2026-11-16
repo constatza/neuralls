@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from pathlib import Path
 
@@ -21,6 +22,8 @@ from neuralls.platform.config.models.data_models import (
     SourceConfig,
     StrategyConfig,
 )
+from neuralls.shared.constants import DATASET_MANIFEST_FILENAME
+from neuralls.shared.system_scaling import NoScaling
 from neuralls.shared.types import DatasetFormat
 
 # Re-exported so these tests share the seeded dense-generation fixtures with the other conftest.
@@ -98,7 +101,7 @@ def dataset_spec() -> DatasetSpec:
             shuffle=False,
             strategy_overrides={"neutral_ones": {"samples": 1}},
         ),
-        normalize="none",
+        scaling=NoScaling(),
     )
 
 
@@ -120,7 +123,7 @@ def make_data_config(spd_matrix_file: Path, tmp_path: Path) -> Callable[..., Dat
                 matrix_path=str(matrix_path or spd_matrix_file), problem="Test problem"
             ),
             generation=GenerationConfig(
-                normalize="none",
+                scaling=NoScaling(),
                 shuffle=False,
                 seed=seed,
                 strategy=[StrategyConfig(name="neutral_ones", samples=1)],
@@ -172,3 +175,29 @@ def solution_block_npy(tmp_path: Path, solution_block: np.ndarray) -> Path:
     path = tmp_path / "solutions.npy"
     np.save(path, solution_block)
     return path
+
+
+@pytest.fixture
+def rewrite_as_pre_scaling_manifest() -> Callable[[Path], None]:
+    """Rewrite a dataset's manifest in the shape written before system scaling existed.
+
+    The ``scaling`` block becomes the old ``normalization`` block and the provenance stores a
+    ``normalization`` string instead of a ``scaling`` model, as on datasets already on disk.
+    """
+
+    def _rewrite(dataset_dir: Path) -> None:
+        path = dataset_dir / DATASET_MANIFEST_FILENAME
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+        scaling = manifest.pop("scaling")
+        manifest["normalization"] = {
+            "type": "matrix",
+            "matrix_norm": scaling["matrix_norm"],
+            "matrix_norm_type": scaling["matrix_norm_type"],
+            "scale": {"spectral_radius_bound": 6.0, "dimension_scale": 2.0},
+        }
+        generation = manifest["provenance"]["generation"]
+        generation.pop("scaling")
+        generation["normalization"] = "matrix"
+        path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    return _rewrite

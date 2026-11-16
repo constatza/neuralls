@@ -106,6 +106,7 @@ from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.platform.tracking.mlflow import sanitize_metric_key_segment
 from neuralls.shared.digest import canonical_digest
 from neuralls.shared.scientific_description.policy import NotationPolicy
+from neuralls.shared.system_scaling import NoScaling
 from neuralls.shared.types import (
     ComparisonRhsSourceKind,
     CostProvenance,
@@ -382,7 +383,7 @@ def test_resolve_comparison_config_presentation_override_replaces_case_default(
 ) -> None:
     """A per-entry `method` file's `[presentation]` fully replaces the case-level default.
 
-    Matches how `preconditioners`/`normalize_system` already override in
+    Matches how `preconditioners`/`system_scaling` already override in
     this same function — a full replace, not a field-level merge.
     """
     from neuralls.shared.scientific_description.policy import RenderTarget
@@ -695,7 +696,7 @@ def _build_split_pinned_dataset(root: Path) -> Path:
         SourceSpec(matrix_path=str(matrix_path)),
         DatasetSpec(
             mixture=MixtureSpec(counts={"neutral_ones": 3}, seed=42, shuffle=False),
-            normalize="none",
+            scaling=NoScaling(),
         ),
         str(dataset_dir),
         dataset_format="hdf5",
@@ -1333,6 +1334,7 @@ def test_comparison_sweep_runs_one_system_per_held_out_matrix_and_rhs_draw(
             "max_iterations": 10,
             "stopping_criterion": "residual_norm",
             "m_max": 20,
+            "system_scaling": {"kind": "none"},
             "preconditioners": [{"name": "identity", "type": "identity"}],
         },
         "datasets": [{"id": "solutions", "path": "datasets/solutions.toml"}],
@@ -1441,11 +1443,11 @@ def test_comparison_sweep_runs_one_system_per_held_out_matrix_and_rhs_draw(
     ]
     assert [i.matrix_provenance for i in inputs] == expected_provenance
     assert [float(i.matrix[0, 0]) for i in inputs] == [5.0, 5.0, 9.0, 9.0]
-    # The comparison config's matrix normalization is applied while staging
-    # each bundle, so the diagonal 2x2 matrices have spectral norm 1/sqrt(2).
+    # The dataset is unscaled and the case asks for no scaling, so a stored matrix is
+    # staged as is: the diagonal 2x2 matrices keep spectral norms 5 and 9.
     assert [
         float(torch.linalg.matrix_norm(bundle.matrix.to_dense(), ord=2)) for bundle in bundles_seen
-    ] == pytest.approx([1 / np.sqrt(2), 1 / np.sqrt(2)])
+    ] == pytest.approx([5.0, 9.0])
     # Each system draws its own RHS, so no two vectors coincide.
     assert len({tuple(i.rhs) for i in inputs}) == 4
 
@@ -1476,6 +1478,7 @@ def test_an_external_rhs_of_the_wrong_length_fails_only_its_own_system(
             "max_iterations": 10,
             "stopping_criterion": "residual_norm",
             "m_max": 20,
+            "system_scaling": {"kind": "none"},
             "preconditioners": [{"name": "identity", "type": "identity"}],
         },
         "datasets": [{"id": "solutions", "path": "datasets/solutions.toml"}],

@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
+from neuralls.shared.system_scaling import GershgorinScaling
 
 _ATOMIC_SEED = 2024
 _ATOMIC_MATRIX_COUNT = 3
@@ -43,6 +44,6 @@ def atomic_spec() -> DatasetSpec:
             seed=_ATOMIC_SEED,
             shuffle=False,
         ),
-        normalize="matrix",
+        scaling=GershgorinScaling(),
         write_batch_size=_ATOMIC_BATCH_ROWS,
     )

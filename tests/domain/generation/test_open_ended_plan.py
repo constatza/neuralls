@@ -20,6 +20,7 @@ from neuralls.domain.generation.binding_allocation import (
 )
 from neuralls.domain.generation.bindings import SystemBinding
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec
+from neuralls.shared.system_scaling import GershgorinScaling
 from tests.fakes.archive_source import InMemoryArchiveSource
 
 _NUM_MATRICES = 3
@@ -57,7 +58,7 @@ def _open_ended_spec(strategy: str, glob: str) -> DatasetSpec:
             seed=0,
             strategy_overrides={strategy: {_GLOB_KEY: glob}},
         ),
-        normalize="matrix",
+        scaling=GershgorinScaling(),
     )
 
 
