@@ -541,10 +541,7 @@ Both variants carry distinct matrix, planned-RHS, attempted-RHS, and
 converged counts for each method, and both carry `observations`, the group's rows of the
 observation view. Workload-total bars are emitted for
 all levels, while mixture reports never imply that heterogeneous recipes form
-one profile population. For each group, `MLflowReportSink.report` computes the group's response
-points once from the group presentation (`response_points` over each method's configured
-presentation) and passes the same points to figure planning and to the figure summaries, so a
-group whose methods form no numeric response series gets no response figure.
+one profile population.
 
 `classify_level(planned, setup_events, solve_attempts, level, selection, observations=...)`
 returns `GroupAggregated` when at least one method has a setup event and
@@ -764,8 +761,8 @@ penalty.
 Matrix-set-and-RHS-type profiles use one RHS type. Solve-only and amortized-online ECDFs and
 Dolan--Moré profiles show their respective absolute budgets and fastest-method
 ratios. Matrix-set and all-matrix-sets outputs are workload mixtures: they emit the workload and
-cost bars, the means, time per iteration, distributions, convergence factors and response
-figures one figure per cohort (the pooled `__mixture` figure at the matrix-set level, whose recipe cohorts would repeat the
+cost bars, the means, time per iteration, distributions and convergence factors
+one figure per cohort (the pooled `__mixture` figure at the matrix-set level, whose recipe cohorts would repeat the
 matrix-set-and-RHS-type reports; one figure per recipe plus the pooled one at the all-matrix-sets
 level), and the ECDFs, performance profiles, paired scatter and speed-ratio CDF as one
 `__mixture` figure pooled over all the group's systems, labelled a mixture of recipes. A

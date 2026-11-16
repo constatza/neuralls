@@ -28,7 +28,6 @@ from neuralls.domain.benchmarking.paired import (
     speed_ratio_summary,
 )
 from neuralls.domain.benchmarking.profiles import performance_series
-from neuralls.domain.benchmarking.response import ResponsePoint
 from neuralls.domain.benchmarking.uncertainty import MIN_INTERVAL_MATRICES, TooFewMatrices
 from neuralls.domain.solver.models.group_outcomes import RecipeProfileReport
 from neuralls.domain.solver.models.group_presentation import GroupPresentation
@@ -96,10 +95,7 @@ _UNTIMED_STEMS = sorted(set(_BY_STEM) - set(_TIME_STEMS))
 
 
 def _payloads(
-    report: RecipeProfileReport,
-    presentation: GroupPresentation,
-    notation: NotationPolicy,
-    points: Mapping[PreconditionerName, ResponsePoint],
+    report: RecipeProfileReport, presentation: GroupPresentation, notation: NotationPolicy
 ) -> dict[str, Payload]:
     """The card payload of every figure planned for ``report``, by variant stem."""
     stems = {variant.figure_stem(FILE_KEY): variant.stem for variant in _PROFILE_VARIANTS}
@@ -114,7 +110,7 @@ def _payloads(
                 notation=notation,
             )
         )
-        for plan in figure_plans(report, presentation, FILE_KEY, {}, points=points)
+        for plan in figure_plans(report, presentation, FILE_KEY, {})
     }
 
 
@@ -123,10 +119,9 @@ def payloads(
     profile_report: RecipeProfileReport,
     repeated_timing_presentation: GroupPresentation,
     notation: NotationPolicy,
-    report_response_points: dict[PreconditionerName, ResponsePoint],
 ) -> dict[str, Payload]:
     """The cards of a report whose systems were each timed three times."""
-    return _payloads(profile_report, repeated_timing_presentation, notation, report_response_points)
+    return _payloads(profile_report, repeated_timing_presentation, notation)
 
 
 @pytest.fixture(scope="module")
@@ -134,10 +129,9 @@ def single_repeat_payloads(
     profile_report: RecipeProfileReport,
     single_timing_presentation: GroupPresentation,
     notation: NotationPolicy,
-    report_response_points: dict[PreconditionerName, ResponsePoint],
 ) -> dict[str, Payload]:
     """The cards of a report whose systems were each timed once."""
-    return _payloads(profile_report, single_timing_presentation, notation, report_response_points)
+    return _payloads(profile_report, single_timing_presentation, notation)
 
 
 def _leaf_types(value: object) -> set[type]:
@@ -400,18 +394,11 @@ def test_a_card_decodes_to_the_metadata_it_was_built_from(
     profile_report: RecipeProfileReport,
     single_timing_presentation: GroupPresentation,
     notation: NotationPolicy,
-    report_response_points: dict[PreconditionerName, ResponsePoint],
     stem: str,
 ) -> None:
     plans = {
         plan.stem: plan
-        for plan in figure_plans(
-            profile_report,
-            single_timing_presentation,
-            FILE_KEY,
-            {},
-            points=report_response_points,
-        )
+        for plan in figure_plans(profile_report, single_timing_presentation, FILE_KEY, {})
     }
     plan = plans[_BY_STEM[stem].figure_stem(FILE_KEY)]
     card = build_figure_card(

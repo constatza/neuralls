@@ -24,7 +24,6 @@ from neuralls.composition.comparison.models import (
     CompletedMethodWorkload,
     canonical_method_config,
 )
-from neuralls.domain.benchmarking.response import FactSide, ResponsePoint, SweptFact
 from neuralls.domain.benchmarking.selection import ConfiguredReference
 from neuralls.domain.presentation.methods import ExecutedMethod
 from neuralls.domain.presentation.provenance import DatasetPresentation
@@ -85,7 +84,6 @@ from neuralls.platform.reporting.figure_metadata import (
     TimingPolicy,
 )
 from neuralls.shared.rhs_recipe import SinusoidalRecipe
-from neuralls.shared.scientific_description.models import FieldKey
 from neuralls.shared.system_scaling import GershgorinScaling, RhsScaling
 from neuralls.shared.types import (
     DatasetId,
@@ -314,18 +312,6 @@ def profile_report(
         reference_selection=ConfiguredReference(PreconditionerName("jacobi")),
         recipe_membership=(GAUSSIAN,),
     )
-
-
-@pytest.fixture(scope="module")
-def report_response_points(
-    profile_report: RecipeProfileReport,
-) -> dict[PreconditionerName, ResponsePoint]:
-    """Every method of ``profile_report`` (and its mixtures) on one family's rank sweep."""
-    rank = SweptFact(FactSide.METHOD, FieldKey("rank"))
-    return {
-        summary.method: ResponsePoint("POD-CG", rank, float(10 * (index + 1)))
-        for index, summary in enumerate(profile_report.summaries)
-    }
 
 
 @pytest.fixture(scope="module")

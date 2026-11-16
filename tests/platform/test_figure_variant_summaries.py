@@ -22,7 +22,6 @@ from neuralls.domain.benchmarking.paired import (
     speed_ratio_summary,
 )
 from neuralls.domain.benchmarking.profiles import ecdf_series, performance_series
-from neuralls.domain.benchmarking.response import RESPONSE_SCHEMA, ResponsePoint, response_table
 from neuralls.domain.benchmarking.selection import NoReferenceConfigured
 from neuralls.domain.solver.models.cost import Known, OfflineStages, Unavailable
 from neuralls.domain.solver.models.group_outcomes import (
@@ -169,13 +168,9 @@ def test_every_variant_has_its_own_file_stem() -> None:
 
 
 def test_planning_yields_one_figure_per_variant_of_a_profile_report(
-    profile_report: RecipeProfileReport,
-    repeated_timing_presentation: GroupPresentation,
-    report_response_points: dict[PreconditionerName, ResponsePoint],
+    profile_report: RecipeProfileReport, repeated_timing_presentation: GroupPresentation
 ) -> None:
-    plans = figure_planning.figure_plans(
-        profile_report, repeated_timing_presentation, "key", {}, points=report_response_points
-    )
+    plans = figure_planning.figure_plans(profile_report, repeated_timing_presentation, "key", {})
 
     assert [plan.stem for plan in plans] == [
         variant.figure_stem("key") for _, variant in _PROFILE_VARIANTS
@@ -184,22 +179,16 @@ def test_planning_yields_one_figure_per_variant_of_a_profile_report(
 
 def test_a_profile_report_plans_a_summary_frame_for_every_variant(
     profile_report: RecipeProfileReport,
-    report_response_points: dict[PreconditionerName, ResponsePoint],
 ) -> None:
-    summaries = figure_summaries(
-        profile_report, no_offline_cost(profile_report), points=report_response_points
-    )
+    summaries = figure_summaries(profile_report, no_offline_cost(profile_report))
 
     assert set(summaries) == _PROFILE_STEMS
 
 
 def test_a_mixture_report_plans_summary_frames_only_for_the_variants_it_draws(
     mixture_report: WorkloadMixtureReport,
-    report_response_points: dict[PreconditionerName, ResponsePoint],
 ) -> None:
-    summaries = figure_summaries(
-        mixture_report, no_offline_cost(mixture_report), points=report_response_points
-    )
+    summaries = figure_summaries(mixture_report, no_offline_cost(mixture_report))
 
     assert set(summaries) == _MIXTURE_STEMS
 
@@ -209,14 +198,9 @@ def test_a_mixture_report_plans_summary_frames_only_for_the_variants_it_draws(
     [pytest.param(kind, variant, id=variant.stem) for kind, variant in _PROFILE_VARIANTS],
 )
 def test_a_variant_summary_has_the_schema_of_its_recipes_table_kind(
-    profile_report: RecipeProfileReport,
-    report_response_points: dict[PreconditionerName, ResponsePoint],
-    kind: FigureKind,
-    variant: FigureVariant,
+    profile_report: RecipeProfileReport, kind: FigureKind, variant: FigureVariant
 ) -> None:
-    summary = figure_summaries(
-        profile_report, no_offline_cost(profile_report), points=report_response_points
-    )[variant.stem]
+    summary = figure_summaries(profile_report, no_offline_cost(profile_report))[variant.stem]
 
     assert dict(summary.schema) == TABLE_SCHEMAS[group_recipe(kind).table]
 
@@ -260,15 +244,10 @@ def test_the_cost_breakdown_stacks_the_offline_cost_of_each_method_on_its_worklo
 
 def test_a_report_without_a_reference_plans_no_figure_that_compares_against_one(
     profile_report: RecipeProfileReport,
-    report_response_points: dict[PreconditionerName, ResponsePoint],
 ) -> None:
     unreferenced = replace(profile_report, reference_selection=NoReferenceConfigured())
 
-    summaries = figure_summaries(
-        unreferenced, no_offline_cost(unreferenced), points=report_response_points
-    )
-
-    assert set(summaries) == _PROFILE_STEMS - {
+    assert set(figure_summaries(unreferenced, no_offline_cost(unreferenced))) == _PROFILE_STEMS - {
         "paired_time_scatter",
         "speed_ratio_cdf",
         "breakeven",
@@ -276,15 +255,11 @@ def test_a_report_without_a_reference_plans_no_figure_that_compares_against_one(
 
 
 def test_planning_without_a_reference_plans_no_figure_that_compares_against_one(
-    profile_report: RecipeProfileReport,
-    repeated_timing_presentation: GroupPresentation,
-    report_response_points: dict[PreconditionerName, ResponsePoint],
+    profile_report: RecipeProfileReport, repeated_timing_presentation: GroupPresentation
 ) -> None:
     unreferenced = replace(profile_report, reference_selection=NoReferenceConfigured())
 
-    plans = figure_planning.figure_plans(
-        unreferenced, repeated_timing_presentation, "key", {}, points=report_response_points
-    )
+    plans = figure_planning.figure_plans(unreferenced, repeated_timing_presentation, "key", {})
 
     assert [plan.stem for plan in plans] == [
         variant.figure_stem("key")
@@ -347,29 +322,6 @@ def test_the_pooled_rows_of_a_mixture_are_the_summary_of_every_recipe_together(
     assert_frame_equal(
         pooled,
         summarize(two_recipe_mixture_report.observations, MetricId.ITERATIONS, Population.OWN),
-    )
-
-
-def test_the_response_table_is_each_cohorts_summary_joined_with_its_response_points(
-    two_recipe_mixture_report: WorkloadMixtureReport,
-    report_response_points: dict[PreconditionerName, ResponsePoint],
-) -> None:
-    report = two_recipe_mixture_report
-
-    table = figure_summaries(report, no_offline_cost(report), points=report_response_points)[
-        "response_iterations"
-    ]
-
-    assert_frame_equal(
-        table,
-        by_cohort(
-            report.observations,
-            lambda frame: response_table(
-                summarize(frame, MetricId.ITERATIONS, Population.OWN), report_response_points
-            ),
-            CohortRows.RECIPES_AND_MIXTURE,
-            schema=RESPONSE_SCHEMA,
-        ),
     )
 
 

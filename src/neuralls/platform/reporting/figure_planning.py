@@ -12,7 +12,6 @@ from neuralls.domain.benchmarking.paired import (
     reference_among_methods,
 )
 from neuralls.domain.benchmarking.profiles import performance_series
-from neuralls.domain.benchmarking.response import NO_RESPONSE_POINTS, ResponsePoint
 from neuralls.domain.solver.models.group_outcomes import (
     GroupReport,
     WorkloadMixtureReport,
@@ -94,13 +93,10 @@ def figure_plans(
     presentation: GroupPresentation,
     file_key: str,
     stored: Mapping[PreconditionerName, StoredMethod],
-    *,
-    points: Mapping[PreconditionerName, ResponsePoint] = NO_RESPONSE_POINTS,
 ) -> tuple[FigurePlan[GroupFigureMetadata], ...]:
     """Build every figure's scientific context before drawing.
 
-    ``stored`` holds the method run of each method ``presentation`` lists; ``points`` are the
-    group's response points, without which no response figure is planned. A variant drawn per
+    ``stored`` holds the method run of each method ``presentation`` lists. A variant drawn per
     cohort is planned once per cohort the report's level gives a figure (``cohort_variants.py``),
     each with its own stem, card and table.
     """
@@ -115,7 +111,7 @@ def figure_plans(
             slug=file_key,
             stem_suffix=cohort_variant.stem_suffix,
         )
-        for recipe, variant in drawn_variants(outcome, reference, points)
+        for recipe, variant in drawn_variants(outcome, reference)
         for cohort_variant in cohort_variants(recipe.table, level, outcome.recipe_membership)
     )
 
@@ -234,7 +230,6 @@ def _interval(
             | Statistic.RATIO_OF_SUMS
             | Statistic.QUANTILES
             | Statistic.MEAN_PER_MATRIX
-            | Statistic.RESPONSE
         ):
             return NotDrawnByKind()
         case unreachable:
