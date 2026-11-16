@@ -1,0 +1,19 @@
+id = "smoother-filtered-probes-nu10-rectangular-high-condition"
+
+[source]
+problem = "Rectangular high condition"
+matrix_path = "${NEURALLS_RAW_DIR}/matrices/rectangular-high-condition.txt"
+
+[generation]
+scaling = { kind = "gershgorin", dimension_factor = "sqrt_n" }
+shuffle = true
+seed = 42
+
+[[generation.strategy]]
+name = "jacobi_probes"
+samples = [500, 1000, 2000, 10000]
+stop = 10
+probe_distribution = "gaussian"
+
+[output]
+data_dir = "${NEURALLS_PROCESSED_DIR}"

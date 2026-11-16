@@ -1,0 +1,125 @@
+# POD parametric study, rank c in {5, 10, 20, 50, 100, 200}.
+# Baseline: c = 100, k = 20 (POD-CG), p = 10 (POD-JP), N = 5000. Only POD-CG and POD-JP
+# methods are compared; each swept value is its own method, labelled from its facts.
+
+[mlflow]
+tracking_uri = "http://localhost:5000"
+
+[names]
+training = "Train-RHC-POD-Rank"
+comparison = "Compare-RHC-POD-Rank"
+
+[comparison_baseline]
+rtol = 1.0e-6
+atol = 1.0e-14
+max_iterations = 5000
+stopping_criterion = "residual_norm"
+m_max = 20
+
+[[datasets]]
+path = "../../datasets/train/rectangular-high-condition/gaussian-cg20.toml"
+
+[[datasets]]
+path = "../../datasets/train/rectangular-high-condition/smoother-filtered-probes-nu10.toml"
+
+[[jobs]]
+id = "pod-c5"
+path = "../../jobs/pod/r5.toml"
+
+[[jobs]]
+id = "pod-c10"
+path = "../../jobs/pod/pod-rank10.toml"
+
+[[jobs]]
+id = "pod-c20"
+path = "../../jobs/pod/pod-rank20.toml"
+
+[[jobs]]
+id = "pod-c50"
+path = "../../jobs/pod/r50.toml"
+
+[[jobs]]
+id = "pod-c100"
+path = "../../jobs/pod/pod-rank100.toml"
+
+[[jobs]]
+id = "pod-c200"
+path = "../../jobs/pod/pod-rank200.toml"
+
+# 4 RHS recipes x 20 draws on the one RHC matrix: 80 systems per method.
+
+[[comparisons]]
+id = "gaussian"
+matrix_dataset = "gaussian-cg20-rectangular-high-condition"
+rhs_source = { kind = "gaussian" }
+rhs_count = 20
+seed = 42
+
+[[comparisons]]
+id = "masked-gaussian"
+matrix_dataset = "gaussian-cg20-rectangular-high-condition"
+rhs_source = { kind = "gaussian", mask = { kind = "random", density = 0.1 } }
+rhs_count = 20
+seed = 43
+
+[[comparisons]]
+id = "sinusoidal-low-freq"
+matrix_dataset = "gaussian-cg20-rectangular-high-condition"
+rhs_source = { kind = "sinusoidal", omega = 6.283185307179586 }
+rhs_count = 20
+seed = 44
+
+[[comparisons]]
+id = "sinusoidal-high-freq"
+matrix_dataset = "gaussian-cg20-rectangular-high-condition"
+rhs_source = { kind = "sinusoidal", omega = 62.83185307179586 }
+rhs_count = 20
+seed = 45
+
+[[assignments]]
+dataset = "gaussian-cg20-rectangular-high-condition"
+job = "pod-c5"
+
+[[assignments]]
+dataset = "gaussian-cg20-rectangular-high-condition"
+job = "pod-c10"
+
+[[assignments]]
+dataset = "gaussian-cg20-rectangular-high-condition"
+job = "pod-c20"
+
+[[assignments]]
+dataset = "gaussian-cg20-rectangular-high-condition"
+job = "pod-c50"
+
+[[assignments]]
+dataset = "gaussian-cg20-rectangular-high-condition"
+job = "pod-c100"
+
+[[assignments]]
+dataset = "gaussian-cg20-rectangular-high-condition"
+job = "pod-c200"
+
+[[assignments]]
+dataset = "smoother-filtered-probes-nu10-rectangular-high-condition"
+job = "pod-c5"
+
+[[assignments]]
+dataset = "smoother-filtered-probes-nu10-rectangular-high-condition"
+job = "pod-c10"
+
+[[assignments]]
+dataset = "smoother-filtered-probes-nu10-rectangular-high-condition"
+job = "pod-c20"
+
+[[assignments]]
+dataset = "smoother-filtered-probes-nu10-rectangular-high-condition"
+job = "pod-c50"
+
+[[assignments]]
+dataset = "smoother-filtered-probes-nu10-rectangular-high-condition"
+job = "pod-c100"
+
+[[assignments]]
+dataset = "smoother-filtered-probes-nu10-rectangular-high-condition"
+job = "pod-c200"

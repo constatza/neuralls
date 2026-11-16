@@ -223,7 +223,7 @@ scale-equivariant initialization/gain parameters.
 
 ### Rectangular POD parameter studies
 
-Three compact cases isolate POD dataset construction and rank effects. Their
+Three older compact cases isolate POD dataset construction and rank effects. Their
 comparison defaults contain no classical preconditioners; the only compared
 preconditioners are the POD artifacts generated from their fit assignments.
 The job entries intentionally omit `display_name`: a POD label is built from the
@@ -244,6 +244,33 @@ without one it cannot be described and the comparison is rejected before it runs
   `[5, 25, 50, 100, 300]` against fixed 10000-row CG and smoother datasets.
   Rank 300 is the round upper point near one third of the 840-dimensional
   system.
+
+The POD parametric study adds five `pod-<axis>.toml` cases on the same matrix,
+one varied input each, over POD-CG and POD-JP only. Every other input stays at
+the baseline: rank c = 100, CG depth k = 20 (`gaussian-cg20.toml`), Jacobi
+sweeps p = 10 (`smoother-filtered-probes-nu10.toml`), N = 5000 rows. Each
+swept value is its own method, labelled from its facts, so the per-method
+figures compare them directly. Every case solves the same 80 systems: four
+RHS recipes (Gaussian, masked Gaussian, low- and high-frequency sinusoidal,
+seeds 42-45) with `rhs_count = 20` each, on `gaussian-cg20`'s matrix.
+
+- `pod-rank.toml`: c in `{5, 10, 20, 50, 100, 200}`, one fit job per rank.
+- `pod-samples.toml`: N in `{500, 1000, 2000, 5000, 10000}`
+  (`gaussian-cg20.sweep.toml`, `smoother-filtered-probes-nu10.sweep.toml`).
+- `pod-depth.toml`: k and p in `{1, 2, 5, 10, 20}`
+  (`gaussian-cg-depth.sweep.toml`, `smoother-filtered-probes-depth.sweep.toml`,
+  plus the tracked `gaussian-cg10.toml`).
+- `pod-snapshot-scaling.toml`: per-row scaling none, `l2` or `energy` norm at
+  power 1 (`*-rows-l2.toml`, `*-rows-energy.toml`).
+- `pod-metric.toml`: the Euclidean and the energy inner product
+  (`pod-rank100-energy.toml`).
+
+A sweep file lists only the non-baseline values. The baseline point is the
+tracked baseline file, assigned explicitly, so the same data is never
+generated twice under two ids. A depth point is valid only when its kept
+window excludes trajectory row 0, the untouched probe: every study dataset
+leaves `start` unset and keeps only the last row, so `stop = 1` keeps the
+iterate after one step. A window that would keep row 0 starts its grid at 2.
 
 The window policies deliberately use separate dataset TOMLs. A dataset sweep
 spec supports exactly one list-valued strategy field, while `start`, `stop`,
