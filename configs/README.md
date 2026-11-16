@@ -485,6 +485,9 @@ artifacts are not evaluable until the training run is rerun or repaired.
   — a POD fit job's `rank` is a hyperparameter independent of any matrix
   family) lives once under its own shared directory, referenced by every
   case that needs it, rather than duplicated per family
+- a POD fit job's `[model] inner_product` is `"euclidean"` (default) or
+  `"energy"`; the energy weight is the mean of the fit dataset's train-fold
+  matrices, wired in at run time, so the job names only the kind
 - only special model families should define custom `data.features` / `data.targets`
 - keep case configs as registries and bindings, not payload containers
 
