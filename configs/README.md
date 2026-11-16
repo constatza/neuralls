@@ -232,7 +232,8 @@ figures compare them directly. Every case solves the same 80 systems: four
 RHS recipes (Gaussian, masked Gaussian, low- and high-frequency sinusoidal,
 seeds 42-45) with `rhs_count = 20` each, on `gaussian-cg20`'s matrix.
 
-- `pod-rank.toml`: c in `{5, 10, 20, 50, 100, 200}`, one fit job per rank.
+- `pod-rank.toml`: c in `{5, 10, 20, 50, 100}`, one fit job per rank. Every
+  case sweeps at most five values per input.
 - `pod-samples.toml`: N in `{500, 1000, 2000, 5000, 10000}`
   (`gaussian-cg20.sweep.toml`, `smoother-filtered-probes-nu10.sweep.toml`).
 - `pod-depth.toml`: depth k (CG iterations or Jacobi sweeps) in `{1, 2, 5, 10, 20}`

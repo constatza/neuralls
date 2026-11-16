@@ -1,4 +1,4 @@
-# POD parametric study, rank c in {5, 10, 20, 50, 100, 200}.
+# POD parametric study, rank c in {5, 10, 20, 50, 100}.
 # Baseline: c = 100, k = 20 (POD-CG), k = 10 (POD-JP), N = 5000. Only POD-CG and POD-JP
 # methods are compared; each swept value is its own method, labelled from its facts.
 
@@ -41,10 +41,6 @@ path = "../../jobs/pod/r50.toml"
 [[jobs]]
 id = "pod-c100"
 path = "../../jobs/pod/pod-rank100.toml"
-
-[[jobs]]
-id = "pod-c200"
-path = "../../jobs/pod/pod-rank200.toml"
 
 # 4 RHS recipes x 20 draws on the one RHC matrix: 80 systems per method.
 
@@ -97,10 +93,6 @@ dataset = "gaussian-cg20-rectangular-high-condition"
 job = "pod-c100"
 
 [[assignments]]
-dataset = "gaussian-cg20-rectangular-high-condition"
-job = "pod-c200"
-
-[[assignments]]
 dataset = "smoother-filtered-probes-nu10-rectangular-high-condition"
 job = "pod-c5"
 
@@ -119,7 +111,3 @@ job = "pod-c50"
 [[assignments]]
 dataset = "smoother-filtered-probes-nu10-rectangular-high-condition"
 job = "pod-c100"
-
-[[assignments]]
-dataset = "smoother-filtered-probes-nu10-rectangular-high-condition"
-job = "pod-c200"
