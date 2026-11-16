@@ -372,7 +372,13 @@ distribution and stopping rule.
   name a group can be compared to;
 - percentile intervals that resample whole `(dataset, matrix_id)` clusters with
   every sibling RHS observation (`uncertainty.py`); paired Wilcoxon p-values are not reported;
-- the reference selection types (`selection.py`).
+- the reference selection types (`selection.py`);
+- response series (`response.py`): `response_points` finds, per method family (methods of one
+  group sharing a base name, such as POD-CG), the one numeric fact its methods sweep, on the
+  method side or the dataset-strategy side, never a seed; a family qualifies only with at least
+  `MIN_RESPONSE_POINTS` (3) methods whose fit data share source, system scaling, root seed and
+  strategy kind. `response_table` joins each point with its method's `SUMMARY_SCHEMA` row
+  (`RESPONSE_SCHEMA`; `COHORT_RESPONSE_SCHEMA` is its `cohort_schema`).
 
 They are described under "Profiles, paired comparisons and break-even over the observation view".
 

@@ -764,8 +764,8 @@ penalty.
 Matrix-set-and-RHS-type profiles use one RHS type. Solve-only and amortized-online ECDFs and
 Dolan--Moré profiles show their respective absolute budgets and fastest-method
 ratios. Matrix-set and all-matrix-sets outputs are workload mixtures: they emit the workload and
-cost bars, the means, time per iteration, distributions and convergence factors one figure per
-cohort (the pooled `__mixture` figure at the matrix-set level, whose recipe cohorts would repeat the
+cost bars, the means, time per iteration, distributions, convergence factors and response
+figures one figure per cohort (the pooled `__mixture` figure at the matrix-set level, whose recipe cohorts would repeat the
 matrix-set-and-RHS-type reports; one figure per recipe plus the pooled one at the all-matrix-sets
 level), and the ECDFs, performance profiles, paired scatter and speed-ratio CDF as one
 `__mixture` figure pooled over all the group's systems, labelled a mixture of recipes. A
