@@ -22,6 +22,7 @@ from neuralls.platform.storage.dataset_readers import (
     load_row_kind_codes,
 )
 from neuralls.platform.storage.datasets import load_dense_training_arrays
+from neuralls.shared.system_scaling import GershgorinScaling
 
 _SEED = 1234
 
@@ -32,10 +33,10 @@ _MATRIX_COUNT = 2
 _MATRIX_SIZE = 5
 
 
-_COUNTS = {"gaussian_forward": 6, "gaussian_residuals": 6}
+_COUNTS = {"gaussian_forward": 6, "cg_errors": 6}
 
 
-_STRATEGY_OVERRIDES = {"gaussian_residuals": {"stop": 3, "start": 1}}
+_STRATEGY_OVERRIDES = {"cg_errors": {"stop": 3, "start": 1}}
 
 
 @pytest.fixture
@@ -67,7 +68,7 @@ def _build(
                 solver_overrides=solver_overrides,
                 **mixture_kwargs,
             ),
-            normalize="matrix",
+            scaling=GershgorinScaling(),
         ),
         str(out_dir),
         dataset_format="hdf5",

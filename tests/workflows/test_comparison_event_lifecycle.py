@@ -193,7 +193,7 @@ def test_setup_failure_is_an_incomplete_zero_attempt_workload(
     assert len(messages) == 1
     assert messages == [
         (
-            "Recoverable setup failure for Jacobi on comparison matrix set Test problem | Gaussian CG Residuals "
+            "Recoverable setup failure for Jacobi on comparison matrix set Test problem | CG Errors "
             "(k=20, N=100), matrix 1: RuntimeError: setup broke"
         )
     ]

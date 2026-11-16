@@ -15,6 +15,7 @@ from neuralls.platform.config.models.preconditioner import PreconditionerConfig
 from neuralls.platform.config.resolution import build_sqlite_tracking_uri
 from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.shared.scientific_description.policy import NotationPolicy
+from neuralls.shared.system_scaling import GershgorinScaling, RhsScaling
 from neuralls.shared.types import ComparisonRhsSourceKind, RowKind
 
 SETUP_TRACKING = "neuralls.composition.assignments.comparison_batch.setup_comparison_tracking"
@@ -53,6 +54,7 @@ def experiments_payload(
             "max_iterations": 10,
             "stopping_criterion": "residual_norm",
             "m_max": 20,
+            "system_scaling": {"kind": "none"},
             "preconditioners": [{"name": "identity", "type": "identity"}],
         },
     }
@@ -134,7 +136,8 @@ def mock_cfg(
     cfg.general.data.rhs_path = rhs_path
     cfg.general.data.matrix_index = 0
     cfg.general.data.dataset_alias = None
-    cfg.general.data.normalize_system = "matrix"
+    cfg.general.data.system_scaling = GershgorinScaling()
+    cfg.general.data.rhs_scaling = RhsScaling.NONE
     cfg.general.data.require_non_residual_rhs = True
     cfg.general.data.selection_seed = None
     cfg.general.data.rhs_source_kind = (

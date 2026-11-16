@@ -26,8 +26,8 @@ TRACE_WINDOW = StepWindow(start=1, stop=4, step=1)
 TRACE_ROWS_PER_SYSTEM = 4
 TRACE_STRATEGIES = (
     "residuals",
-    "gaussian_residuals",
-    "smoother_filtered_probes",
+    "cg_errors",
+    "jacobi_probes",
 )
 
 

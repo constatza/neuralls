@@ -42,7 +42,6 @@ _STRATEGY_PROPERTIES: dict[GenerationStrategyKind, _StrategyProperties] = {
     GenerationStrategyKind.RESIDUALS: _StrategyProperties(
         is_archive=True, glob_key="solutions_glob"
     ),
-    GenerationStrategyKind.GAUSSIAN_RESIDUALS: _StrategyProperties(is_archive=False),
 }
 
 

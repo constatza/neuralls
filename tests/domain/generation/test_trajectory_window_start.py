@@ -20,8 +20,8 @@ from neuralls.composition.generation.default_services import make_solver
 from neuralls.domain.generation import run_generation
 from neuralls.domain.generation.step_window import StepWindow
 from neuralls.domain.generation.strategy_configs import (
+    JacobiProbesConfig,
     ResidualErrorConfig,
-    SmootherFilteredProbesConfig,
 )
 from neuralls.domain.generation.trace_utils import (
     TrajectoryShortfallError,
@@ -32,11 +32,11 @@ from tests.generation_support import error_trace_rows
 
 TRAJECTORY_CONFIG_TYPES = (
     ResidualErrorConfig,
-    SmootherFilteredProbesConfig,
+    JacobiProbesConfig,
 )
 WINDOW_STOP = 3
 PROBE_COUNT = 2
-"""Only read by SmootherFilteredProbesConfig, which requires `samples`; harmless for the others."""
+"""Only read by JacobiProbesConfig, which requires `samples`; harmless for the others."""
 
 
 @pytest.fixture

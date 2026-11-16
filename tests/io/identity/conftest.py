@@ -99,7 +99,7 @@ def make_data_config(tmp_path: Path) -> DataConfigFactory:
             id=dataset_id,
             source=SourceConfig(type="generated", matrix_path=str(tmp_path / "m.mtx")),
             generation=GenerationConfig(
-                seed=seed, strategy=[StrategyConfig(name="gaussian_residuals", samples=samples)]
+                seed=seed, strategy=[StrategyConfig(name="cg_errors", samples=samples)]
             ),
             output=OutputConfig(data_dir=data_dir or tmp_path / "out"),
         )

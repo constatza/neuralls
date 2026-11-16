@@ -9,6 +9,7 @@ from neuralls.domain.presentation.provenance import DatasetPresentation
 from neuralls.domain.solver.models.benchmark_events import SystemTag
 from neuralls.domain.solver.models.group_presentation import SolverTimingContext
 from neuralls.domain.solver.models.system_provenance import SystemProvenance
+from neuralls.shared.system_scaling import GershgorinScaling, RhsScaling
 from neuralls.shared.types import DatasetId
 
 SOLVER_CONTEXT = SolverTimingContext(
@@ -21,7 +22,8 @@ SOLVER_CONTEXT = SolverTimingContext(
     timing_repeats=3,
     timing_warmup=1,
     timing_statistic="median",
-    normalization="matrix",
+    system_scaling=GershgorinScaling(),
+    rhs_scaling=RhsScaling.NONE,
 )
 
 

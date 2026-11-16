@@ -28,6 +28,7 @@ from neuralls.platform.storage.dataset_readers import (
 )
 from neuralls.platform.storage.manifest_io import read_dataset_manifest
 from neuralls.shared.constants import DATASET_MANIFEST_FILENAME
+from neuralls.shared.system_scaling import NoScaling
 from neuralls.shared.types import DatasetFormat, LayoutType, MatrixFormat, SparsityPattern
 
 _INTERRUPT_AFTER_BATCHES = 1
@@ -253,7 +254,7 @@ def test_csr_streamed_round_trip_returns_the_source_matrix(
 ) -> None:
     """Reading the stored sparse sample back gives the dense source matrix, in each format."""
     dataset_dir = tmp_path / dataset_format
-    unnormalized = replace(atomic_spec, normalize="none")
+    unnormalized = replace(atomic_spec, scaling=NoScaling())
     build_test_dataset(
         csr_single_source,
         unnormalized,

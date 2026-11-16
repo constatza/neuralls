@@ -11,6 +11,7 @@ from pydantic import (
     Field,
     ValidationInfo,
     field_validator,
+    model_validator,
 )
 
 from neuralls.platform.config.context import expand_path_field
@@ -21,44 +22,21 @@ from neuralls.platform.config.models.fact_roles import (
     PROVENANCE_ROLE,
 )
 from neuralls.platform.config.models.slugs import slug_number
-from neuralls.platform.config.models.weighting import RawWeightingConfig, SnapshotWeightingConfig
 from neuralls.shared.digest import InputData
 from neuralls.shared.fact_binding import (
     Fact,
-    Nested,
     Show,
+    enum_value,
 )
 from neuralls.shared.scientific_description.catalog import (
     DAMPING,
+    INNER_PRODUCT,
     RANK,
     SNAPSHOT_COUNT,
     TARGET_COARSE_DIMENSION,
     THRESHOLD,
 )
-
-
-def _validate_pod_rank(v: float) -> int | float:
-    """Enforce the per-mode constraint matching whichever branch of ``rank`` was given.
-
-    Shared by ``PODCoarseningConfig._validate_rank`` and
-    ``NeuralPODCoarseningConfig._validate_rank`` — same POD-2G rank
-    contract, only the surrounding config differs.
-
-    Args:
-        v: The parsed ``rank`` value — an int (mode count) or float
-            (energy threshold).
-
-    Returns:
-        The validated value, unchanged.
-
-    Raises:
-        ValueError: If an int rank is < 1, or a float rank is outside (0, 1].
-    """
-    if isinstance(v, float) and not (0.0 < v <= 1.0):
-        raise ValueError(f"rank as an energy threshold must be in (0, 1], got {v}")
-    if not isinstance(v, float) and v < 1:
-        raise ValueError(f"rank as a mode count must be >= 1, got {v}")
-    return v
+from neuralls.shared.types import InnerProductKind
 
 
 class AggregationCoarseningConfig(BaseModel):
@@ -155,7 +133,7 @@ class TargetDimCoarseningConfig(BaseModel):
 
 
 class PODCoarseningConfig(NeuralCheckpointRef):
-    """POD-2G coarsening (Nikolopoulos et al. 2022, §3.3-3.5).
+    """POD coarsening (the POD-2G of Nikolopoulos et al. 2022, §3.3-3.5).
 
     The prolongation/restriction operator is a POD basis fit to a snapshot
     ensemble of high-fidelity solutions (or, for a sharper coarse space,
@@ -167,7 +145,7 @@ class PODCoarseningConfig(NeuralCheckpointRef):
 
     Inherits the optional checkpoint-identity fields from
     ``NeuralCheckpointRef`` (``assignment``, ``model_ref``, ``checkpoint_path``,
-    ``resolved_checkpoint_path``) so a POD-2G basis can *also* be fit once
+    ``resolved_checkpoint_path``) so a POD basis can *also* be fit once
     ahead of time via a ``FitJobConfig`` assignment and reconstructed from its
     MLflow-tracked checkpoint at comparison time, instead of being refit
     inline from ``dataset_dir`` on every run — see
@@ -189,7 +167,7 @@ class PODCoarseningConfig(NeuralCheckpointRef):
     for the basis projection itself, but every CG iteration through
     `AMGPreconditioner`'s V-cycle also pays the surrounding cycle's O(n^2)
     dense fine-level smoothing/residual cost — see
-    `AMGPreconditionerConfig`'s complexity note; POD-2G's basis projection
+    `AMGPreconditionerConfig`'s complexity note; POD's basis projection
     is cheap next to that, not instead of it. See
     `torchalg.preconditioners.implementations.pod.coarsening` /
     `.basis` for the derivation.
@@ -198,27 +176,44 @@ class PODCoarseningConfig(NeuralCheckpointRef):
     method: Annotated[Literal["pod"], IDENTITY_ROLE] = "pod"
     dataset_dir: Annotated[Path, InputData(), PROVENANCE_ROLE] = Field(
         ...,
-        description="Generated dataset directory whose `solutions` array supplies POD-2G snapshots.",
+        description="Generated dataset directory whose `solutions` array supplies POD snapshots.",
     )
-    rank: Annotated[int | float, Fact(RANK)] = Field(
+    rank: Annotated[int, Fact(RANK)] = Field(
         default=8,
+        ge=1,
+        strict=True,
         description=(
-            "Fixed number of POD modes to retain (int), or minimum cumulative "
-            "captured energy to retain (float in (0, 1] — e.g. 0.9999)."
+            "Number of POD modes to retain: the coarse dimension. A rank that captures "
+            "little of the snapshot energy is warned about at fit time."
         ),
     )
     n_snapshots: Annotated[int, Fact(SNAPSHOT_COUNT, show=Show.NON_DEFAULT)] = Field(
         default=-1, description="Number of snapshot files to load; -1 means all matched."
     )
-    weighting: Annotated[SnapshotWeightingConfig, Nested()] = Field(
-        default_factory=RawWeightingConfig,
+    inner_product: Annotated[
+        InnerProductKind, Fact(INNER_PRODUCT, convert=enum_value, show=Show.NON_DEFAULT)
+    ] = Field(
+        default=InnerProductKind.EUCLIDEAN,
         description=(
-            "Per-snapshot row scaling applied before the POD SVD — "
-            "`RawWeightingConfig` (default) reproduces the original unweighted "
-            "fit exactly; see `SnapshotWeightingConfig`'s member configs."
+            "Inner product the basis was fitted in. Energy needs a checkpoint identity: "
+            "only the offline fit job computes the energy weight."
         ),
     )
     model_config = ConfigDict(extra="forbid", frozen=True)
+
+    @model_validator(mode="after")
+    def _energy_needs_a_fitted_checkpoint(self) -> PODCoarseningConfig:
+        """Reject an energy inner product on an inline fit.
+
+        The inline fit runs inside the comparison's measured setup and always fits in the
+        Euclidean inner product, so an energy POD exists only as a fit job's checkpoint.
+        """
+        if self.inner_product is InnerProductKind.ENERGY and self.exposed_checkpoint_ref() is None:
+            raise ValueError(
+                "An energy inner product needs a checkpoint identity (assignment, model_ref "
+                "or checkpoint_path): the inline POD fit is Euclidean only"
+            )
+        return self
 
     @field_validator("dataset_dir", mode="before")
     @classmethod
@@ -233,23 +228,6 @@ class PODCoarseningConfig(NeuralCheckpointRef):
             Anchored path string, or original value if not a string.
         """
         return expand_path_field(v, info)
-
-    @field_validator("rank")
-    @classmethod
-    def _validate_rank(cls, v: float) -> int | float:
-        """Enforce the per-mode constraint matching whichever branch was matched.
-
-        Args:
-            v: The parsed ``rank`` value — an int (mode count) or float
-                (energy threshold).
-
-        Returns:
-            The validated value, unchanged.
-
-        Raises:
-            ValueError: If an int rank is < 1, or a float rank is outside (0, 1].
-        """
-        return _validate_pod_rank(v)
 
     def exposed_checkpoint_ref(self) -> NeuralCheckpointRef | None:
         """Opt into checkpoint resolution only when a resolvable identity is set.
@@ -269,15 +247,17 @@ class PODCoarseningConfig(NeuralCheckpointRef):
 
     def slug(self) -> str:
         """Deterministic slug for this coarsening, including any checkpoint identity."""
-        base = f"pod_rank{slug_number(self.rank)}_n{self.n_snapshots}_{self.weighting.slug()}"
+        base = f"pod_rank{slug_number(self.rank)}_n{self.n_snapshots}"
+        if self.inner_product is InnerProductKind.ENERGY:
+            base = f"{base}_energy"
         ref = self.exposed_checkpoint_ref()
         return f"{base}_{ref.checkpoint_slug()}" if ref is not None else base
 
 
 class NeuralPODCoarseningConfig(NeuralCheckpointRef):
-    """POD-2G coarsening whose snapshot ensemble is predicted by a checkpoint.
+    """POD coarsening whose snapshot ensemble is predicted by a checkpoint.
 
-    Same POD-2G math as ``PODCoarseningConfig`` (Nikolopoulos et al. 2022,
+    Same POD math as ``PODCoarseningConfig`` (the POD-2G of Nikolopoulos et al. 2022,
     §3.3-3.5), but the high-fidelity snapshot ensemble is *predicted* by a
     trained network instead of read from precomputed solutions: ``dataset_dir``
     supplies the network's input parameter arrays (not the solutions
@@ -312,11 +292,13 @@ class NeuralPODCoarseningConfig(NeuralCheckpointRef):
             "explicitly (mirrors NeuralPreconditionerConfig.extra_input_names)."
         ),
     )
-    rank: Annotated[int | float, Fact(RANK)] = Field(
+    rank: Annotated[int, Fact(RANK)] = Field(
         default=8,
+        ge=1,
+        strict=True,
         description=(
-            "Fixed number of POD modes to retain (int), or minimum cumulative "
-            "captured energy to retain (float in (0, 1] — e.g. 0.9999)."
+            "Number of POD modes to retain: the coarse dimension. A rank that captures "
+            "little of the snapshot energy is warned about at fit time."
         ),
     )
     n_snapshots: Annotated[int, Fact(SNAPSHOT_COUNT, show=Show.NON_DEFAULT)] = Field(
@@ -352,23 +334,6 @@ class NeuralPODCoarseningConfig(NeuralCheckpointRef):
         if isinstance(v, (list, tuple)):
             return tuple(str(x) for x in v)
         return v
-
-    @field_validator("rank")
-    @classmethod
-    def _validate_rank(cls, v: float) -> int | float:
-        """Enforce the per-mode constraint matching whichever branch was matched.
-
-        Args:
-            v: The parsed ``rank`` value — an int (mode count) or float
-                (energy threshold).
-
-        Returns:
-            The validated value, unchanged.
-
-        Raises:
-            ValueError: If an int rank is < 1, or a float rank is outside (0, 1].
-        """
-        return _validate_pod_rank(v)
 
     def exposed_checkpoint_ref(self) -> NeuralCheckpointRef:
         """Always checkpoint-backed — its snapshot ensemble only exists via a checkpoint."""

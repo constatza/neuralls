@@ -130,7 +130,6 @@ def write_system_figures(
                     subtitle=ScopeSubtitle(RecipeScope(dataset, tag.recipe), notation),
                     families=maps.families,
                     color_keys=maps.color_keys,
-                    marker_keys=maps.marker_keys,
                     ylabel=_METRIC_YLABEL[metric],
                     show_titles=show_titles,
                 )

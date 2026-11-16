@@ -50,6 +50,7 @@ from neuralls.shared.scientific_description.models import (
     ScientificFact,
 )
 from neuralls.shared.scientific_description.policy import LEGEND_PROFILE, NotationPolicy
+from neuralls.shared.system_scaling import GershgorinScaling, NoScaling
 from neuralls.shared.types import (
     GenerationStrategyKind,
     MatrixId,
@@ -91,14 +92,14 @@ def dataset() -> DatasetPresentation:
         generation=DatasetGenerationProvenance(
             strategies=(
                 StrategyProvenance(
-                    GenerationStrategyKind.GAUSSIAN_RESIDUALS,
+                    GenerationStrategyKind.CG_ERRORS,
                     rows=5000,
                     parameters=(_int(ITERATION_COUNT, 20),),
                     seed=DerivedSeed(),
                 ),
             ),
             generated_rows=5000,
-            normalization="matrix",
+            scaling=GershgorinScaling(),
             root_seed=42,
         ),
     )
@@ -130,7 +131,7 @@ def test_standalone_presentation_has_no_dataset_field() -> None:
 def test_dataset_generation_requires_a_strategy() -> None:
     with pytest.raises(ValueError, match="at least one strategy"):
         DatasetGenerationProvenance(
-            strategies=(), generated_rows=1, normalization="none", root_seed=0
+            strategies=(), generated_rows=1, scaling=NoScaling(), root_seed=0
         )
 
 
@@ -142,7 +143,7 @@ def test_editorial_presentation_rejects_invalid_titles(title: str) -> None:
 
 def test_assignment_identity_is_never_rendered(dataset: DatasetPresentation) -> None:
     method = ScientificDescription(
-        "POD-2G",
+        "POD",
         facts=(_int(RANK, 10), make_fact(ASSIGNMENT, 1)),
     )
     text = render_method(
@@ -150,17 +151,17 @@ def test_assignment_identity_is_never_rendered(dataset: DatasetPresentation) -> 
         LEGEND_PROFILE,
         NotationPolicy.default(),
     ).text
-    assert text == "POD-2G (r=10) | Gaussian CG Residuals (k=20, N=5000)"
+    assert text == "POD (c=10) | CG Errors (k=20, N=5000)"
 
 
 def test_pod_method_composes_with_its_dataset_exactly_once(dataset: DatasetPresentation) -> None:
-    method = ScientificDescription("POD-2G", facts=(_int(RANK, 10),))
+    method = ScientificDescription("POD", facts=(_int(RANK, 10),))
     rendered = render_method(
         DatasetQualifiedMethodPresentation(method, dataset),
         LEGEND_PROFILE,
         NotationPolicy.default(),
     )
-    assert rendered.text == "POD-2G (r=10) | Gaussian CG Residuals (k=20, N=5000)"
+    assert rendered.text == "POD (c=10) | CG Errors (k=20, N=5000)"
 
 
 # --- cohort visibility ------------------------------------------------------------
@@ -265,17 +266,13 @@ def test_same_method_on_different_datasets_is_not_a_duplicate(
     other = DatasetPresentation(
         dataset.source,
         DatasetGenerationProvenance(
-            (
-                StrategyProvenance(
-                    GenerationStrategyKind.SMOOTHER_FILTERED_PROBES, 10, (), DerivedSeed()
-                ),
-            ),
+            (StrategyProvenance(GenerationStrategyKind.JACOBI_PROBES, 10, (), DerivedSeed()),),
             generated_rows=10,
-            normalization="matrix",
+            scaling=GershgorinScaling(),
             root_seed=42,
         ),
     )
-    pod = ScientificDescription("POD-2G", facts=(_int(RANK, 10),))
+    pod = ScientificDescription("POD", facts=(_int(RANK, 10),))
     cohort = _cohort(
         scope,
         MethodPresentationCandidate(
@@ -337,11 +334,11 @@ def test_dataset_and_title_render_the_source_then_each_strategy(
 
     policy = NotationPolicy.default()
     assert render_dataset(dataset, LEGEND_PROFILE, policy).text == (
-        "Spectral 3D field | Gaussian CG Residuals (k=20, N=5000)"
+        "Spectral 3D field | CG Errors (k=20, N=5000)"
     )
     assert (
         render_title(ComparisonScopePresentation(dataset), LEGEND_PROFILE, policy).text
-        == "Spectral 3D field | Gaussian CG Residuals (k=20, N=5000)"
+        == "Spectral 3D field | CG Errors (k=20, N=5000)"
     )
     assert (
         render_title(EditorialPresentation("Spectral comparison"), LEGEND_PROFILE, policy).text

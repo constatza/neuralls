@@ -29,7 +29,7 @@ from neuralls.shared.scientific_description.render import render
         ("constant_forward", "Constant Solutions (N=1000)"),
         ("constant_inverse", "Constant RHS Solves (N=1000)"),
         ("neutral_ones", "Ones Solutions (N=1000)"),
-        ("smoother_filtered_probes", "Jacobi-Filtered Probes (N=1000)"),
+        ("jacobi_probes", "Jacobi-Filtered Probes (N=1000)"),
         ("sinusoidal_field", "Sinusoidal RHS Solves (N=1000)"),
         ("random", "Random Normal Solutions (N=1000)"),
         ("normal", "Random Normal Solutions (N=1000)"),

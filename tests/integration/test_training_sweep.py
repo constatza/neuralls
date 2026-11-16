@@ -170,7 +170,7 @@ def test_run_assignments_full_flow(
             "problem": "Test problem",
         },
         "generation": {
-            "normalize": "none",
+            "scaling": {"kind": "none"},
             "shuffle": True,
             "seed": 42,
             "strategy": [{"name": "random", "samples": 2}],

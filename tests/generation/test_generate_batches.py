@@ -1,7 +1,7 @@
 """Batched generation must emit the pre-shuffle row order of the accumulation path.
 
 The golden values were captured from the pre-batching pipeline (``shuffle=False``,
-three SPD matrices, gaussian_forward + gaussian_residuals): exact digests of the integer
+three SPD matrices, gaussian_forward + cg_errors): exact digests of the integer
 row kinds and matrix indices, and the norm of every float row, compared within a
 tolerance that BLAS rounding differences stay under. Batch size only changes how the rows
 are chunked, never their order or content, so every size must match them and reproduce
@@ -27,6 +27,7 @@ from neuralls.domain.generation.orchestration import (
     _prepare_generation_context,
 )
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
+from neuralls.shared.system_scaling import GershgorinScaling
 from neuralls.shared.types import MatrixFormat
 from tests.fakes.archive_source import InMemoryArchiveSource
 
@@ -38,13 +39,13 @@ this sits well above the ~1e-14 drift of differing BLAS builds and far below any
 _GOLDEN_ROW_NORMS: dict[str, tuple[float, ...]] = {
     "rhs": (
         0.26338671314991224, 0.3969597240568228, 0.4869905272227404, 0.3394472961872561,
-        0.07322622763918255, 0.02036401756337476, 0.00296989183486501, 0.29635072786682887,
-        0.3752047093962407, 0.0394373524353824, 0.012955205376413693, 0.0026131475367018077,
+        0.14364892492821074, 0.02012804684667811, 0.005185173157010943, 0.29635072786682887,
+        0.3752047093962407, 0.1267206421862817, 0.04480299129528736, 0.005477028119804654,
     ),
     "solutions": (
         1.1403862977121118, 2.277021248314017, 1.7639366376356738, 1.5460354792771318,
-        0.28347002059620446, 0.10186534533375381, 0.00877286485380757, 1.119466401551306,
-        1.6829061345451362, 0.19823432732234725, 0.0458018517302848, 0.011385848696708023,
+        0.7222819165838849, 0.07293898160180759, 0.022776137233625468, 1.119466401551306,
+        1.6829061345451362, 0.6022762416029702, 0.18053780221106996, 0.029836880540006105,
     ),
 }  # fmt: skip
 _NUM_MATRICES = 3
@@ -85,13 +86,13 @@ def generation_order_source() -> SourceSpec:
 def generation_order_spec(solver_overrides: dict[str, Any]) -> DatasetSpec:
     return DatasetSpec(
         mixture=MixtureSpec(
-            counts={"gaussian_forward": 6, "gaussian_residuals": 6},
+            counts={"gaussian_forward": 6, "cg_errors": 6},
             seed=1234,
             shuffle=False,
-            strategy_overrides={"gaussian_residuals": {"stop": 3, "start": 1}},
+            strategy_overrides={"cg_errors": {"stop": 3, "start": 1}},
             solver_overrides=solver_overrides,
         ),
-        normalize="matrix",
+        scaling=GershgorinScaling(),
     )
 
 

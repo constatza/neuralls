@@ -6,6 +6,18 @@ from typing import assert_never
 
 from neuralls.shared.types import GenerationStrategyKind
 
+_SNAPSHOT_SOURCES: dict[GenerationStrategyKind, str] = {
+    GenerationStrategyKind.CG_ERRORS: "CG",
+    GenerationStrategyKind.RESIDUALS: "CG",
+    GenerationStrategyKind.JACOBI_PROBES: "JP",
+}
+"""Short snapshot-source names that complete a POD method's name (POD-CG, POD-JP)."""
+
+
+def snapshot_source(kind: GenerationStrategyKind) -> str | None:
+    """Short name of the snapshot source a strategy provides, or None if it is not one."""
+    return _SNAPSHOT_SOURCES.get(kind)
+
 
 def strategy_base_name(kind: GenerationStrategyKind) -> str:
     """Return the controlled display name of a generation strategy."""
@@ -25,9 +37,9 @@ def strategy_base_name(kind: GenerationStrategyKind) -> str:
         case GenerationStrategyKind.SPARSE_RHS:
             return "Sparse RHS Solves"
         case GenerationStrategyKind.RESIDUALS:
-            return "CG Residuals"
-        case GenerationStrategyKind.GAUSSIAN_RESIDUALS:
-            return "Gaussian CG Residuals"
+            return "Archived CG Errors"
+        case GenerationStrategyKind.CG_ERRORS:
+            return "CG Errors"
         case GenerationStrategyKind.EIGENVECTOR_FORWARD:
             return "Eigenvector Solutions"
         case GenerationStrategyKind.EIGENVECTOR_INVERSE:
@@ -46,7 +58,7 @@ def strategy_base_name(kind: GenerationStrategyKind) -> str:
             return "Constant RHS Solves"
         case GenerationStrategyKind.NEUTRAL_ONES:
             return "Ones Solutions"
-        case GenerationStrategyKind.SMOOTHER_FILTERED_PROBES:
+        case GenerationStrategyKind.JACOBI_PROBES:
             return "Jacobi-Filtered Probes"
         case GenerationStrategyKind.SINUSOIDAL_FIELD:
             return "Sinusoidal RHS Solves"

@@ -10,12 +10,15 @@ from tests.dataset_support import build_test_dataset
 
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
 from neuralls.platform.storage.dataset_readers import (
+    MissingMatrixSampleIndexError,
     load_matrix_dense_sample,
     resolve_canonical_training_triplet,
     resolve_dataset_artifacts,
+    try_read_matrix_scaling,
 )
 from neuralls.platform.storage.manifest_io import load_dataset_manifest
 from neuralls.shared.constants import DATASET_MANIFEST_FILENAME
+from neuralls.shared.system_scaling import NoScaling
 from neuralls.shared.types import RowKind
 
 
@@ -35,7 +38,7 @@ def _build_dataset(root: Path) -> Path:
                 seed=42,
                 shuffle=False,
             ),
-            normalize="none",
+            scaling=NoScaling(),
         ),
         str(dataset_dir),
         dataset_format="hdf5",
@@ -58,7 +61,6 @@ def test_resolve_canonical_training_triplet_selects_first_standard_row(tmp_path:
     assert triplet.sample_index == 0
     assert triplet.matrix_index == 0
     assert triplet.row_kind is RowKind.STANDARD
-    assert triplet.matrix_binding_enforced is True
     assert triplet.matrix.shape == (2, 2)
     assert triplet.rhs.shape == (2,)
     assert triplet.lhs.shape == (2,)
@@ -78,23 +80,24 @@ def test_resolve_canonical_training_triplet_rejects_explicit_residual_row(
 def test_resolve_canonical_training_triplet_requires_matrix_binding(
     tmp_path: Path,
 ) -> None:
+    """Without the row -> matrix id mapping, no row index is ever read as a matrix id."""
     dataset_dir = _build_dataset(tmp_path)
     _drop_manifest_matrix_sample_index(dataset_dir)
 
-    with pytest.raises(ValueError):
-        resolve_canonical_training_triplet(dataset_dir, sample_index=None)
+    with pytest.raises(MissingMatrixSampleIndexError) as error:
+        resolve_canonical_training_triplet(dataset_dir, sample_index=0)
+
+    assert error.value.dataset_dir == dataset_dir
 
 
-def test_resolve_canonical_training_triplet_allows_explicit_legacy_matrix_index(
-    tmp_path: Path,
-) -> None:
+def test_matrix_scaling_of_a_dataset_without_matrix_binding_is_refused(tmp_path: Path) -> None:
     dataset_dir = _build_dataset(tmp_path)
     _drop_manifest_matrix_sample_index(dataset_dir)
 
-    triplet = resolve_canonical_training_triplet(dataset_dir, sample_index=0, matrix_index=0)
+    with pytest.raises(MissingMatrixSampleIndexError) as error:
+        try_read_matrix_scaling(dataset_dir, 0)
 
-    assert triplet.matrix_index == 0
-    assert triplet.matrix_binding_enforced is False
+    assert error.value.dataset_dir == dataset_dir
 
 
 def test_load_matrix_dense_sample_hands_each_caller_its_own_array(tmp_path: Path) -> None:

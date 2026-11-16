@@ -1,21 +1,19 @@
-id = "rhc-sm-startM7-stop7-step2"
+id = "smoother-filtered-probes-depth-rectangular-high-condition"
+id_template = "smoother-filtered-probes-nu{value}-rectangular-high-condition"
 
 [source]
 problem = "Rectangular high condition"
 matrix_path = "${NEURALLS_RAW_DIR}/matrices/rectangular-high-condition.txt"
 
 [generation]
-normalize = "matrix"
+scaling = { kind = "gershgorin", dimension_factor = "sqrt_n" }
 shuffle = true
 seed = 42
 
-# Keep sweeps 1, 3, 5, and 7; sweep 0 remains excluded.
 [[generation.strategy]]
-name = "smoother_filtered_probes"
-samples = 10000
-start = -7
-stop = 7
-step = 2
+name = "jacobi_probes"
+samples = 5000
+stop = [1, 2, 5, 20]
 probe_distribution = "gaussian"
 
 [output]

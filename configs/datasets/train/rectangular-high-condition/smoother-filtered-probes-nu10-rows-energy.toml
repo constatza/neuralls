@@ -1,22 +1,20 @@
-id = "rhc-sm-startM4-stop7-step1"
+id = "smoother-filtered-probes-nu10-rows-energy-rectangular-high-condition"
 
 [source]
 problem = "Rectangular high condition"
 matrix_path = "${NEURALLS_RAW_DIR}/matrices/rectangular-high-condition.txt"
 
 [generation]
-normalize = "matrix"
+scaling = { kind = "gershgorin", dimension_factor = "sqrt_n" }
 shuffle = true
 seed = 42
 
-# Keep sweeps 4..7: the last four rows of the trajectory.
 [[generation.strategy]]
-name = "smoother_filtered_probes"
-samples = 10000
-start = -4
-stop = 7
-step = 1
+name = "jacobi_probes"
+samples = 5000
+stop = 10
 probe_distribution = "gaussian"
+snapshot_scaling = { kind = "norm", norm = "energy", power = 1.0 }
 
 [output]
 data_dir = "${NEURALLS_PROCESSED_DIR}"

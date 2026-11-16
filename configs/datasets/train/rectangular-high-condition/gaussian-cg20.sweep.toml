@@ -1,20 +1,18 @@
-id = "rhc-cg-startM1-stop10-step1"
+id = "gaussian-cg20-rectangular-high-condition"
 
 [source]
 problem = "Rectangular high condition"
 matrix_path = "${NEURALLS_RAW_DIR}/matrices/rectangular-high-condition.txt"
 
 [generation]
-normalize = "matrix"
+scaling = { kind = "gershgorin", dimension_factor = "sqrt_n" }
 shuffle = true
 seed = 42
 
 [[generation.strategy]]
-name = "gaussian_residuals"
-samples = 10000
-start = -1
-stop = 10
-step = 1
+name = "cg_errors"
+samples = [500, 1000, 2000, 10000]
+stop = 20
 
 [output]
 data_dir = "${NEURALLS_PROCESSED_DIR}"

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import cast
 
 from loguru import logger
 
@@ -21,7 +20,8 @@ from neuralls.domain.presentation.provenance import DatasetSourceProvenance
 from neuralls.platform.config.models.data_models import DataConfigFile, GenerationConfig
 from neuralls.shared.constants import DEFAULT_WRITE_BATCH_SIZE
 from neuralls.shared.scientific_description.models import ScientificDescription, ValidatedLabel
-from neuralls.shared.types import DatasetFormat, NormalizeType
+from neuralls.shared.system_scaling import SystemScaling
+from neuralls.shared.types import DatasetFormat
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,7 +38,7 @@ class DataGenerationContext:
         include_indices: Restrict every glob-based stream to exactly these sample ids.
         exclude_indices: Drop these sample ids from every glob-based stream.
         dataset_dir: Target directory for the generated dataset.
-        normalize: Normalization strategy applied to each sample.
+        scaling: How each matrix sample (and its archived RHS) is scaled.
         seed: Random seed for reproducibility.
         shuffle: Ignored by storage; stored order is always generation order.
         replacement: Must be False; generation rejects ``True`` (see ``GenerationConfig``).
@@ -59,7 +59,7 @@ class DataGenerationContext:
     include_indices: tuple[int, ...] | None
     exclude_indices: tuple[int, ...]
     dataset_dir: Path
-    normalize: NormalizeType
+    scaling: SystemScaling
     seed: int
     shuffle: bool
     replacement: bool
@@ -147,8 +147,7 @@ def _build_context(
         (DataGenerationContext, GenerationPlan) pair.
 
     Raises:
-        ValueError: If output.data_dir is None, matrix_path is missing, or
-            normalize is a bare bool.
+        ValueError: If output.data_dir is None or matrix_path is missing.
     """
     if config.output.data_dir is None:
         raise ValueError("output.data_dir must be resolved before process_config().")
@@ -157,14 +156,6 @@ def _build_context(
     matrix_path = config.source.matrix_path
     if not matrix_path:
         raise ValueError("Missing 'source.matrix_path' in config")
-
-    normalize_value = config.generation.normalize
-    if isinstance(normalize_value, bool):
-        raise TypeError(
-            f"Invalid normalize value in config: {normalize_value} (bool). "
-            "The 'normalize' parameter expects one of 'matrix', 'rhs', or 'none'."
-        )
-    normalize = cast(NormalizeType, str(normalize_value))
 
     plan = _plan_from_generation_config(config.generation)
     _warn_if_shuffle_requested(config.generation)
@@ -180,7 +171,7 @@ def _build_context(
         include_indices=config.source.include_indices,
         exclude_indices=config.source.exclude_indices,
         dataset_dir=dataset_dir,
-        normalize=normalize,
+        scaling=config.generation.scaling,
         seed=config.generation.seed,
         shuffle=config.generation.shuffle,
         replacement=config.generation.replacement,

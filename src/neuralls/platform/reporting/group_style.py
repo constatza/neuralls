@@ -39,7 +39,6 @@ class GroupStyle:
     legend: Legend
     families: Mapping[str, Hashable]
     color_keys: Mapping[str, Hashable]
-    marker_keys: Mapping[str, Hashable]
     label_rotation_deg: float
     row_limits: RowLimits
     show_titles: bool

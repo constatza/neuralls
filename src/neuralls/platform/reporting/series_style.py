@@ -128,16 +128,13 @@ def _assign_axis(keys: Mapping[str, Hashable], palette: Sequence[Any]) -> dict[s
 def resolve_styles(
     families: Mapping[str, Hashable],
     color_keys: Mapping[str, Hashable] | None,
-    marker_keys: Mapping[str, Hashable] | None,
 ) -> dict[str, dict[str, Any]]:
-    """Build a per-method matplotlib style dict from three independent axes.
+    """Build a per-method matplotlib style dict.
 
-    Linestyle always follows `family` (lowest-cardinality attribute, fewest
-    legible linestyles). Marker and color follow `marker_keys`/`color_keys`
-    when given (falling back to `family` per method when a method has no
-    entry), so callers can make e.g. same-dataset lines share a color and
-    same-weighting-scheme lines share a marker within one family, instead of
-    every same-family line collapsing onto one marker/linestyle pair.
+    Linestyle and marker follow `family` (lowest-cardinality attribute, fewest
+    legible linestyles). Color follows `color_keys` when given (falling back to
+    `family` per method when a method has no entry), so callers can make e.g.
+    same-dataset lines share a color within one family.
 
     Any group of methods left sharing an identical (linestyle, marker, color)
     triple — the case when no override keys are given at all — gets its color
@@ -146,20 +143,15 @@ def resolve_styles(
     Args:
         families: Family key per method name (plot label).
         color_keys: Optional color-axis key per method name.
-        marker_keys: Optional marker-axis key per method name.
 
     Returns:
         dict[str, dict[str, Any]]: Method name -> ``{"marker", "linestyle", "color"}``.
     """
     color_keys = color_keys or {}
-    marker_keys = marker_keys or {}
     effective_color_keys = {name: color_keys.get(name, family) for name, family in families.items()}
-    effective_marker_keys = {
-        name: marker_keys.get(name, family) for name, family in families.items()
-    }
 
     linestyles = _assign_axis(families, _LINESTYLE_POOL)
-    markers = _assign_axis(effective_marker_keys, list(_MARKER_POOL))
+    markers = _assign_axis(families, list(_MARKER_POOL))
     n_colors = len(dict.fromkeys(effective_color_keys.values()))
     colors = _assign_axis(effective_color_keys, color_pool(max(n_colors, 1)))
 
@@ -226,7 +218,7 @@ def method_palette(names: Sequence[str], style: GroupStyle) -> MethodPalette:
     still Okabe-Ito and distinct, just not shared with the convergence plots.
     """
     families = style.families or {name: name for name in names}
-    resolved = resolve_styles(families, style.color_keys, style.marker_keys)
+    resolved = resolve_styles(families, style.color_keys)
     return MethodPalette(
         {name: style.legend.label(name) for name in names},
         {name: resolved[name] for name in names},

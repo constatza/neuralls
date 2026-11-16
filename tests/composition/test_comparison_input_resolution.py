@@ -12,6 +12,7 @@ from neuralls.composition.comparison.models import ResolvedComparisonInput
 from neuralls.domain.generation.source_streams import EnumerateBy
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
 from neuralls.domain.solver.models.provenance import SharedSingleMatrix
+from neuralls.shared.system_scaling import NoScaling
 from neuralls.shared.types import ComparisonRhsSourceKind, RowKind
 from tests.dataset_support import build_test_dataset
 
@@ -34,7 +35,7 @@ def _build_safe_dataset(root: Path, *, residual: bool = False) -> Path:
                 seed=7 if residual else 42,
                 shuffle=False,
             ),
-            normalize="none",
+            scaling=NoScaling(),
         ),
         str(dataset_dir),
         dataset_format="hdf5",
@@ -241,7 +242,7 @@ def test_resolve_comparison_input_matrix_index_selects_distinct_matrix_with_one_
                 seed=0,
                 shuffle=False,
             ),
-            normalize="none",
+            scaling=NoScaling(),
         ),
         str(dataset_dir),
         dataset_format="hdf5",
@@ -284,7 +285,7 @@ def test_resolve_comparison_input_matrix_index_can_collide_when_samples_are_pool
                 seed=0,
                 shuffle=False,
             ),
-            normalize="none",
+            scaling=NoScaling(),
         ),
         str(dataset_dir),
         dataset_format="hdf5",

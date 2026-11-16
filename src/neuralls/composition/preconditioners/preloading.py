@@ -107,7 +107,7 @@ def preload_checkpoints(
 
     Idempotent per checkpoint, so a later matrix of the same dataset (or a timing
     repeat) finds everything already loaded. ``loaders`` is needed only to load a predictor; a
-    config without one, or a fitted POD-2G basis, loads without them.
+    config without one, or a fitted POD basis, loads without them.
 
     Raises:
         TypeError: If the config exposes a checkpoint ref of a kind with no preloader.

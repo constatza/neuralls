@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from neuralls.platform.storage.manifest import DatasetArtifact, DatasetNormalization
+from neuralls.platform.storage.manifest import DatasetArtifact, DatasetScaling
 from neuralls.platform.storage.manifest_io import make_dataset_manifest, save_dataset_manifest
 from neuralls.platform.storage.training_artifacts import (
     NpyArraySource,
@@ -17,6 +17,7 @@ from neuralls.platform.storage.training_artifacts import (
     parameters_zarr_paths,
 )
 from neuralls.shared.constants import PARAMETERS_ZARR_PREFIX
+from neuralls.shared.system_scaling import NoScaling
 
 
 @pytest.fixture
@@ -49,11 +50,8 @@ def minimal_dataset(tmp_path: Path) -> Path:
                 dtype="float64",
                 shape=(samples, n),
             ),
-            normalization=DatasetNormalization(
-                type="none",
-                matrix_norm=1.0,
-                matrix_norm_type="fro",
-                scale={},
+            scaling=DatasetScaling(
+                scaling=NoScaling(), matrix_norm=1.0, matrix_norm_type="fro", matrix_scales={0: 1.0}
             ),
         ),
     )
@@ -99,11 +97,8 @@ def two_parameters_zarrs(minimal_dataset: Path) -> Path:
                 dtype="float64",
                 shape=(samples, 4),
             ),
-            normalization=DatasetNormalization(
-                type="none",
-                matrix_norm=1.0,
-                matrix_norm_type="fro",
-                scale={},
+            scaling=DatasetScaling(
+                scaling=NoScaling(), matrix_norm=1.0, matrix_norm_type="fro", matrix_scales={0: 1.0}
             ),
             params=tuple(params),
         ),
@@ -161,11 +156,8 @@ def test_load_training_arrays_preserves_npy_rhs_and_solution_paths(tmp_path: Pat
             solutions=DatasetArtifact(
                 path="solutions.npy", format="npy", dtype="float64", shape=(5, 4)
             ),
-            normalization=DatasetNormalization(
-                type="none",
-                matrix_norm=1.0,
-                matrix_norm_type="fro",
-                scale={},
+            scaling=DatasetScaling(
+                scaling=NoScaling(), matrix_norm=1.0, matrix_norm_type="fro", matrix_scales={0: 1.0}
             ),
         ),
     )

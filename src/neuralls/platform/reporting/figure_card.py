@@ -94,6 +94,7 @@ from neuralls.shared.runtime_environment import (
     encode_environment,
 )
 from neuralls.shared.scientific_description.policy import NotationPolicy, RenderTarget
+from neuralls.shared.system_scaling import RhsScaling, parse_system_scaling
 from neuralls.shared.types import DatasetId, PreconditionerName, RunId, SessionRunId
 
 CARD_SUFFIX = ".toml"
@@ -230,6 +231,22 @@ def build_figure_card(
 def card_name(stem: str) -> str:
     """The file name of the card that sits beside the figure with file stem ``stem``."""
     return f"{stem}{CARD_SUFFIX}"
+
+
+def _encode_solver_context(context: SolverTimingContext) -> dict[str, Any]:
+    """One ``[[parameters]]`` table: the scalings become a TOML table and a string."""
+    return {
+        **asdict(context),
+        "system_scaling": context.system_scaling.model_dump(mode="json"),
+        "rhs_scaling": context.rhs_scaling.value,
+    }
+
+
+def _decode_solver_context(payload: Mapping[str, Any]) -> SolverTimingContext:
+    fields: dict[str, Any] = dict(payload)
+    fields["system_scaling"] = parse_system_scaling(payload["system_scaling"])
+    fields["rhs_scaling"] = RhsScaling(payload["rhs_scaling"])
+    return SolverTimingContext(**fields)
 
 
 def _encode_reference(reference: ReferenceSelection) -> dict[str, Any]:
@@ -530,7 +547,7 @@ def card_payload(card: FigureCard) -> dict[str, Any]:
             "recipe_weights": list(metadata.recipe_weights),
         },
         "reference": _encode_reference(metadata.reference_selection),
-        "parameters": [asdict(context) for context in metadata.solver_contexts],
+        "parameters": [_encode_solver_context(context) for context in metadata.solver_contexts],
         "source": {
             "session_run_id": card.session_run_id,
             "environment": encode_environment(card.environment),
@@ -673,7 +690,7 @@ def _common_fields(kind: FigureKind, payload: Mapping[str, Any]) -> dict[str, An
         "recipe_counts": tuple(int(count) for count in counts["recipe_counts"]),
         "recipe_weights": tuple(float(weight) for weight in counts["recipe_weights"]),
         "solver_contexts": tuple(
-            SolverTimingContext(**context) for context in payload["parameters"]
+            _decode_solver_context(context) for context in payload["parameters"]
         ),
     }
 

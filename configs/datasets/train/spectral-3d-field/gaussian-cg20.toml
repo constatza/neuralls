@@ -5,14 +5,14 @@ problem = "Spectral 3D field"
 matrix_path = "${NEURALLS_RAW_DIR}/SpectralData/spectral-3d-field/*/K_ff.mtx"
 
 [generation]
-normalize = "matrix"
+scaling = { kind = "gershgorin", dimension_factor = "sqrt_n" }
 shuffle = true
 seed = 42
 
 # `start` left unset (default -1): keeps only the last CG iterate's
 # residual/error pair per trajectory.
 [[generation.strategy]]
-name = "gaussian_residuals"
+name = "cg_errors"
 samples = 5000
 stop = 20
 

@@ -9,6 +9,7 @@ from tests.dataset_support import build_test_dataset
 
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
 from neuralls.platform.storage import staged_commit as finalize
+from neuralls.shared.system_scaling import NoScaling
 
 
 class _CommitFailure(OSError):
@@ -69,7 +70,7 @@ def test_corrupt_manifest_in_target_directory_is_not_overwritten(tmp_path: Path)
             SourceSpec(matrix_path=str(tmp_path / "missing.npy")),
             DatasetSpec(
                 mixture=MixtureSpec(counts={"gaussian_forward": 1}, seed=0, shuffle=False),
-                normalize="none",
+                scaling=NoScaling(),
             ),
             str(dataset_dir),
             dataset_format="hdf5",

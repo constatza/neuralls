@@ -31,7 +31,7 @@ def load_job_config(path: Path, settings: NeurallsSettings) -> AnyJobSettings:
     ``MultiRunJobConfig`` (sweep-level configs, not one job) — rejected here
     since this function's contract is "one job", matching its callers
     (per-assignment training/search/fit/inference). ``FitJobConfig`` (one-shot,
-    non-gradient fit jobs, e.g. POD-2G basis fitting) is a single job like any
+    non-gradient fit jobs, e.g. POD basis fitting) is a single job like any
     other and is returned like any other — consumed via the same
     assignment/training pipeline as ``TrainingJobConfig``/``SearchJobConfig``
     (see ``composition/assignments/_job_types.py::TrainableJobConfig``).

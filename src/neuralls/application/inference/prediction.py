@@ -71,7 +71,7 @@ def stack_predictions(raw_predictions: list[np.ndarray]) -> np.ndarray:
     """Concatenate raw prediction batches into one array, preserving row shape.
 
     Unlike `process_predictions`, this does not flatten the result — use it
-    when callers need per-row vectors intact (e.g. a POD-2G snapshot ensemble,
+    when callers need per-row vectors intact (e.g. a POD snapshot ensemble,
     shape `(n_samples, n_dofs)`), rather than a flat scalar-per-row array.
 
     Args:

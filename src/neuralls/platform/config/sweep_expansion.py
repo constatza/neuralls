@@ -28,11 +28,11 @@ _SWEEP_SUFFIX = ".sweep.toml"
 # Also shared with error-message hints in loaders.py/assembler.py.
 _GENERATED_SUBDIR_NAME = SWEEP_GENERATED_SUBDIR_NAME
 
-TomlValue = bool | int | float | str | list[Any]
+TomlValue = bool | int | float | str | list[Any] | dict[str, Any]
 
 
 def _toml_scalar(value: TomlValue) -> str:
-    """Render one Python value as a TOML literal (str/bool/int/float/list only)."""
+    """Render one Python value as a TOML literal (str/bool/int/float/list/inline table)."""
     if isinstance(value, bool):
         return "true" if value else "false"
     if isinstance(value, str):
@@ -41,6 +41,10 @@ def _toml_scalar(value: TomlValue) -> str:
         return repr(value)
     if isinstance(value, list):
         return "[" + ", ".join(_toml_scalar(item) for item in value) + "]"
+    if isinstance(value, dict):
+        # An inline table, e.g. `[generation] scaling = { kind = "gershgorin", ... }`.
+        fields = ", ".join(f"{key} = {_toml_scalar(item)}" for key, item in value.items())
+        return "{ " + fields + " }"
     raise ValueError(f"unsupported value type in sweep spec: {type(value).__name__}")
 
 

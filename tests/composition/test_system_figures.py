@@ -39,6 +39,7 @@ from neuralls.platform.reporting.figure_metadata import FigureKind
 from neuralls.platform.reporting.figure_text import EditorialTitle
 from neuralls.shared.scientific_description.models import ScientificDescription
 from neuralls.shared.scientific_description.policy import NotationPolicy
+from neuralls.shared.system_scaling import NoScaling, RhsScaling
 from neuralls.shared.types import DatasetId, MatrixId, PreconditionerName, SystemId
 from tests.convergence_support import cg_result
 from tests.recipe_support import GAUSSIAN
@@ -54,7 +55,8 @@ CONTEXT = SolverTimingContext(
     timing_repeats=1,
     timing_warmup=0,
     timing_statistic="median",
-    normalization="none",
+    system_scaling=NoScaling(),
+    rhs_scaling=RhsScaling.NONE,
 )
 FIGURE_ROOT = Path("figures")
 

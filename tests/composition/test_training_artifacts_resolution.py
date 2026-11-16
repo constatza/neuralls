@@ -121,7 +121,7 @@ def finalization_context(
     )
 
 
-TRAINED_TEXT = "POD-2G | Gaussian CG Residuals (k=20, N=100)"
+TRAINED_TEXT = "POD | CG Errors (k=20, N=100)"
 
 
 # ---------------------------------------------------------------------------

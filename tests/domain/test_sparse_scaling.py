@@ -13,7 +13,8 @@ import numpy as np
 import pytest
 from scipy.sparse import csr_array
 
-from neuralls.domain.normalization import MatrixScale, matrix_norm, scale_csr_values
+from neuralls.domain.normalization import matrix_norm, scale_csr_values, scale_factor, scale_matrix
+from neuralls.shared.system_scaling import DimensionFactor, GershgorinScaling, NoScaling
 from neuralls.shared.types import MatrixNormType
 
 SEED = 20260405
@@ -40,9 +41,7 @@ def csr_matrix(dense_matrix: np.ndarray) -> csr_array:
     return csr_array(dense_matrix)
 
 
-@pytest.fixture
-def scalar_scale() -> MatrixScale:
-    return MatrixScale(spectral_radius_bound=2.5, dimension_scale=1.5)
+SCALAR_ALPHA = 3.75
 
 
 @pytest.fixture
@@ -51,10 +50,10 @@ def axis_scale() -> np.ndarray:
 
 
 def test_scalar_scale_matches_dense_and_keeps_pattern(
-    dense_matrix: np.ndarray, csr_matrix: csr_array, scalar_scale: MatrixScale
+    dense_matrix: np.ndarray, csr_matrix: csr_array
 ) -> None:
-    scaled = scalar_scale.scale_matrix(csr_matrix)
-    expected = scalar_scale.scale_matrix(dense_matrix)
+    scaled = scale_matrix(csr_matrix, SCALAR_ALPHA)
+    expected = scale_matrix(dense_matrix, SCALAR_ALPHA)
 
     assert isinstance(scaled, csr_array)
     assert isinstance(expected, np.ndarray)
@@ -100,3 +99,33 @@ def test_matrix_norm_csr_matches_dense(
 def test_nuclear_norm_rejected_for_csr(csr_matrix: csr_array) -> None:
     with pytest.raises(ValueError):
         matrix_norm(csr_matrix, MatrixNormType.NUCLEAR)
+
+
+def _gershgorin_bound(dense: np.ndarray) -> float:
+    return max(np.abs(dense).sum(axis=0).max(), np.abs(dense).sum(axis=1).max())
+
+
+@pytest.mark.parametrize("stored_as_csr", [False, True], ids=["dense", "csr"])
+def test_gershgorin_sqrt_n_scale_factor_is_bound_times_sqrt_n(
+    dense_matrix: np.ndarray, csr_matrix: csr_array, stored_as_csr: bool
+) -> None:
+    matrix = csr_matrix if stored_as_csr else dense_matrix
+
+    alpha = scale_factor(matrix, GershgorinScaling())
+
+    assert alpha == pytest.approx(_gershgorin_bound(dense_matrix) * np.sqrt(SIZE), rel=1e-14)
+
+
+@pytest.mark.parametrize("stored_as_csr", [False, True], ids=["dense", "csr"])
+def test_gershgorin_one_scale_factor_is_the_bound(
+    dense_matrix: np.ndarray, csr_matrix: csr_array, stored_as_csr: bool
+) -> None:
+    matrix = csr_matrix if stored_as_csr else dense_matrix
+
+    alpha = scale_factor(matrix, GershgorinScaling(dimension_factor=DimensionFactor.ONE))
+
+    assert alpha == pytest.approx(_gershgorin_bound(dense_matrix), rel=1e-14)
+
+
+def test_no_scaling_scale_factor_is_one(csr_matrix: csr_array) -> None:
+    assert scale_factor(csr_matrix, NoScaling()) == 1.0

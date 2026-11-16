@@ -1,8 +1,8 @@
 """The complete spectral comparison keeps ids out of MLflow run names, tags and parameters.
 
-One cohort drives the check: Identity, Jacobi, IC(0), two AMGs, aSA with ``k=3`` and
-``k=7``, BAMG, and POD-2G of ranks 10 and 100 fitted on Gaussian CG residuals and on
-smoother-filtered probes, all over a ``Spectral 3D field`` dataset. The real run-spec
+One cohort drives the check: Identity, Jacobi, IC(0), two AMGs, aSA with ``m=3`` and
+``k=7``, BAMG, and POD of ranks 10 and 100 fitted on Gaussian CG residuals and on
+Jacobi-filtered probes, all over a ``Spectral 3D field`` dataset. The real run-spec
 and parameter adapters log it against a real store; the method ids stay machine-only.
 """
 
@@ -41,6 +41,7 @@ from neuralls.platform.tracking.run_writer import MlflowRunWriter, open_run
 from neuralls.shared.digest import canonical_digest
 from neuralls.shared.scientific_description.models import ScientificDescription
 from neuralls.shared.scientific_description.policy import NotationPolicy, RenderTarget
+from neuralls.shared.system_scaling import GershgorinScaling
 
 PLAIN = NotationPolicy.default(RenderTarget.PLAIN)
 
@@ -76,7 +77,7 @@ def _generate(matrix_glob: str, target: Path, mixture: MixtureSpec) -> Path:
     """Generate one dataset of the spectral source with real structured provenance."""
     build_test_dataset(
         SourceSpec(matrix_path=matrix_glob),
-        DatasetSpec(mixture=mixture, normalize="matrix", write_batch_size=4),
+        DatasetSpec(mixture=mixture, scaling=GershgorinScaling(), write_batch_size=4),
         str(target),
         source_provenance=DatasetSourceProvenance(ScientificDescription(SOURCE_PROBLEM)),
     )
@@ -103,12 +104,10 @@ def spectral_dataset(matrix_glob: str, tmp_path: Path) -> DatasetPresentation:
 
 @pytest.fixture
 def fit_dirs(matrix_glob: str, tmp_path: Path) -> tuple[Path, Path]:
-    """POD fit datasets: Gaussian CG residuals, and smoother-filtered probes."""
+    """POD fit datasets: CG errors, and Jacobi-filtered probes."""
     gaussian_cg, filtered_probes = (
         _generate(matrix_glob, tmp_path / name, _trace_mixture(strategy))
-        for name, strategy in zip(
-            FIT_DIR_NAMES, ("gaussian_residuals", "smoother_filtered_probes"), strict=True
-        )
+        for name, strategy in zip(FIT_DIR_NAMES, ("cg_errors", "jacobi_probes"), strict=True)
     )
     return gaussian_cg, filtered_probes
 
@@ -201,7 +200,7 @@ def test_mlflow_runs_share_the_legend_presentation_and_keep_ids_in_tags_and_fact
         assert [leak for text in visible for leak in _forbidden(text)] == []
         assert run.data.params
         assert all(key.startswith(("method.", "training_dataset.")) for key in run.data.params)
-        # Parameters are machine-readable: stable enum values such as `gaussian_residuals` are
+        # Parameters are machine-readable: stable enum values such as `cg_errors` are
         # intended; only ids, slugs, paths and brackets are leaks.
         assert [
             leak for value in run.data.params.values() for leak in _forbidden(value, blobs=False)

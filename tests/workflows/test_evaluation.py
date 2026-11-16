@@ -440,9 +440,9 @@ def test_to_eval_run_spec_builds_run_spec_from_prepared_evaluation(
     run_spec = to_eval_run_spec(prepared)
 
     assert run_spec.id == "assign-ok"
-    assert run_spec.label == "POD-2G | Gaussian CG Residuals (k=20, N=100)"
+    assert run_spec.label == "POD | CG Errors (k=20, N=100)"
     assert run_spec.settings is settings_sentinel
-    assert run_spec.run_name == "POD-2G | Gaussian CG Residuals (k=20, N=100)"
+    assert run_spec.run_name == "POD | CG Errors (k=20, N=100)"
 
 
 def test_finalize_eval_child_saves_outputs_and_tags_run(
@@ -499,6 +499,6 @@ def test_eval_report_labels_bars_and_label_map_by_training_presentation(
         write_eval_metric_report(batch, metric="mae")
 
     expected = render_training_label(results[0].presentation)
-    assert expected == "Alpha | Gaussian CG Residuals (k=20, N=100)"
+    assert expected == "Alpha | CG Errors (k=20, N=100)"
     assert plot_fn.call_args.args[0].label("a-17") == expected
     assert batch.label_map["a-17"]["assignment_label"] == expected

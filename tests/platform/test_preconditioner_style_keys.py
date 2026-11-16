@@ -1,10 +1,10 @@
-"""Tests for `pod2g_style_keys`, the plot-style-key extractor for POD-2G comparisons.
+"""Tests for `pod_color_key`, the plot colour key of POD comparisons.
 
-A dense POD-2G sweep (many fit-dataset x weighting-scheme combinations in one
-comparison plot) needs a color/marker key per entry beyond just its family —
-see `neuralls.platform.reporting.series_style.resolve_styles`. These pin what
-`pod2g_style_keys` extracts from a raw preconditioner config, and that it
-stays `(None, None)` for anything that isn't POD-2G.
+A POD sweep over many fit datasets in one comparison plot needs a colour key per
+entry beyond just its family — see
+`neuralls.platform.reporting.series_style.resolve_styles`. These pin what
+`pod_color_key` extracts from a raw preconditioner config, and that it stays
+`None` for anything that isn't POD.
 """
 
 from __future__ import annotations
@@ -26,33 +26,29 @@ from neuralls.platform.config.models.preconditioner import (
     parse_preconditioner_config,
 )
 from neuralls.platform.config.models.preconditioner_family import (
-    pod2g_style_keys,
+    pod_color_key,
     preconditioner_family,
 )
-from neuralls.platform.config.models.weighting import PowerNormWeightingConfig
 
 
 @pytest.fixture
-def pod2g_dataset_dir() -> Path:
-    """A stand-in POD-2G fit-dataset directory (no validator requires it exist yet)."""
+def pod_dataset_dir() -> Path:
+    """A stand-in POD fit-dataset directory (no validator requires it exist yet)."""
     return Path("workspace") / "gaussian-cg0-rectangular-high-condition"
 
 
 @pytest.fixture
-def pod2g_config_with_power_norm_weighting(pod2g_dataset_dir: Path) -> AMGPreconditionerConfig:
-    """An AMG config with POD-2G coarsening and a non-default weighting scheme."""
-    coarsening = PODCoarseningConfig(
-        dataset_dir=pod2g_dataset_dir,
-        rank=8,
-        weighting=PowerNormWeightingConfig(metric="a", beta=1.0),
+def pod_config(pod_dataset_dir: Path) -> AMGPreconditionerConfig:
+    """An AMG config with POD coarsening fit inline from a dataset."""
+    return AMGPreconditionerConfig(
+        coarsening=PODCoarseningConfig(dataset_dir=pod_dataset_dir, rank=8)
     )
-    return AMGPreconditionerConfig(coarsening=coarsening)
 
 
 @pytest.fixture
-def neural_pod2g_config(pod2g_dataset_dir: Path) -> AMGPreconditionerConfig:
-    """An AMG config with checkpoint-predicted (neural) POD-2G coarsening."""
-    coarsening = NeuralPODCoarseningConfig(dataset_dir=pod2g_dataset_dir, input_names=("params",))
+def neural_pod_config(pod_dataset_dir: Path) -> AMGPreconditionerConfig:
+    """An AMG config with checkpoint-predicted (neural) POD coarsening."""
+    coarsening = NeuralPODCoarseningConfig(dataset_dir=pod_dataset_dir, input_names=("params",))
     return AMGPreconditionerConfig(coarsening=coarsening)
 
 
@@ -62,31 +58,25 @@ def jacobi_config() -> StandardPreconditionerConfig:
     return StandardPreconditionerConfig(type=PreconditionerType.JACOBI)
 
 
-def test_pod2g_style_keys_extracts_dataset_and_weighting(
-    pod2g_config_with_power_norm_weighting: AMGPreconditionerConfig,
-    pod2g_dataset_dir: Path,
+def test_pod_color_key_is_the_fit_dataset(
+    pod_config: AMGPreconditionerConfig, pod_dataset_dir: Path
 ) -> None:
-    """A PODCoarseningConfig yields its fit dataset as color_key, weighting method as marker_key."""
-    color_key, marker_key = pod2g_style_keys(pod2g_config_with_power_norm_weighting)
-    assert color_key == str(pod2g_dataset_dir)
-    assert marker_key == "power_norm"
+    """A PODCoarseningConfig yields its fit dataset as colour key."""
+    assert pod_color_key(pod_config) == str(pod_dataset_dir)
 
 
-def test_pod2g_style_keys_neural_pod_has_color_but_no_marker_key(
-    neural_pod2g_config: AMGPreconditionerConfig,
-    pod2g_dataset_dir: Path,
+def test_neural_pod_color_key_is_the_fit_dataset(
+    neural_pod_config: AMGPreconditionerConfig, pod_dataset_dir: Path
 ) -> None:
-    """NeuralPODCoarseningConfig has a fit dataset but no weighting scheme to key on."""
-    color_key, marker_key = pod2g_style_keys(neural_pod2g_config)
-    assert color_key == str(pod2g_dataset_dir)
-    assert marker_key is None
+    """NeuralPODCoarseningConfig is keyed by its parameter dataset too."""
+    assert pod_color_key(neural_pod_config) == str(pod_dataset_dir)
 
 
-def test_pod2g_style_keys_non_pod_config_falls_back_to_none(
+def test_pod_color_key_non_pod_config_falls_back_to_none(
     jacobi_config: StandardPreconditionerConfig,
 ) -> None:
-    """A non-POD-2G config yields (None, None), falling back to family-based styling."""
-    assert pod2g_style_keys(jacobi_config) == (None, None)
+    """A non-POD config yields None, falling back to family-based styling."""
+    assert pod_color_key(jacobi_config) is None
 
 
 @pytest.fixture
@@ -108,11 +98,11 @@ def _pod(directory: Path) -> AMGPreconditionerConfig:
     return AMGPreconditionerConfig(coarsening=PODCoarseningConfig(dataset_dir=directory, rank=8))
 
 
-def test_stored_config_keeps_family_marker_and_missing_keys(
+def test_stored_config_keeps_family_and_missing_keys(
     fit_dataset_dirs: tuple[Path, Path, Path],
     jacobi_config: StandardPreconditionerConfig,
 ) -> None:
-    """Family and marker survive the persisted form; non-POD configs stay unkeyed."""
+    """Family survives the persisted form; non-POD configs stay unkeyed."""
     pod = _pod(fit_dataset_dirs[0])
     neural_pod = AMGPreconditionerConfig(
         coarsening=NeuralPODCoarseningConfig(
@@ -121,8 +111,7 @@ def test_stored_config_keeps_family_marker_and_missing_keys(
     )
     for config in (pod, neural_pod, jacobi_config):
         assert preconditioner_family(_stored(config)) == preconditioner_family(config)
-        assert pod2g_style_keys(_stored(config))[1] == pod2g_style_keys(config)[1]
-    assert pod2g_style_keys(_stored(jacobi_config)) == (None, None)
+    assert pod_color_key(_stored(jacobi_config)) is None
 
 
 def test_stored_config_color_key_groups_by_fit_dataset_content(
@@ -130,6 +119,6 @@ def test_stored_config_color_key_groups_by_fit_dataset_content(
 ) -> None:
     """The persisted config holds the fit dataset's content digest, so the colour key groups by content."""
     first, same_content, other = fit_dataset_dirs
-    key = {path: pod2g_style_keys(_stored(_pod(path)))[0] for path in fit_dataset_dirs}
+    key = {path: pod_color_key(_stored(_pod(path))) for path in fit_dataset_dirs}
     assert key[first] == key[same_content]
     assert key[first] != key[other]

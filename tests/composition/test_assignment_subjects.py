@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -15,10 +14,12 @@ from neuralls.composition.assignments.assignment_subjects import (
     AssignmentInputs,
     IndistinguishableTrainingError,
     case_notation,
+    pod_fit_spec_from_assignment,
     require_distinct_training_labels,
     training_presentations,
     training_subject,
 )
+from neuralls.composition.preconditioners.descriptions import describe_configured_preconditioner
 from neuralls.domain.presentation.methods import DatasetQualifiedMethodPresentation
 from neuralls.domain.presentation.provenance import DatasetPresentation
 from neuralls.domain.presentation.run_names import (
@@ -27,6 +28,7 @@ from neuralls.domain.presentation.run_names import (
     TrainingRunName,
     Untimed,
 )
+from neuralls.platform.config.models.coarsening import PODCoarseningConfig
 from neuralls.platform.config.models.experiments import (
     AssignmentEntry,
     CaseConfig,
@@ -35,8 +37,10 @@ from neuralls.platform.config.models.experiments import (
 )
 from neuralls.platform.config.registry import ResolvedAssignmentBinding
 from neuralls.platform.tracking.run_names import render_run_name, render_training_label
-from neuralls.shared.scientific_description.models import ValidatedLabel
+from neuralls.shared.scientific_description.catalog import INNER_PRODUCT, make_fact
+from neuralls.shared.scientific_description.models import ScientificFact, ValidatedLabel
 from neuralls.shared.scientific_description.policy import NotationPolicy
+from neuralls.shared.types import InnerProductKind
 from tests.presentation_support import datasets_by_dir
 
 PLAIN = NotationPolicy.default()
@@ -69,10 +73,19 @@ def _use_inputs(
     monkeypatch.setattr(assignment_subjects, "resolve_assignment_inputs", lambda *a, **k: inputs)
 
 
-def _fit_job() -> MagicMock:
-    job = MagicMock(spec=FitJobConfig)
-    job.model = SimpleNamespace(rank=10)
-    return job
+def _fit_job(**model_extra: object) -> FitJobConfig:
+    return FitJobConfig.model_validate(
+        {
+            "run": {"type": "fit", "seed": 42},
+            "model": {
+                "name": "PODCoarseningFittable",
+                "module_path": "neuralls.composition.preconditioners.pod_fittable",
+                "rank": 10,
+                **model_extra,
+            },
+            "data": {"name": "FlexibleDataset", "features": [], "targets": []},
+        }
+    )
 
 
 def _subject(entry: AssignmentEntry, fit_presentation: DatasetPresentation) -> object:
@@ -98,7 +111,7 @@ def test_a_fit_job_is_the_pod_basis_trained_on_its_dataset(
 
     assert isinstance(subject, DatasetQualifiedMethodPresentation)
     text = render_run_name(TrainingRunName(subject, Untimed()), PLAIN)
-    assert text == "POD-2G (r=10) | Gaussian Solutions (μ=0, σ=1, N=8)"
+    assert text == "POD (c=10) | Gaussian Solutions (μ=0, σ=1, N=8)"
 
 
 def test_a_neural_job_is_its_architecture_trained_on_its_dataset(
@@ -174,12 +187,10 @@ def test_presentations_are_built_for_every_named_assignment_with_the_case_notati
 def test_assignments_that_render_alike_are_rejected_before_any_run_opens(
     training_presentation_of: Callable[[str], TrainingPresentation],
 ) -> None:
-    same = training_presentation_of("POD-2G")
+    same = training_presentation_of("POD")
 
     with pytest.raises(IndistinguishableTrainingError) as error:
-        require_distinct_training_labels(
-            {"first": same, "second": training_presentation_of("POD-2G")}
-        )
+        require_distinct_training_labels({"first": same, "second": training_presentation_of("POD")})
     assert (error.value.text, error.value.assignment_ids) == (
         render_training_label(same),
         ("first", "second"),
@@ -190,5 +201,73 @@ def test_assignments_with_different_models_are_distinct(
     training_presentation_of: Callable[[str], TrainingPresentation],
 ) -> None:
     require_distinct_training_labels(
-        {"first": training_presentation_of("POD-2G"), "second": training_presentation_of("FNO")}
+        {"first": training_presentation_of("POD"), "second": training_presentation_of("FNO")}
     )
+
+
+@pytest.mark.parametrize(
+    ("model_extra", "kind"),
+    [
+        ({}, InnerProductKind.EUCLIDEAN),
+        ({"inner_product": "euclidean"}, InnerProductKind.EUCLIDEAN),
+        ({"inner_product": "energy"}, InnerProductKind.ENERGY),
+        (
+            {"inner_product": {"kind": "energy", "dataset_dir": str(FIT_DIR)}},
+            InnerProductKind.ENERGY,
+        ),
+    ],
+    ids=["unset", "euclidean", "energy", "patched-energy"],
+)
+def test_a_fit_stub_carries_the_job_inner_product(
+    model_extra: dict[str, object], kind: InnerProductKind
+) -> None:
+    stub = pod_fit_spec_from_assignment(_entry(), job=_fit_job(**model_extra), dataset_dir=FIT_DIR)
+
+    assert isinstance(stub.coarsening, PODCoarseningConfig)
+    assert stub.coarsening.inner_product is kind
+
+
+@pytest.mark.parametrize(
+    ("inner_product", "facts"),
+    [("euclidean", ()), ("energy", (make_fact(INNER_PRODUCT, "energy"),))],
+)
+def test_only_an_energy_stub_states_its_inner_product(
+    inner_product: str, facts: tuple[ScientificFact, ...]
+) -> None:
+    stub = pod_fit_spec_from_assignment(
+        _entry(), job=_fit_job(inner_product=inner_product), dataset_dir=FIT_DIR
+    )
+
+    described = describe_configured_preconditioner(stub).facts
+    assert tuple(fact for fact in described if fact.key == INNER_PRODUCT) == facts
+
+
+def test_fits_that_differ_only_in_inner_product_have_distinct_labels(
+    monkeypatch: pytest.MonkeyPatch, pod_fit_presentation: DatasetPresentation
+) -> None:
+    jobs = {"euclidean_fit": _fit_job(), "energy_fit": _fit_job(inner_product="energy")}
+    monkeypatch.setattr(
+        assignment_subjects,
+        "resolve_assignment_inputs",
+        lambda entry, **_: AssignmentInputs(
+            binding=_binding(None), job=jobs[entry.id], dataset_dir=FIT_DIR
+        ),
+    )
+    cfg = CaseConfig(
+        datasets=[RegistryEntry(id="ds_1", path=WORKSPACE / "data.toml")],
+        jobs=[JobEntry(id="job_1", path=WORKSPACE / "job.toml")],
+        assignments=[AssignmentEntry(id=name, dataset="ds_1", job="job_1") for name in jobs],
+    )
+
+    built = training_presentations(
+        cfg,
+        config_dir=WORKSPACE,
+        settings=MagicMock(),
+        assignment_ids=list(jobs),
+        load_dataset=datasets_by_dir({FIT_DIR: pod_fit_presentation}),
+    )
+
+    assert {name: render_training_label(built[name]) for name in jobs} == {
+        "euclidean_fit": "POD (c=10) | Gaussian Solutions (μ=0, σ=1, N=8)",
+        "energy_fit": "POD (c=10, W=Ā) | Gaussian Solutions (μ=0, σ=1, N=8)",
+    }

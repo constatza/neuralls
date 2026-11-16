@@ -11,6 +11,7 @@ from neuralls.composition.solvers import run_traced_pcg
 from neuralls.domain.generation.ports import ArchiveSource, TracingSolverPort
 from neuralls.platform.storage.archive_source import FsArchiveSource
 from neuralls.platform.storage.split_store import FsSplitStore
+from neuralls.shared.types import SystemMatrix
 
 FS_SPLIT_STORE: SplitStore = FsSplitStore()
 """The split store every production workflow shares: the split file inside the dataset directory."""
@@ -22,12 +23,12 @@ FS_ARCHIVE_SOURCE: ArchiveSource = FsArchiveSource()
 def make_solver() -> TracingSolverPort:
     """Construct the default tracing solver for single-RHS trace strategies.
 
-    Used by the residual (``residuals``/``gaussian_residuals``) strategies,
+    Used by the residual (``residuals``/``cg_errors``) strategies,
     which trace the torchalg PCG call with full iteration history.
     """
 
     def _solve(
-        A: np.ndarray,
+        A: SystemMatrix,
         b: np.ndarray,
         x0: np.ndarray,
         *,

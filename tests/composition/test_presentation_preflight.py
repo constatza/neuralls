@@ -58,7 +58,7 @@ def test_pod_method_is_qualified_by_its_fit_dataset_exactly_once(
 
     assert isinstance(presentation, DatasetQualifiedMethodPresentation)
     text = render_method(presentation, LEGEND_PROFILE, PLAIN).text
-    assert text == "POD-2G (r=10) | Gaussian Solutions (μ=0, σ=1, N=8)"
+    assert text == "POD (c=10) | Gaussian Solutions (μ=0, σ=1, N=8)"
 
 
 def test_ordinary_methods_are_standalone() -> None:
@@ -127,7 +127,7 @@ def test_neural_method_label_follows_checkpoint_provenance(
     assert label == expected_label
     assert (
         scope_label(DatasetScope(dataset_presentation), PLAIN)
-        == "Comparison matrix set: Test problem | Gaussian CG Residuals (k=20, N=100)"
+        == "Comparison matrix set: Test problem | CG Errors (k=20, N=100)"
     )
 
 
@@ -143,8 +143,8 @@ def test_pod_ranks_over_one_dataset_are_distinguished_by_rank(
     )
     labels = [render_method(m.compact, LEGEND_PROFILE, PLAIN).text for m in prepared.methods]
     assert labels == [
-        "POD-2G (r=10) | Gaussian Solutions (μ=0, σ=1, N=8)",
-        "POD-2G (r=100) | Gaussian Solutions (μ=0, σ=1, N=8)",
+        "POD (c=10) | Gaussian Solutions (μ=0, σ=1, N=8)",
+        "POD (c=100) | Gaussian Solutions (μ=0, σ=1, N=8)",
     ]
 
 
@@ -192,7 +192,7 @@ def test_title_falls_back_to_the_dataset_never_to_an_id(
     title = compose_comparison_title(None, dataset_presentation)
     assert isinstance(title, ComparisonScopePresentation)
     assert render_title(title, LEGEND_PROFILE, PLAIN).text == (
-        "Test problem | Gaussian CG Residuals (k=20, N=100)"
+        "Test problem | CG Errors (k=20, N=100)"
     )
 
 

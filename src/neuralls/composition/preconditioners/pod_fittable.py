@@ -7,7 +7,7 @@ preconditioner algorithm classes. This adapter holds no new math at all — it
 inherits `build_transfer`/`compute_pod_basis` from `PODCoarseningStrategy`
 unchanged — it exists solely so dlkit's job loader (`[model] module_path`,
 resolved via `importlib`) has a concrete, importable class to construct for a
-`run.type = "fit"` (POD-2G) assignment, mirroring
+`run.type = "fit"` (POD) assignment, mirroring
 `composition/preconditioners/factory.py`'s existing role translating between
 neuralls' config layer and `torchalg`'s runtime objects.
 
@@ -25,44 +25,83 @@ This adapter bridges that gap the same way dlkit's own
 .fit(dataloader)` to each wrapped `Transform.fit(data: Tensor)`
 (`dlkit.domain.transforms.chain`) — materialize the target array across the
 dataloader's batches, then delegate to the tensor-based `fit()`.
-
-**Weighting is intentionally restricted to matrix-free schemes** (`raw`,
-`power_norm` with `metric="l2"`). A `run.type = "fit"` job's entire premise
-(`FitJobConfig`'s own docstring: "model and data are required... training
-stays unset") is a one-shot, deterministic, checkpoint-reusable fit from a
-*dataset alone* — the system matrix is a property of whichever comparison
-later reconstructs and uses the checkpoint, not of the fit itself. Weighting
-schemes that need the matrix (`power_norm` with `metric="a"`,
-`smoother_persistence`) are only meaningful where the matrix is already a
-natural, always-available input — `factory.py`'s inline
-`PODCoarseningConfig` fit, used directly in a comparison, not threaded
-through a reusable, matrix-agnostic fit-job artifact. See
-`composition/preconditioners/_weighting.py::weighting_needs_matrix`.
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterable
-from typing import Any
+from collections.abc import Iterable, Mapping
+from pathlib import Path
+from typing import Annotated, Any, Literal, assert_never
 
 import torch
+from loguru import logger
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 from torchalg.preconditioners.implementations.pod import PODCoarseningStrategy
 from torchalg.utils.device import resolve_device
 
 from neuralls.composition.assignments.runtime_dataset_contract import (
     default_training_dataset_contract,
 )
-from neuralls.composition.preconditioners._weighting import (
-    resolve_row_scales,
-    weighting_needs_matrix,
-)
-from neuralls.platform.config.models.weighting import (
-    RawWeightingConfig,
-    SnapshotWeightingConfig,
-    parse_snapshot_weighting_config,
-)
+from neuralls.composition.generation.default_services import FS_SPLIT_STORE
+from neuralls.composition.preconditioners.reference_matrix import mean_train_matrix
+from neuralls.domain.linalg import captured_energy_fraction
+from neuralls.shared.types import InnerProductKind
 
 _DEFAULT_TARGET_NAME = default_training_dataset_contract().target_name
+
+INNER_PRODUCT_FIELD = "inner_product"
+"""`[model]` key naming the inner product of a POD fit job."""
+MIN_CAPTURED_ENERGY = 0.95
+"""Captured snapshot-energy fraction below which a fitted rank is warned about."""
+
+
+class EuclideanInnerProduct(BaseModel):
+    """Fit the POD basis in the Euclidean inner product."""
+
+    kind: Literal[InnerProductKind.EUCLIDEAN] = InnerProductKind.EUCLIDEAN
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+
+class EnergyInnerProduct(BaseModel):
+    """Fit the POD basis in the energy inner product of the train-fold mean matrix.
+
+    A job's TOML names only ``inner_product = "energy"``; the runtime patcher adds the
+    dataset the job fits from, whose train-fold matrices define the weight.
+    """
+
+    kind: Literal[InnerProductKind.ENERGY] = InnerProductKind.ENERGY
+    dataset_dir: Path
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+
+type InnerProduct = Annotated[
+    EuclideanInnerProduct | EnergyInnerProduct, Field(discriminator="kind")
+]
+_INNER_PRODUCT = TypeAdapter[EuclideanInnerProduct | EnergyInnerProduct](InnerProduct)
+
+
+def parse_inner_product(
+    value: str | Mapping[str, Any],
+) -> EuclideanInnerProduct | EnergyInnerProduct:
+    """Validate a `[model] inner_product` value: a kind name or a patched table."""
+    if isinstance(value, str):
+        return _INNER_PRODUCT.validate_python({"kind": value})
+    return _INNER_PRODUCT.validate_python(value)
+
+
+def configured_inner_product(model_extra: Mapping[str, Any]) -> InnerProductKind:
+    """The inner product a fit job's `[model]` table names; Euclidean when it names none.
+
+    Reads both shapes the key takes: the TOML's kind name, and the table the runtime
+    patcher writes for an energy fit.
+    """
+    match model_extra.get(INNER_PRODUCT_FIELD):
+        case None:
+            return InnerProductKind.EUCLIDEAN
+        case str() as kind:
+            return InnerProductKind(kind)
+        case value:
+            return parse_inner_product(value).kind
 
 
 class PODCoarseningFittable(PODCoarseningStrategy):
@@ -88,15 +127,19 @@ class PODCoarseningFittable(PODCoarseningStrategy):
 
     def __init__(
         self,
-        rank: float,
+        rank: int,
         target_name: str = _DEFAULT_TARGET_NAME,
-        weighting: SnapshotWeightingConfig | dict[str, Any] | None = None,
+        inner_product: str | Mapping[str, Any] = InnerProductKind.EUCLIDEAN,
     ) -> None:
-        """Store the target rank and dataloader batch key; unfitted until `fit()`.
+        """Store the target rank, dataloader batch key and inner product; unfitted until `fit()`.
+
+        Nothing is read here: a checkpoint rebuild calls this with the job's `[model]`
+        table, so the dataset named by an energy inner product need not exist then.
+        The rank is checked here, because torchalg still accepts an energy fraction and the
+        comparison's `PODCoarseningConfig` would otherwise reject it only after the fit.
 
         Args:
-            rank: Fixed mode count (int) or minimum cumulative captured
-                energy (float in (0, 1]) — forwarded unchanged to
+            rank: Number of POD modes (the coarse dimension), forwarded unchanged to
                 `PODCoarseningStrategy.__init__`.
             target_name: Batch key (under `batch["targets"]`) supplying the
                 snapshot ensemble to fit from. Defaults to
@@ -104,35 +147,14 @@ class PODCoarseningFittable(PODCoarseningStrategy):
                 (`composition/assignments/runtime_dataset_contract.py`) —
                 the same target key every other assignment in this repo binds
                 its supervised target array to.
-            weighting: Per-snapshot row scaling to apply before the SVD —
-                see `SnapshotWeightingConfig`. Accepts a raw dict, since
-                dlkit's `[model]` table (`extra="allow"`) passes unrecognized
-                TOML keys through as plain kwargs, not validated model
-                instances — coerced via `parse_snapshot_weighting_config`.
-                `None` (default) is `RawWeightingConfig`, reproducing the
-                original unweighted fit. Must not require the system matrix
-                (see module docstring) — this is a fit *job*, not an inline
-                comparison-time fit; use `PODCoarseningConfig.weighting`
-                directly in a comparison for matrix-dependent schemes.
-
-        Raises:
-            ValueError: If `weighting` requires the system matrix.
+            inner_product: `"euclidean"` (default), or the energy inner product as
+                patched by the runtime job patcher (`{kind = "energy", dataset_dir}`).
         """
+        if isinstance(rank, bool) or not isinstance(rank, int) or rank < 1:
+            raise ValueError(f"POD rank must be a positive mode count, got {rank!r}")
         super().__init__(rank=rank)
         self._target_name = target_name
-        self._weighting = (
-            parse_snapshot_weighting_config(weighting)
-            if weighting is not None
-            else RawWeightingConfig()
-        )
-        if weighting_needs_matrix(self._weighting):
-            raise ValueError(
-                f"{type(self._weighting).__name__} requires the system matrix, which a "
-                "run.type='fit' job does not have — PODCoarseningFittable only supports "
-                "matrix-free weighting (raw, power_norm with metric='l2'). Use "
-                "PODCoarseningConfig.weighting directly in a comparison's preconditioner "
-                "config instead, where the matrix is already available."
-            )
+        self._inner_product = parse_inner_product(inner_product)
 
     @property
     def hparams(self) -> dict[str, Any]:
@@ -148,24 +170,26 @@ class PODCoarseningFittable(PODCoarseningStrategy):
         POD-specific, but a gap in any `Fittable` model used through
         `FitJobConfig` today.
         """
-        return {"rank": self._rank, "weighting": self._weighting.method}
+        return {"rank": self._rank, "inner_product": self._inner_product.kind}
 
     def fit(
-        self, snapshots: torch.Tensor | Iterable[Any], row_scales: torch.Tensor | None = None
+        self,
+        snapshots: torch.Tensor | Iterable[Any],
+        row_scales: torch.Tensor | None = None,
+        inner_product: torch.Tensor | None = None,
     ) -> None:
         """Fit from a raw tensor, or by materializing a dataloader's batches first.
 
         An LSP-compatible override of `PODCoarseningStrategy.fit` — same
         parameters, same defaults, so this class stays substitutable
         wherever a plain `PODCoarseningStrategy` is expected (e.g.
-        `factory.py`'s inline-fit call site, tensor + explicit `row_scales`
-        forwarded unchanged). Anything other than a `torch.Tensor` is
-        treated as a dlkit training dataloader — each batch's
+        `factory.py`'s inline-fit call site). Anything other than a
+        `torch.Tensor` is treated as a dlkit training dataloader — each batch's
         `["targets"][target_name]` entry is concatenated into one snapshot
-        ensemble, then (when `row_scales` wasn't already given explicitly)
-        weighted per `self._weighting` — always matrix-free, per `__init__`'s
-        validation — before delegating to the tensor path, satisfying
-        `dlkit.engine.training.fittable.Fittable.fit(dataloader)`.
+        ensemble before delegating to the tensor path, satisfying
+        `dlkit.engine.training.fittable.Fittable.fit(dataloader)`. Snapshot rows
+        are fitted as stored: any row scaling happens at generation, with the
+        matrix that generated them.
 
         Args:
             snapshots: Either the snapshot ensemble directly (shape
@@ -173,16 +197,17 @@ class PODCoarseningFittable(PODCoarseningStrategy):
                 whose `["targets"][target_name]` entry is this run's
                 snapshot array (e.g. a `solutions-cgN` dataset's `y`).
             row_scales: Explicit per-snapshot row scale, forwarded straight
-                to `PODCoarseningStrategy.fit`. When `snapshots` is a
-                dataloader and this is left `None` (the normal case for a
-                `run.type = "fit"` job), it is instead computed from
-                `self._weighting`.
+                to `PODCoarseningStrategy.fit` on both paths.
+            inner_product: Dense SPD weight `W` of the POD inner product,
+                forwarded straight to `PODCoarseningStrategy.fit` on both paths;
+                `None` uses the configured inner product (Euclidean, or the
+                train-fold mean matrix of the configured dataset).
 
         Raises:
             ValueError: If `snapshots` is a dataloader that yields no batches.
         """
         if isinstance(snapshots, torch.Tensor):
-            super().fit(snapshots, row_scales=row_scales)
+            self._fit_tensor(snapshots, row_scales, inner_product)
             return
         # Single pass over the dataloader — never list(snapshots). Each batch is a
         # pin_memory'd TensorDict; materializing the whole dataloader up front would
@@ -202,6 +227,47 @@ class PODCoarseningFittable(PODCoarseningStrategy):
         # `concatenated` lives, and resolve_device() is the same GPU-if-available
         # convention comparison_run.py/domain/solver/comparison.py already use.
         concatenated = torch.cat(chunks, dim=0).to(resolve_device())
-        if row_scales is None:
-            row_scales = resolve_row_scales(self._weighting, concatenated, matrix=None)
-        super().fit(concatenated, row_scales=row_scales)
+        self._fit_tensor(concatenated, row_scales, inner_product)
+
+    def _fit_tensor(
+        self,
+        snapshots: torch.Tensor,
+        row_scales: torch.Tensor | None,
+        inner_product: torch.Tensor | None,
+    ) -> None:
+        """Fit the basis, then warn when it captures little of the snapshot energy.
+
+        The check runs here, in the offline fit job, and not in a comparison's inline
+        fit, whose fit time is part of the measured setup.
+        """
+        weight = self._weight(inner_product, snapshots)
+        super().fit(snapshots, row_scales=row_scales, inner_product=weight)
+        captured = captured_energy_fraction(snapshots, self._basis, row_scales, weight)
+        if captured < MIN_CAPTURED_ENERGY:
+            logger.warning(
+                "POD basis of rank {} captures {:.4f} of the snapshot energy over {} rows, "
+                "below {}; consider a larger rank",
+                self.rank,
+                captured,
+                snapshots.shape[0],
+                MIN_CAPTURED_ENERGY,
+            )
+
+    def _weight(
+        self, explicit: torch.Tensor | None, snapshots: torch.Tensor
+    ) -> torch.Tensor | None:
+        """The POD weight `W`: an explicit one, else the configured inner product's.
+
+        The configured energy weight is placed like `snapshots`; `None` is the
+        Euclidean inner product.
+        """
+        if explicit is not None:
+            return explicit
+        match self._inner_product:
+            case EuclideanInnerProduct():
+                return None
+            case EnergyInnerProduct(dataset_dir=dataset_dir):
+                mean = mean_train_matrix(dataset_dir, FS_SPLIT_STORE)
+                return torch.as_tensor(mean, dtype=snapshots.dtype, device=snapshots.device)
+            case unreachable:
+                assert_never(unreachable)

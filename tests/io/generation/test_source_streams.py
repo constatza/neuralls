@@ -25,6 +25,7 @@ from neuralls.platform.storage.datasets import (
 )
 from neuralls.platform.storage.enum_codecs import decode_row_kind_array
 from neuralls.platform.storage.generation_formats import HDF5_FILENAME as DENSE_DATASET_FILE
+from neuralls.shared.system_scaling import NoScaling
 from neuralls.shared.types import RowKind
 
 
@@ -62,7 +63,7 @@ def test_build_dataset_streams_matrix_stack_without_dense_batch(tmp_path: Path) 
                 seed=42,
                 shuffle=False,
             ),
-            normalize="none",
+            scaling=NoScaling(),
         ),
         str(out_dir),
         dataset_format="zarr",
@@ -96,7 +97,7 @@ def test_build_dataset_hdf5_output_holds_the_generated_matrix(tmp_path: Path) ->
                 seed=42,
                 shuffle=False,
             ),
-            normalize="none",
+            scaling=NoScaling(),
         ),
         str(out_dir),
         dataset_format="hdf5",
@@ -130,7 +131,7 @@ def test_single_matrix_stored_once_in_zarr(tmp_path: Path) -> None:
                 seed=7,
                 shuffle=False,
             ),
-            normalize="none",
+            scaling=NoScaling(),
         ),
         str(out_dir),
         dataset_format="zarr",
@@ -172,7 +173,7 @@ def test_build_dataset_persists_residuals_pairs(tmp_path: Path) -> None:
                     }
                 },
             ),
-            normalize="none",
+            scaling=NoScaling(),
         ),
         str(out_dir),
     )
@@ -183,24 +184,24 @@ def test_build_dataset_persists_residuals_pairs(tmp_path: Path) -> None:
     np.testing.assert_allclose(saved_solutions @ matrix.T, saved_rhs, atol=1e-10)
 
 
-def test_build_dataset_persists_gaussian_residual_pairs(tmp_path: Path) -> None:
+def test_build_dataset_persists_cg_error_pairs(tmp_path: Path) -> None:
     matrix = np.array([[3.0, 1.0], [1.0, 2.0]], dtype=np.float64)
     matrix_path = tmp_path / "matrix.npy"
     np.save(matrix_path, matrix)
 
-    out_dir = tmp_path / "gaussian_residual_dataset"
+    out_dir = tmp_path / "cg_error_dataset"
     build_test_dataset(
         SourceSpec(
             matrix_path=str(matrix_path),
         ),
         DatasetSpec(
             mixture=MixtureSpec(
-                counts={"gaussian_residuals": 4},
+                counts={"cg_errors": 4},
                 seed=7,
                 shuffle=False,
-                strategy_overrides={"gaussian_residuals": {"stop": 2, "start": 1}},
+                strategy_overrides={"cg_errors": {"stop": 2, "start": 1}},
             ),
-            normalize="none",
+            scaling=NoScaling(),
         ),
         str(out_dir),
     )
@@ -227,7 +228,7 @@ def test_build_dataset_persists_row_metadata_artifacts(tmp_path: Path) -> None:
                 seed=42,
                 shuffle=False,
             ),
-            normalize="none",
+            scaling=NoScaling(),
         ),
         str(out_dir),
         dataset_format="hdf5",
@@ -256,12 +257,12 @@ def test_build_dataset_marks_residual_error_rows_with_kind_codes(tmp_path: Path)
         ),
         DatasetSpec(
             mixture=MixtureSpec(
-                counts={"gaussian_residuals": 2},
+                counts={"cg_errors": 2},
                 seed=7,
                 shuffle=False,
-                strategy_overrides={"gaussian_residuals": {"stop": 2, "start": 1}},
+                strategy_overrides={"cg_errors": {"stop": 2, "start": 1}},
             ),
-            normalize="none",
+            scaling=NoScaling(),
         ),
         str(out_dir),
         dataset_format="hdf5",
@@ -293,7 +294,7 @@ def test_glob_matrix_gaussian_uses_global_sample_budget(
                 seed=0,
                 shuffle=False,
             ),
-            normalize="none",
+            scaling=NoScaling(),
         ),
         str(out_dir),
         dataset_format="zarr",
@@ -340,7 +341,7 @@ def test_glob_matrix_solution_archive_uses_global_sample_budget(
                     }
                 },
             ),
-            normalize="none",
+            scaling=NoScaling(),
         ),
         str(out_dir),
         dataset_format="zarr",
@@ -385,7 +386,7 @@ def test_build_dataset_honors_enumerate_by_for_globbed_matrix_files(
                 seed=42,
                 shuffle=False,
             ),
-            normalize="none",
+            scaling=NoScaling(),
         ),
         str(out_dir),
         dataset_format="zarr",
@@ -419,7 +420,7 @@ def test_build_dataset_exclude_indices_removes_matrix_from_generated_dataset(
                 seed=0,
                 shuffle=False,
             ),
-            normalize="none",
+            scaling=NoScaling(),
         ),
         str(out_dir),
         dataset_format="zarr",
@@ -472,7 +473,7 @@ def test_build_dataset_exclude_indices_keeps_matrix_and_parameters_streams_consi
                 seed=0,
                 shuffle=False,
             ),
-            normalize="none",
+            scaling=NoScaling(),
         ),
         str(out_dir),
         dataset_format="zarr",
@@ -519,7 +520,7 @@ def test_build_dataset_include_indices_builds_holdout_dataset(
                     }
                 },
             ),
-            normalize="none",
+            scaling=NoScaling(),
         ),
         str(out_dir),
         dataset_format="zarr",

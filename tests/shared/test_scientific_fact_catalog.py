@@ -54,7 +54,8 @@ def test_catalog_contains_required_compact_plain_symbols(catalog: ModuleType) ->
         "θₐd",
         "q",
         "γ",
-        "r",
+        "c",
+        "𝒟",
         "N",
         "Nₛ",
         "μ",
@@ -63,6 +64,26 @@ def test_catalog_contains_required_compact_plain_symbols(catalog: ModuleType) ->
         "b",
         "τ",
     } <= symbols
+
+
+@pytest.mark.parametrize(
+    ("key", "plain", "mathtext"),
+    [
+        ("rank", "c", "c"),
+        ("coarse_dimension", "c", "c"),
+        ("iteration_count", "k", "k"),
+        ("steps", "k", "k"),
+        ("sample_count", "N", "N"),
+        ("probe_distribution", "𝒟", "\\mathcal{D}"),
+        ("candidate_count", "m", "m_c"),
+    ],
+)
+def test_catalog_uses_the_paper_notation(
+    catalog: ModuleType, key: str, plain: str, mathtext: str
+) -> None:
+    """Exported legends use the POD-CG/POD-JP paper's symbols, so figures need no mapping."""
+    definition = catalog.fact_definition(FieldKey(key))
+    assert (definition.plain_symbol, definition.mathtext_symbol) == (plain, mathtext)
 
 
 def test_fact_roles_are_closed_and_complete(catalog: ModuleType) -> None:
@@ -140,7 +161,7 @@ def test_unknown_fact_key_is_rejected(catalog: ModuleType) -> None:
 
 def test_unknown_categorical_value_is_rejected(catalog: ModuleType) -> None:
     """A category typo built around the factory must not leak its raw spelling into presentation."""
-    fact = TextFact(catalog.WEIGHTING, "unknown_weighting")
+    fact = TextFact(catalog.METRIC, "unknown_metric")
 
     with pytest.raises(catalog.UnknownCategoricalValueError):
         render_facts((fact,), NotationPolicy.default())

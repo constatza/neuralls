@@ -53,7 +53,7 @@ def noop_artifact_leases() -> ArtifactLeaseManager:
 
 @pytest.fixture
 def pod_specs_across_datasets() -> list[AMGPreconditionerConfig]:
-    """Four uniquely keyed POD-2G cases spanning two datasets and two ranks."""
+    """Four uniquely keyed POD cases spanning two datasets and two ranks."""
     cases = (
         ("pod-cg-r10", "cg", 10),
         ("pod-cg-r100", "cg", 100),

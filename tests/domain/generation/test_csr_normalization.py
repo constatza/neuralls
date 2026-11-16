@@ -1,4 +1,4 @@
-"""CSR-aware matrix normalization and sparse source loading for generation."""
+"""CSR-aware matrix scaling and sparse source loading for generation."""
 
 from __future__ import annotations
 
@@ -8,9 +8,9 @@ import numpy as np
 import pytest
 from scipy.sparse import csr_array
 
-from neuralls.domain.generation.helpers import normalize_matrix_for_generation
 from neuralls.domain.generation.source_streams import open_matrix_stream
-from neuralls.domain.normalization import matrix_norm
+from neuralls.domain.normalization import matrix_norm, scale_factor, scale_matrix
+from neuralls.shared.system_scaling import GershgorinScaling, NoScaling, SystemScaling
 from neuralls.shared.types import MatrixFormat, MatrixNormType
 from tests.fakes.archive_source import InMemoryArchiveSource
 
@@ -60,22 +60,19 @@ def npy_source(archive_source: InMemoryArchiveSource, spd_dense: np.ndarray) -> 
     return archive_source.add(Path("archive/system.npy"), spd_dense)
 
 
-@pytest.mark.parametrize("normalize_type", ["matrix", "none"])
-def test_csr_normalization_matches_dense(
-    spd_dense: np.ndarray, spd_csr: csr_array, normalize_type: str
+@pytest.mark.parametrize("scaling", [GershgorinScaling(), NoScaling()], ids=["gershgorin", "none"])
+def test_csr_scaling_matches_dense(
+    spd_dense: np.ndarray, spd_csr: csr_array, scaling: SystemScaling
 ) -> None:
-    dense_norm, dense_scale, dense_value_scale = normalize_matrix_for_generation(
-        spd_dense, normalize_type, spectral_radius_bound=None
-    )
-    csr_norm, csr_scale, csr_value_scale = normalize_matrix_for_generation(
-        spd_csr, normalize_type, spectral_radius_bound=None
-    )
+    dense_alpha = scale_factor(spd_dense, scaling)
+    csr_alpha = scale_factor(spd_csr, scaling)
+    dense_scaled = scale_matrix(spd_dense, dense_alpha)
+    csr_scaled = scale_matrix(spd_csr, csr_alpha)
 
-    assert isinstance(csr_norm, csr_array)
-    assert isinstance(dense_norm, np.ndarray)
-    np.testing.assert_allclose(csr_norm.toarray(), dense_norm, rtol=1e-12, atol=0.0)
-    assert csr_value_scale == pytest.approx(dense_value_scale, rel=1e-12)
-    assert (csr_scale is None) == (dense_scale is None)
+    assert isinstance(csr_scaled, csr_array)
+    assert isinstance(dense_scaled, np.ndarray)
+    np.testing.assert_allclose(csr_scaled.toarray(), dense_scaled, rtol=1e-12, atol=0.0)
+    assert csr_alpha == pytest.approx(dense_alpha, rel=1e-12)
 
 
 @pytest.mark.parametrize("kind", [MatrixNormType.ONE, MatrixNormType.INF, MatrixNormType.FROBENIUS])
@@ -92,10 +89,10 @@ def test_csr_spectral_norm_matches_dense(spd_dense: np.ndarray, spd_csr: csr_arr
     )
 
 
-def test_csr_normalization_never_densifies(spd_csr: csr_array, toarray_calls: list[int]) -> None:
-    normalized, _, _ = normalize_matrix_for_generation(spd_csr, "matrix", None)
-    matrix_norm(normalized, MatrixNormType.INF)
-    assert isinstance(normalized, csr_array)
+def test_csr_scaling_never_densifies(spd_csr: csr_array, toarray_calls: list[int]) -> None:
+    scaled = scale_matrix(spd_csr, scale_factor(spd_csr, GershgorinScaling()))
+    matrix_norm(scaled, MatrixNormType.INF)
+    assert isinstance(scaled, csr_array)
     assert toarray_calls == []
 
 

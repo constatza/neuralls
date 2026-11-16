@@ -84,6 +84,7 @@ from neuralls.platform.reporting.figure_metadata import (
     TimingPolicy,
 )
 from neuralls.shared.rhs_recipe import SinusoidalRecipe
+from neuralls.shared.system_scaling import GershgorinScaling, RhsScaling
 from neuralls.shared.types import (
     DatasetId,
     MatrixId,
@@ -177,7 +178,8 @@ CONTEXT = SolverTimingContext(
     timing_repeats=3,
     timing_warmup=1,
     timing_statistic="median",
-    normalization="matrix",
+    system_scaling=GershgorinScaling(),
+    rhs_scaling=RhsScaling.NONE,
 )
 
 

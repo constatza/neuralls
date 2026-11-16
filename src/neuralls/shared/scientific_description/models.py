@@ -77,7 +77,7 @@ class DecimalFact:
 
 @dataclass(frozen=True, slots=True)
 class TextFact:
-    """A categorical fact, e.g. ``weighting="uniform"``; the catalog owns the categories."""
+    """A categorical fact, e.g. ``probe_distribution="gaussian"``; the catalog owns the categories."""
 
     key: FieldKey
     value: str

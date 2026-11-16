@@ -20,9 +20,10 @@ from neuralls.composition.generation.dataset_builder import (
 from neuralls.domain.generation.specs import DatasetSpec, SourceSpec
 from neuralls.domain.identity import StageIdentity
 from neuralls.domain.presentation.provenance import DatasetPresentation
-from neuralls.platform.storage.manifest import DatasetArtifact, DatasetNormalization
+from neuralls.platform.storage.manifest import DatasetArtifact, DatasetScaling
 from neuralls.platform.storage.manifest_io import make_dataset_manifest, save_dataset_manifest
 from neuralls.shared.digest import canonical_digest
+from neuralls.shared.system_scaling import GershgorinScaling
 
 
 def _artifact(fmt: str, path: str = "x", *, rows: int | None = None) -> DatasetArtifact:
@@ -38,8 +39,11 @@ def zarr_manifest_dir(tmp_path: Path) -> Path:
         matrix=_artifact("zarr"),
         rhs=_artifact("zarr"),
         solutions=_artifact("zarr"),
-        normalization=DatasetNormalization(
-            type="matrix", matrix_norm=1.0, matrix_norm_type="spectral", scale={}
+        scaling=DatasetScaling(
+            scaling=GershgorinScaling(),
+            matrix_norm=1.0,
+            matrix_norm_type="spectral",
+            matrix_scales={0: 1.0},
         ),
     )
     save_dataset_manifest(tmp_path, manifest)
@@ -69,8 +73,11 @@ def complete_npy_dataset_dir(tmp_path: Path, dataset_presentation: DatasetPresen
         matrix=_artifact("npy", "matrix.npy", rows=rows),
         rhs=_artifact("npy", "rhs.npy"),
         solutions=_artifact("npy", "solutions.npy"),
-        normalization=DatasetNormalization(
-            type="matrix", matrix_norm=1.0, matrix_norm_type="spectral", scale={}
+        scaling=DatasetScaling(
+            scaling=GershgorinScaling(),
+            matrix_norm=1.0,
+            matrix_norm_type="spectral",
+            matrix_scales={0: 1.0},
         ),
     )
     save_dataset_manifest(tmp_path, manifest)
@@ -214,8 +221,11 @@ class TestStampRefusesInconsistentProvenance:
             matrix=_artifact("npy", "x.npy"),
             rhs=_artifact("npy", "x.npy"),
             solutions=_artifact("npy", "x.npy"),
-            normalization=DatasetNormalization(
-                type="matrix", matrix_norm=1.0, matrix_norm_type="spectral", scale={}
+            scaling=DatasetScaling(
+                scaling=GershgorinScaling(),
+                matrix_norm=1.0,
+                matrix_norm_type="spectral",
+                matrix_scales={0: 1.0},
             ),
         )
         save_dataset_manifest(tmp_path, manifest)

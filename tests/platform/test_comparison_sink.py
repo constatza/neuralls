@@ -99,6 +99,7 @@ from neuralls.platform.tracking.report_sink import (
 )
 from neuralls.platform.tracking.split_records import SPLITS_ARTIFACT
 from neuralls.shared.scientific_description.policy import NotationPolicy
+from neuralls.shared.system_scaling import NoScaling, RhsScaling
 from neuralls.shared.types import (
     DatasetId,
     GroupId,
@@ -118,7 +119,8 @@ _CONTEXT = SolverTimingContext(
     timing_repeats=1,
     timing_warmup=0,
     timing_statistic="median",
-    normalization="none",
+    system_scaling=NoScaling(),
+    rhs_scaling=RhsScaling.NONE,
 )
 
 
@@ -390,7 +392,7 @@ def _report_variant(
     return WorkloadMixtureReport(**common)
 
 
-_GROUP_FILE_STEM = "Comparison_matrix_set_Test_problem_Gaussian_CG_Residuals_k_20_N_100_-_Gaussian"
+_GROUP_FILE_STEM = "Comparison_matrix_set_Test_problem_CG_Errors_k_20_N_100_-_Gaussian"
 
 _COHORT_STEMS = (
     "convergence_factor",

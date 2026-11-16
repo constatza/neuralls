@@ -1,10 +1,10 @@
 id = "gaussian-cg0-rectangular-high-condition"
 strategy_comment = [
-    "\"0-CG\": the `stop` field on the residuals/trace strategies has a hard",
-    "floor of 1 (and even stop=1 emits 2 rows per system - iteration 0 AND",
-    "iteration 1, not just the untraced solution). gaussian_forward is the true",
+    "\"0-CG\": the `stop` field on the trajectory strategies has a hard floor",
+    "of 1 (with `start` unset, stop=1 keeps only the iterate after one step,",
+    "never the untouched probe). gaussian_forward is the true",
     "0-CG case - x ~ N(mu, sigma), b = A @ x, no CG solve at all.",
-    "POD-2G fitting never sees real archived solutions - those are comparison-only.",
+    "POD fitting never sees real archived solutions - those are comparison-only.",
 ]
 
 [source]
@@ -12,7 +12,7 @@ problem = "Rectangular high condition"
 matrix_path = "${NEURALLS_RAW_DIR}/matrices/rectangular-high-condition.txt"
 
 [generation]
-normalize = "matrix"
+scaling = { kind = "gershgorin", dimension_factor = "sqrt_n" }
 shuffle = true
 seed = 42
 

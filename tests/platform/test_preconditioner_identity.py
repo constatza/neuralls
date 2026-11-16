@@ -33,7 +33,6 @@ from neuralls.platform.config.models.preconditioner import (
     PreconditionerType,
     StandardPreconditionerConfig,
 )
-from neuralls.platform.config.models.weighting import PowerNormWeightingConfig
 
 
 def test_standard_preconditioner_slug_is_bare_type() -> None:
@@ -97,16 +96,12 @@ def test_amg_target_dim_slug_includes_target() -> None:
     )
 
 
-def test_amg_pod_slug_includes_rank_and_weighting() -> None:
-    """POD-2G coarsening's slug reflects rank and snapshot weighting."""
+def test_amg_pod_slug_includes_rank_and_snapshot_count() -> None:
+    """POD coarsening's slug reflects rank and snapshot count."""
     cfg = AMGPreconditionerConfig(
-        coarsening=PODCoarseningConfig(
-            dataset_dir="data/solutions",
-            rank=8,
-            weighting=PowerNormWeightingConfig(metric="l2", beta=1.0),
-        )
+        coarsening=PODCoarseningConfig(dataset_dir="data/solutions", rank=8, n_snapshots=200)
     )
-    assert cfg.name == "amg_levels2_pre2_post2_smootheromegaauto_pod_rank8_n-1_powernorm_l2_beta1"
+    assert cfg.name == "amg_levels2_pre2_post2_smootheromegaauto_pod_rank8_n200"
 
 
 def test_amg_pod_slug_includes_checkpoint_identity_when_fitted() -> None:
@@ -115,13 +110,10 @@ def test_amg_pod_slug_includes_checkpoint_identity_when_fitted() -> None:
         coarsening=PODCoarseningConfig(
             dataset_dir="data/solutions",
             rank=8,
-            assignment="pod2g_run1",
+            assignment="pod_run1",
         )
     )
-    assert (
-        cfg.name
-        == "amg_levels2_pre2_post2_smootheromegaauto_pod_rank8_n-1_raw_assignment_pod2g_run1"
-    )
+    assert cfg.name == "amg_levels2_pre2_post2_smootheromegaauto_pod_rank8_n-1_assignment_pod_run1"
 
 
 def test_neural_pod_slug_always_includes_checkpoint_identity() -> None:

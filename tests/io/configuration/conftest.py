@@ -19,7 +19,7 @@ matrix_path = "${NEURALLS_PROCESSED_DIR}/matrix.mtx"
 seed = 1
 
 [[generation.strategy]]
-name = "gaussian_residuals"
+name = "cg_errors"
 samples = [10, 20]
 stop = 5
 

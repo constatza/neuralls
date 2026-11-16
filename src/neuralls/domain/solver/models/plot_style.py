@@ -11,7 +11,7 @@ from neuralls.domain.presentation.methods import PreparedMethodPresentation
 
 @dataclass(frozen=True, slots=True)
 class PreconditionerPlotStyle:
-    """How one preconditioner is drawn: its presentation and style-axis keys.
+    """How one preconditioner is drawn: its presentation, family and colour key.
 
     Carried from the run that built the preconditioner to every later plot of
     it, so a group report is styled exactly like the per-run convergence plots.
@@ -21,25 +21,22 @@ class PreconditionerPlotStyle:
         presentation: The validated scientific presentation of the method.
         family: Plot-style family; same-family preconditioners share a linestyle.
         color_key: Optional colour-axis key; ``None`` falls back to ``family``.
-        marker_key: Optional marker-axis key; ``None`` falls back to ``family``.
     """
 
     presentation: PreparedMethodPresentation
     family: StrEnum
     color_key: str | None = None
-    marker_key: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class PlotStyleMaps:
     """Per-name mappings in the shape the plot functions take.
 
-    Keys absent from ``color_keys``/``marker_keys`` fall back to the family.
+    Names absent from ``color_keys`` fall back to the family.
     """
 
     families: Mapping[str, Hashable]
     color_keys: Mapping[str, Hashable]
-    marker_keys: Mapping[str, Hashable]
 
 
 def plot_style_maps(styles: Mapping[str, PreconditionerPlotStyle]) -> PlotStyleMaps:
@@ -52,8 +49,5 @@ def plot_style_maps(styles: Mapping[str, PreconditionerPlotStyle]) -> PlotStyleM
         families={name: style.family for name, style in styles.items()},
         color_keys={
             name: style.color_key for name, style in styles.items() if style.color_key is not None
-        },
-        marker_keys={
-            name: style.marker_key for name, style in styles.items() if style.marker_key is not None
         },
     )

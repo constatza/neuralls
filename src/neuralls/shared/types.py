@@ -13,7 +13,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum, StrEnum
 from pathlib import Path
-from typing import Literal, NewType, TypedDict
+from typing import Literal, NewType
 
 import numpy as np
 from scipy.sparse import csr_array
@@ -23,11 +23,15 @@ from neuralls.shared.digest import Digest
 DatasetFormat = Literal["zarr", "npy", "hdf5"]
 """Supported dataset storage families for generated datasets."""
 
-NormalizeType = Literal["none", "matrix", "rhs"]
-"""Normalization applied to generated systems; shared because dataset provenance records it."""
-
 MatrixId = NewType("MatrixId", int)
 """A raw physical matrix index within a comparison dataset directory."""
+
+MatrixSampleId = NewType("MatrixSampleId", int)
+"""The id generation bound a matrix sample to (a dataset's ``matrix_sample_index`` value).
+
+It names a matrix, not a storage position: a multi-matrix dataset stores one matrix copy per
+row, so the same id occupies several stored rows. Used as the key of per-matrix scale factors.
+"""
 
 DatasetId = NewType("DatasetId", str)
 """A `[[datasets]]` registry id — a dataset reference, never a free-form label."""
@@ -135,6 +139,17 @@ class MatrixNormType(StrEnum):
     INF = "inf"
 
 
+class InnerProductKind(StrEnum):
+    """Inner product a POD basis is fitted in.
+
+    ``ENERGY`` weighs the projection error with the train-fold mean matrix, so the
+    basis minimizes the error in that matrix's energy norm instead of the Euclidean one.
+    """
+
+    EUCLIDEAN = "euclidean"
+    ENERGY = "energy"
+
+
 class RowKind(int, Enum):
     """Semantic category of a dataset row."""
 
@@ -176,7 +191,7 @@ class CostProvenance(StrEnum):
 class PreconditionerFamily(StrEnum):
     """Plot-style grouping for preconditioner variants that share a config `type`.
 
-    ``PreconditionerType.AMG`` covers both classical AMG and POD-2G coarsening,
+    ``PreconditionerType.AMG`` covers both classical AMG and POD coarsening,
     and ``NEURAL``/``NEURAL_AMG`` are both "neural" for comparison-plot
     purposes — these three names give those merged groups a real, checkable
     identity instead of ad hoc strings. Every other preconditioner type is
@@ -186,7 +201,7 @@ class PreconditionerFamily(StrEnum):
     """
 
     AMG = "amg"
-    POD2G = "pod2g"
+    POD = "pod"
     NEURAL = "neural"
 
     def abbreviation(self) -> str:
@@ -196,13 +211,14 @@ class PreconditionerFamily(StrEnum):
         visible update here rather than silently falling through.
 
         Returns:
-            str: e.g. ``"POD-2G"``.
+            str: e.g. ``"POD"``; a dataset-qualified POD method is renamed by its
+                snapshot source (``domain/presentation/methods.py::qualify_method``).
         """
         match self:
             case PreconditionerFamily.AMG:
                 return "AMG"
-            case PreconditionerFamily.POD2G:
-                return "POD-2G"
+            case PreconditionerFamily.POD:
+                return "POD"
             case PreconditionerFamily.NEURAL:
                 return "Neural"
 
@@ -219,7 +235,7 @@ class GenerationStrategyKind(StrEnum):
     SCALED_SOLUTIONS = "scaled_solutions"
     SPARSE_RHS = "sparse_rhs"
     RESIDUALS = "residuals"
-    GAUSSIAN_RESIDUALS = "gaussian_residuals"
+    CG_ERRORS = "cg_errors"
     EIGENVECTOR_FORWARD = "eigenvector_forward"
     EIGENVECTOR_INVERSE = "eigenvector_inverse"
     GAUSSIAN_FORWARD = "gaussian_forward"
@@ -229,7 +245,7 @@ class GenerationStrategyKind(StrEnum):
     CONSTANT_FORWARD = "constant_forward"
     CONSTANT_INVERSE = "constant_inverse"
     NEUTRAL_ONES = "neutral_ones"
-    SMOOTHER_FILTERED_PROBES = "smoother_filtered_probes"
+    JACOBI_PROBES = "jacobi_probes"
     SINUSOIDAL_FIELD = "sinusoidal_field"
 
 
@@ -239,10 +255,3 @@ class EigenvectorSelection(StrEnum):
     SMALLEST = "smallest"
     LARGEST = "largest"
     RANDOM = "random"
-
-
-class ScaleMetadata(TypedDict, total=False):
-    """Type-safe schema for scale metadata dictionary."""
-
-    spectral_radius_bound: float
-    dimension_scale: float

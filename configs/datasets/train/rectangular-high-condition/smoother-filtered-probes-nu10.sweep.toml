@@ -1,21 +1,19 @@
-id = "rhc-cg-start1-stop10-step2"
+id = "smoother-filtered-probes-nu10-rectangular-high-condition"
 
 [source]
 problem = "Rectangular high condition"
 matrix_path = "${NEURALLS_RAW_DIR}/matrices/rectangular-high-condition.txt"
 
 [generation]
-normalize = "matrix"
+scaling = { kind = "gershgorin", dimension_factor = "sqrt_n" }
 shuffle = true
 seed = 42
 
-# Keep iterations 1, 3, 5, 7, and 9.
 [[generation.strategy]]
-name = "gaussian_residuals"
-samples = 10000
-start = 1
+name = "jacobi_probes"
+samples = [500, 1000, 2000, 10000]
 stop = 10
-step = 2
+probe_distribution = "gaussian"
 
 [output]
 data_dir = "${NEURALLS_PROCESSED_DIR}"

@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
+
+from pydantic import ValidationError
 
 from neuralls.domain.presentation.provenance import DatasetPresentation
 from neuralls.platform.storage.facts_codec import (
@@ -15,17 +18,51 @@ from neuralls.platform.storage.facts_codec import (
 from neuralls.platform.storage.manifest import (
     DatasetArtifact,
     DatasetManifest,
-    DatasetNormalization,
+    DatasetScaling,
+    InvalidDatasetManifestError,
     MissingDatasetProvenanceError,
     manifest_path_for,
 )
 from neuralls.shared.digest import Digest
-from neuralls.shared.types import LayoutType, MatrixFormat
+from neuralls.shared.system_scaling import parse_system_scaling
+from neuralls.shared.types import LayoutType, MatrixFormat, MatrixSampleId
 
 
 def _optional_str(raw: dict[str, Any], key: str) -> str | None:
     value = raw.get(key)
     return str(value) if value is not None else None
+
+
+def _encode_scaling(scaling: DatasetScaling) -> dict[str, Any]:
+    """JSON shape of the scaling block; JSON object keys are strings, so ids are too."""
+    return {
+        "scaling": scaling.scaling.model_dump(mode="json"),
+        "matrix_norm": scaling.matrix_norm,
+        "matrix_norm_type": scaling.matrix_norm_type,
+        "matrix_scales": {
+            str(sample_id): alpha for sample_id, alpha in scaling.matrix_scales.items()
+        },
+    }
+
+
+def _decode_scaling(raw: dict[str, Any]) -> DatasetScaling:
+    return DatasetScaling(
+        scaling=parse_system_scaling(raw["scaling"]),
+        matrix_norm=float(raw["matrix_norm"]),
+        matrix_norm_type=str(raw["matrix_norm_type"]),
+        matrix_scales={
+            MatrixSampleId(int(sample_id)): float(alpha)
+            for sample_id, alpha in raw["matrix_scales"].items()
+        },
+    )
+
+
+def _decode_block[T](dataset_dir: str | Path, field: str, decode: Callable[[], T]) -> T:
+    """Decode one manifest block, reporting a missing or malformed block as an invalid manifest."""
+    try:
+        return decode()
+    except (KeyError, TypeError, ValidationError) as error:
+        raise InvalidDatasetManifestError(dataset_dir, field) from error
 
 
 def manifest_to_dict(manifest: DatasetManifest) -> dict[str, Any]:
@@ -38,6 +75,7 @@ def manifest_to_dict(manifest: DatasetManifest) -> dict[str, Any]:
         JSON-compatible dictionary representation.
     """
     payload = asdict(manifest)
+    payload["scaling"] = _encode_scaling(manifest.scaling)
     payload.pop("provenance")
     if manifest.provenance is not None:
         payload["provenance"] = encode_dataset_presentation(manifest.provenance)
@@ -117,7 +155,8 @@ def read_dataset_manifest(dataset_dir: str | Path) -> DatasetManifest:
 
     Raises:
         FileNotFoundError: If the manifest file does not exist.
-        ValueError: If the manifest is invalid.
+        ValueError: If the manifest is invalid; ``InvalidDatasetManifestError`` (naming the
+            block) when its ``scaling`` or ``provenance`` block cannot be decoded.
     """
     raw = load_dataset_manifest(dataset_dir)
 
@@ -149,17 +188,11 @@ def read_dataset_manifest(dataset_dir: str | Path) -> DatasetManifest:
         )
 
     params_raw = raw.get("params") or []
-    normalization_raw = raw["normalization"]
     return DatasetManifest(
         matrix=_artifact(raw["matrix"]),
         rhs=_artifact(raw["rhs"]),
         solutions=_artifact(raw["solutions"]),
-        normalization=DatasetNormalization(
-            type=str(normalization_raw["type"]),
-            matrix_norm=float(normalization_raw["matrix_norm"]),
-            matrix_norm_type=str(normalization_raw["matrix_norm_type"]),
-            scale=dict(normalization_raw.get("scale") or {}),
-        ),
+        scaling=_decode_block(dataset_dir, "scaling", lambda: _decode_scaling(raw["scaling"])),
         params=tuple(_artifact(payload) for payload in params_raw),
         row_kind=_artifact(raw["row_kind"]) if raw.get("row_kind") is not None else None,
         matrix_sample_index=(
@@ -186,7 +219,9 @@ def read_dataset_manifest(dataset_dir: str | Path) -> DatasetManifest:
             else None
         ),
         provenance=(
-            decode_dataset_presentation(raw["provenance"])
+            _decode_block(
+                dataset_dir, "provenance", lambda: decode_dataset_presentation(raw["provenance"])
+            )
             if raw.get("provenance") is not None
             else None
         ),
@@ -210,7 +245,7 @@ def make_dataset_manifest(
     matrix: DatasetArtifact,
     rhs: DatasetArtifact,
     solutions: DatasetArtifact,
-    normalization: DatasetNormalization,
+    scaling: DatasetScaling,
     params: tuple[DatasetArtifact, ...] = (),
     row_kind: DatasetArtifact | None = None,
     matrix_sample_index: DatasetArtifact | None = None,
@@ -228,7 +263,7 @@ def make_dataset_manifest(
         matrix: Matrix artifact descriptor.
         rhs: RHS vector artifact descriptor.
         solutions: Solution vector artifact descriptor.
-        normalization: Normalization metadata.
+        scaling: How the dataset's systems were scaled.
         params: Optional parameter artifact descriptors.
         row_kind: Optional row-kind artifact descriptor.
         matrix_sample_index: Optional per-row matrix binding artifact descriptor.
@@ -249,7 +284,7 @@ def make_dataset_manifest(
         matrix=matrix,
         rhs=rhs,
         solutions=solutions,
-        normalization=normalization,
+        scaling=scaling,
         params=params,
         row_kind=row_kind,
         matrix_sample_index=matrix_sample_index,

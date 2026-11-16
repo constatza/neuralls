@@ -138,7 +138,7 @@ def comparison_result_with_offline_cost() -> CGComparisonResult:
         residual_abs=1e-8,
         residual_history_rel=[1.0, 0.1, 0.01, 0.001, 1e-8],
         residual_history_abs=[1.0, 0.1, 0.01, 0.001, 1e-8],
-        preconditioner="pod2g",
+        preconditioner="pod",
         initial_guess=np.zeros(10),
         exact_error=None,
         rhs_norm=1.0,

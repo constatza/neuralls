@@ -28,6 +28,7 @@ from neuralls.platform.storage.archive_source import FsArchiveSource
 from neuralls.platform.storage.datasets import load_dense_training_arrays
 from neuralls.platform.storage.manifest_io import load_dataset_presentation
 from neuralls.platform.storage.matrix_readers import read_dense_npy, read_matrix
+from neuralls.shared.system_scaling import NoScaling
 from neuralls.shared.types import GenerationStrategyKind
 
 ARCHIVE_SOURCE = FsArchiveSource()
@@ -74,10 +75,7 @@ def _generated(kind: GenerationStrategyKind, archives: Mapping[str, str]) -> Cas
         case GenerationStrategyKind.RESIDUALS:
             window = {**_WINDOW, "solutions_glob": archives["solutions_glob"]}
             return Case({name: _BUDGET}, {name: window})
-        case (
-            GenerationStrategyKind.GAUSSIAN_RESIDUALS
-            | GenerationStrategyKind.SMOOTHER_FILTERED_PROBES
-        ):
+        case GenerationStrategyKind.CG_ERRORS | GenerationStrategyKind.JACOBI_PROBES:
             return Case({name: _BUDGET}, {name: _WINDOW})
         case GenerationStrategyKind.SPARSE_RHS:
             return Case({name: 3}, {name: {"indices": [0], "values": [1.0]}})
@@ -104,7 +102,7 @@ def _spec(case: Case, *, seed: int = 11) -> DatasetSpec:
         mixture=MixtureSpec(
             counts=dict(case.counts), seed=seed, strategy_overrides=dict(case.overrides)
         ),
-        normalize="none",
+        scaling=NoScaling(),
     )
 
 
@@ -119,9 +117,9 @@ def _produced_rows(source: SourceSpec, spec: DatasetSpec) -> Counter[str]:
             total=mixture.total,
             seed=mixture.seed,
             strategy_overrides=mixture.strategy_overrides,
-            solver_overrides={"residuals": solver, "gaussian_residuals": solver},
+            solver_overrides={"residuals": solver, "cg_errors": solver},
         ),
-        normalize=spec.normalize,
+        scaling=spec.scaling,
     )
     stream = open_batch_stream(
         source, with_solvers, batch_size=2, readers=_READERS, archive_source=ARCHIVE_SOURCE
@@ -161,7 +159,7 @@ def test_every_strategy_records_the_rows_it_produced(
     _assert_recorded_rows_match_reality(source_spec, spec, Path(dataset_dir))
 
 
-@pytest.mark.parametrize("name", ["residuals", "gaussian_residuals", "smoother_filtered_probes"])
+@pytest.mark.parametrize("name", ["residuals", "cg_errors", "jacobi_probes"])
 def test_trace_budget_is_a_row_budget_not_a_base_system_count(
     name: str,
     case_for: Callable[[GenerationStrategyKind], Case],
@@ -199,7 +197,7 @@ def test_mixture_of_mix_and_total_records_each_strategy(
             seed=5,
             strategy_overrides={"krylov": {"krylov_iters": 2}},
         ),
-        normalize="none",
+        scaling=NoScaling(),
     )
     dataset_dir = build_test_dataset(source_spec, spec, str(tmp_path / "ds"))
 

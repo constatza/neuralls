@@ -2,8 +2,8 @@
 tracking_uri = "http://localhost:5000"
 
 [names]
-training = "Train-45x15randomE-POD-2G-CoarseDimSearch"
-comparison = "Compare-45x15randomE-POD-2G-CoarseDimSearch"
+training = "Train-45x15randomE-POD-CoarseDimSearch"
+comparison = "Compare-45x15randomE-POD-CoarseDimSearch"
 
 [comparison_baseline]
 rtol = 1.0e-6
@@ -48,24 +48,24 @@ coarsening = { method = "target_dim", target_coarse_dim = 300 }
 path = "../../datasets/train/45x15randomE/gaussian-cg50.toml"
 
 [[jobs]]
-id = "pod-2g_rank10"
-path = "../../jobs/pod2g/pod2g-rank10.toml"
-display_name = "POD-2G (rank 10)"
+id = "pod_rank10"
+path = "../../jobs/pod/pod-rank10.toml"
+display_name = "POD (rank 10)"
 
 [[jobs]]
-id = "pod-2g_rank100"
-path = "../../jobs/pod2g/pod2g-rank100.toml"
-display_name = "POD-2G (rank 100)"
+id = "pod_rank100"
+path = "../../jobs/pod/pod-rank100.toml"
+display_name = "POD (rank 100)"
 
 [[jobs]]
-id = "pod-2g_rank200"
-path = "../../jobs/pod2g/pod2g-rank200.toml"
-display_name = "POD-2G (rank 200)"
+id = "pod_rank200"
+path = "../../jobs/pod/pod-rank200.toml"
+display_name = "POD (rank 200)"
 
 [[jobs]]
-id = "pod-2g_rank300"
-path = "../../jobs/pod2g/pod2g-rank300.toml"
-display_name = "POD-2G (rank 300)"
+id = "pod_rank300"
+path = "../../jobs/pod/pod-rank300.toml"
+display_name = "POD (rank 300)"
 
 [[datasets]]
 path = "../../datasets/test/45x15randomE/gaussian-eval.toml"
@@ -96,16 +96,16 @@ rhs_source = { kind = "raw_lhs", path = "${NEURALLS_RAW_DIR}/SpectralData/45x15-
 
 [[assignments]]
 dataset = "gaussian-cg50-45x15randomE"
-job = "pod-2g_rank10"
+job = "pod_rank10"
 
 [[assignments]]
 dataset = "gaussian-cg50-45x15randomE"
-job = "pod-2g_rank100"
+job = "pod_rank100"
 
 [[assignments]]
 dataset = "gaussian-cg50-45x15randomE"
-job = "pod-2g_rank200"
+job = "pod_rank200"
 
 [[assignments]]
 dataset = "gaussian-cg50-45x15randomE"
-job = "pod-2g_rank300"
+job = "pod_rank300"

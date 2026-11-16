@@ -21,12 +21,26 @@ Dataset configs own:
 
 - raw input paths
 - generation strategy
-- normalization and output settings
+- system scaling (`[generation] scaling`, default `{ kind = "gershgorin", dimension_factor = "sqrt_n" }`) and output settings
 - processed dataset identity
 
 There should be as many dataset configs as there are real dataset variants.
 Datasets stay dataset-only; they do not own model architecture or training
 policy.
+
+POD snapshot datasets use one of two strategies, which name the snapshot source
+and so the fitted method (POD-CG or POD-JP):
+
+- `cg_errors`: Gaussian probes `z`, `b = A z`, exactly `stop` CG iterations from
+  `x_0 = 0`; rows `(r_k, e_k = z - x_k)` of the kept iterations.
+- `jacobi_probes`: Gaussian or Rademacher probes (`probe_distribution`) damped by
+  `stop` weighted-Jacobi sweeps (`omega`, default auto); rows `(A e_k, e_k)`.
+
+Both keep the steps `start`/`stop`/`step` select and accept an optional
+`snapshot_scaling` (default `{ kind = "none" }`). `{ kind = "norm", norm = "l2" }`
+or `norm = "energy"` scales each row pair by `||e_k||^-power` (`power`, default 1),
+with the energy norm taken in the scaled matrix the rows were generated with. Both
+`r_k` and `e_k` get the same factor, so every stored pair still satisfies `A e = r`.
 
 ### `configs/profiles/model/**/*.toml`
 
@@ -149,19 +163,19 @@ Case configs bind:
 Comparison solver budgets in these cases allow up to 5000 iterations.
 
 Every family's `default.toml` is a short showcase of each algorithm, not a
-search: identity/Jacobi/IC0, AMG at coarse dim 10 and 100, and POD-2G at rank 10
-and 100, fitted from `gaussian-cg10` and `smoother-filtered-probes` snapshots.
+search: identity/Jacobi/IC0, AMG at coarse dim 10 and 100, and POD at rank 10
+and 100, fitted from `gaussian-cg10` (`cg_errors`) and `smoother-filtered-probes`
+(`jacobi_probes`) snapshots.
 Default cases reference only plain, tracked dataset configs — never sweep output.
 Neural network jobs are kept in explicit training/search variants. Parametric
 searches live in sibling case files, one searched axis per file:
-`coarse-dim-search.toml` (AMG dim / POD-2G rank in 10, 100, 200, 300, on
+`coarse-dim-search.toml` (AMG dim / POD rank in 10, 100, 200, 300, on
 `gaussian-cg50`) and `stop-search.toml` (`gaussian-cg0`/`cg10`/`cg50` snapshots
-at POD-2G rank 100). The rectangular-high-condition family adds the legacy
-`sample-sweep.toml` plus focused `win.toml`, `samples.toml`, and `rank.toml`
-POD-2G studies. The 45x15randomE cases are parametric — the underlying
+at POD rank 100). The rectangular-high-condition family adds the legacy
+`sample-sweep.toml` plus the five `pod-<axis>.toml` POD parametric study cases. The 45x15randomE cases are parametric — the underlying
 problem is a family of ~100 stiffness matrices with randomized Young's moduli
 (E1-E4), not one fixed matrix. These CG cases use the `gaussian-cg*` datasets as
-POD-2G snapshot inputs, with
+POD snapshot inputs, with
 `gaussian-cg50` also serving as the default matrix dataset where a train dataset
 backs comparisons. Every randomE dataset uses the matrix glob
 `45x15randomE/stiffness/*_subdomain_1_Kaa.txt`, `enumerate_by = "name"`, and
@@ -176,7 +190,7 @@ generated without it has no provenance and must be regenerated before it can be
 trained on or compared.
 
 **45x15randomE train/eval matrix split**: because the same ~100-matrix family
-would otherwise back both training and POD-2G snapshot-input datasets
+would otherwise back both training and POD snapshot-input datasets
 and the comparisons, every train dataset in `datasets/train/45x15randomE/` sets
 `[source].exclude_indices` to the last 15 matrix ids (85-99, by
 `enumerate_by = "name"` order), and `datasets/test/45x15randomE/gaussian-eval.toml`
@@ -193,7 +207,7 @@ declares one `[[comparison_sweeps]]` entry per RHS recipe; each selects the
 dataset's first few held-out matrices with `selector = { kind = "first_n", n = ... }`
 and solves one system per matrix (`rhs_count` raises the number of RHS draws per
 matrix). `gaussian-eval.toml` uses the cheap `gaussian_forward` strategy rather than
-`gaussian_residuals`/CG trajectories because comparisons only read the *matrix*
+`cg_errors`/CG trajectories because comparisons only read the *matrix*
 from this dataset (RHS is synthesized fresh per system) — unlike
 the training datasets, nothing ever reads this dataset's own RHS/solution rows,
 so there's no reason to pay for CG solves here. The sweeps mirror the 45x15
@@ -206,46 +220,44 @@ dataset. The companion 45x15
 search jobs tune learning rate, layer count, activation, bias, dropout, and
 scale-equivariant initialization/gain parameters.
 
-### Rectangular POD-2G parameter studies
+### Rectangular POD parameter studies
 
-Three compact cases isolate POD-2G dataset construction and rank effects. Their
-comparison defaults contain no classical preconditioners; the only compared
-preconditioners are the POD-2G artifacts generated from their fit assignments.
-The job entries intentionally omit `display_name`: a POD-2G label is built from the
-fitted rank and its fit dataset's recorded provenance, so a static name would
-duplicate them. (A neural job needs a short `display_name` for its architecture;
+The five `pod-<axis>.toml` cases share one matrix and vary one input each,
+over POD-CG and POD-JP only; their comparisons contain no classical
+preconditioners. Every other input stays at
+the baseline: rank c = 100, CG depth k = 20 (`gaussian-cg20.toml`), Jacobi
+sweeps k = 10 (`smoother-filtered-probes-nu10.toml`), N = 5000 rows. Each
+swept value is its own method, labelled from its facts, so the per-method
+figures compare them directly. Every case solves the same 80 systems: four
+RHS recipes (Gaussian, masked Gaussian, low- and high-frequency sinusoidal,
+seeds 42-45) with `rhs_count = 20` each, on `gaussian-cg20`'s matrix.
+
+- `pod-rank.toml`: c in `{5, 10, 20, 50, 100}`, one fit job per rank. Every
+  case sweeps at most five values per input.
+- `pod-samples.toml`: N in `{500, 1000, 2000, 5000, 10000}`
+  (`gaussian-cg20.sweep.toml`, `smoother-filtered-probes-nu10.sweep.toml`).
+- `pod-depth.toml`: depth k (CG iterations or Jacobi sweeps) in `{1, 2, 5, 10, 20}`
+  (`gaussian-cg-depth.sweep.toml`, `smoother-filtered-probes-depth.sweep.toml`,
+  plus the tracked `gaussian-cg10.toml`).
+- `pod-snapshot-scaling.toml`: per-row scaling none, `l2` or `energy` norm at
+  power 1 (`*-rows-l2.toml`, `*-rows-energy.toml`).
+- `pod-metric.toml`: the Euclidean and the energy inner product
+  (`pod-rank100-energy.toml`).
+
+A sweep file lists only the non-baseline values. The baseline point is the
+tracked baseline file, assigned explicitly, so the same data is never
+generated twice under two ids. A depth point is valid only when its kept
+window excludes trajectory row 0, the untouched probe: every study dataset
+leaves `start` unset and keeps only the last row, so `stop = 1` keeps the
+iterate after one step. A window that would keep row 0 starts its grid at 2.
+
+The job entries intentionally omit `display_name`: a POD label is built from the
+fitted rank, an energy fit's inner product and its fit dataset's recorded
+provenance, so a static name would duplicate them. (A neural job needs a short `display_name` for its architecture;
 without one it cannot be described and the comparison is rejected before it runs.)
 
-- `rectangular-high-condition/win.toml` compares final-state CG snapshots at
-  trajectory caps 10 and 30 with four coarsely sampled CG histories: iterations
-  `1,3,5,7,9`, `21,23,25,27,29`, `6,12,18,24,30`, and
-  `100,200,300,400,500`. Smoother windows retain the final 1, 2, or 4 states,
-  plus the spaced history `1,3,5,7`. Every window retains at most five vectors
-  from each trace, and step 0 is excluded from every multi-row policy.
-- `rectangular-high-condition/samples.toml` sweeps `[840, 1000, 2500, 5000]`
-  rows for last-only CG-30 and smoother-7 datasets at fixed POD rank 50. Here
-  840 is the rectangular system dimension.
-- `rectangular-high-condition/rank.toml` sweeps POD ranks
-  `[5, 25, 50, 100, 300]` against fixed 10000-row CG and smoother datasets.
-  Rank 300 is the round upper point near one third of the 840-dimensional
-  system.
-
-The window policies deliberately use separate dataset TOMLs. A dataset sweep
-spec supports exactly one list-valued strategy field, while `start`, `stop`,
-and `step` are a coupled policy: independently sweeping them would create
-invalid or scientifically unhelpful combinations. Sample count is a genuine
-single axis, so `cg-startM1-stop30-step1-n.sweep.toml` and
-`sm-startM1-stop7-step1-n.sweep.toml` use normal sweep expansion. POD rank
-belongs to the fit job, so the rank case crosses two plain datasets with five
-short job ids instead of pretending rank is a dataset axis.
-
-Window dataset filename and id prefixes use the mechanical convention
-`{strategy}-start{start}-stop{stop}-step{step}` and include all three values,
-even when a value equals its default. Since `-` separates fields, a negative
-value is written with uppercase `M`: for example, `startM2` means `start = -2`.
-Additional swept parameters are appended by name, such as `-n840`. The names
-therefore encode raw configuration parameters only, without semantic terms
-such as `last`, `first`, or `width`.
+POD rank belongs to the fit job, so `pod-rank.toml` crosses the two baseline
+datasets with one job per rank instead of pretending rank is a dataset axis.
 
 ## Case Anatomy
 
@@ -307,12 +319,12 @@ changing what a dataset config or case config *is*:
 
   [[assignment_sweeps]]
   dataset_sweep = "cg50-samples"
-  job = ["pod-2g_rank100", "pod-2g_rank200", "pod-2g_rank300"]
+  job = ["pod_rank100", "pod_rank200", "pod_rank300"]
   ```
 
   `job` may be a single job id (broadcast to every dataset the sweep
   produces) or a list of job ids (crossed with every dataset — e.g. testing
-  every POD-2G rank against every sample count, since rank is a fit-time
+  every POD rank against every sample count, since rank is a fit-time
   hyperparameter independent of which dataset it's fit from).
 
   A `[[dataset_sweeps]]` entry may declare multiple named axes instead of a
@@ -358,7 +370,7 @@ changing what a dataset config or case config *is*:
 
   **Caveat**: `[[assignment_sweeps]]` still binds one `job` to *every* entry
   a `dataset_sweep` produces — if different axis values need different jobs
-  (e.g. each `cg` variant has its own POD-2G fit job, as in
+  (e.g. each `cg` variant has its own POD fit job, as in
   `rectangular-high-condition/sample-sweep.toml`), keep that axis as
   separate `[[dataset_sweeps]]`/`[[assignment_sweeps]]` blocks per job
   rather than folding it into one multi-axis block.
@@ -369,7 +381,7 @@ changing what a dataset config or case config *is*:
   swept axis, `id_template`/`filename_template` place the value mid-id:
   `gaussian-cg{value}-<family>`, not the default trailing-value shape). But
   `gaussian-cg0.toml` stays a separate, plain, hand-written dataset config
-  in every family — it uses `gaussian_forward`, not `gaussian_residuals`,
+  in every family — it uses `gaussian_forward`, not `cg_errors`,
   so it has no `stop` field to sweep at all; folding it into the same sweep
   file isn't possible (one strategy per `*.sweep.toml`), and inventing a
   one-value sweep just for naming symmetry would only add indirection.
@@ -466,10 +478,17 @@ artifacts are not evaluable until the training run is rerun or repaired.
   hand-type
 - keep shared training policy small and reusable
 - keep jobs thin
-- a job with no family-specific content (e.g. `configs/jobs/pod2g/pod2g-rank{100,200,300}.toml`
-  — a POD-2G fit job's `rank` is a hyperparameter independent of any matrix
+- a job with no family-specific content (e.g. `configs/jobs/pod/pod-rank{100,200,300}.toml`
+  — a POD fit job's `rank` is a hyperparameter independent of any matrix
   family) lives once under its own shared directory, referenced by every
   case that needs it, rather than duplicated per family
+- a POD fit job's `[model] rank` is a positive integer mode count (the coarse
+  dimension `c`); the fit warns when the basis captures under 95% of the
+  snapshot energy
+- a POD fit job's `[model] inner_product` is `"euclidean"` (default) or
+  `"energy"`; the energy weight is the mean of the fit dataset's train-fold
+  matrices, wired in at run time, so the job names only the kind. An energy
+  fit's comparison label carries `W=Ā`
 - only special model families should define custom `data.features` / `data.targets`
 - keep case configs as registries and bindings, not payload containers
 

@@ -3,7 +3,7 @@
 `neuralls` is the experiment codebase behind an ongoing investigation into
 learned (neural-network) preconditioners for Conjugate Gradient on sparse
 linear systems, benchmarked against classical preconditioners (Jacobi,
-IC(0), AMG, POD-2G).
+IC(0), AMG, POD).
 
 Each research question is a **case**: one TOML config binding the datasets,
 training/search jobs, and solver comparisons that make up that experiment.
@@ -45,13 +45,13 @@ matrix family:
 - `configs/cases/45x15randomE/` — parametric family (~100 matrices, randomized
   Young's moduli)
 - `configs/cases/93x31/`
-- `configs/cases/rectangular-high-condition/` — includes focused POD-2G-only
+- `configs/cases/rectangular-high-condition/` — includes focused POD-only
   `win.toml`, `samples.toml`, and `rank.toml` parameter studies for CG-error
   and smoother-filtered-probe datasets
 - `configs/cases/spheres-1000x/`, `spheres-50x/`, `spheres-1x/` — sphere-RVE
   matrices at decreasing sphere/matrix stiffness contrast
 
-Each family typically has a `default.toml` (classical + POD-2G comparisons)
+Each family typically has a `default.toml` (classical + POD comparisons)
 and `*-search.toml` variants for neural-network training/search jobs. See
 [Configuration Guide](configs/README.md) for how a case config is assembled.
 

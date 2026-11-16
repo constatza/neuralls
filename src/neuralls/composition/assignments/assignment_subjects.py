@@ -1,6 +1,6 @@
 """What each case assignment trains, and the typed subject that names its runs.
 
-An assignment's job kind decides the method it produces: a ``fit`` job is a POD-2G basis, any
+An assignment's job kind decides the method it produces: a ``fit`` job is a POD basis, any
 other trainable job a neural preconditioner. The same stubs feed the comparison's
 auto-generated preconditioners and the training and evaluation run names, so a model is
 described one way everywhere.
@@ -20,8 +20,9 @@ from neuralls.composition.assignments.presentation_preflight import (
     DatasetPresentationLoader,
 )
 from neuralls.composition.preconditioners.descriptions import describe_configured_preconditioner
+from neuralls.composition.preconditioners.pod_fittable import configured_inner_product
 from neuralls.domain.presentation.methods import (
-    DatasetQualifiedMethodPresentation,
+    qualify_method,
 )
 from neuralls.domain.presentation.run_names import (
     EditorialTrainingSubject,
@@ -111,7 +112,7 @@ def pod_fit_spec_from_assignment(
     job: FitJobConfig,
     dataset_dir: Path,
 ) -> AMGPreconditionerConfig:
-    """Build an unresolved AMG/POD stub for a `fit`-kind (POD-2G) assignment.
+    """Build an unresolved AMG/POD stub for a `fit`-kind (POD) assignment.
 
     Mirrors `_neural_spec_from_assignment`'s "derived result key, unresolved
     stub referencing the assignment's training run" shape, but for
@@ -119,7 +120,8 @@ def pod_fit_spec_from_assignment(
     `NeuralPreconditionerConfig` — the checkpoint-shaped side of the kind
     dispatch in `neural_specs_from_assignments`. `dataset_dir`/`rank` are
     populated from the assignment's own job/dataset so the config stays
-    valid (required fields) even before resolution runs; once
+    valid (required fields) even before resolution runs, and the job's inner
+    product is carried so an energy fit is labelled as one; once
     `resolved_checkpoint_path` is set by
     `resolve_preconditioner_models_with_warnings`, the factory reconstructs
     the fitted basis from the checkpoint and never reads these.
@@ -135,6 +137,7 @@ def pod_fit_spec_from_assignment(
         coarsening=PODCoarseningConfig(
             dataset_dir=dataset_dir,
             rank=rank,
+            inner_product=configured_inner_product(job.model.model_extra or {}),
             assignment=entry.id,
             model_ref=TrainedAssignmentRefConfig(assignment_id=entry.id),
         ),
@@ -172,9 +175,7 @@ def training_subject(
             stub = neural_spec_from_assignment(
                 entry, extra_input_names=(), architecture=inputs.binding.architecture
             )
-    return DatasetQualifiedMethodPresentation(
-        method=describe_configured_preconditioner(stub), dataset=dataset
-    )
+    return qualify_method(describe_configured_preconditioner(stub), dataset)
 
 
 def case_notation(cfg: CaseConfig) -> NotationPolicy:

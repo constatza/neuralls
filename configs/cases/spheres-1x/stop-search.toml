@@ -2,8 +2,8 @@
 tracking_uri = "http://localhost:5000"
 
 [names]
-training = "Train-Spheres1x-POD-2G-StopSearch"
-comparison = "Compare-Spheres1x-POD-2G-StopSearch"
+training = "Train-Spheres1x-POD-StopSearch"
+comparison = "Compare-Spheres1x-POD-StopSearch"
 
 [comparison_baseline]
 rtol = 1.0e-6
@@ -39,9 +39,9 @@ path = "../../datasets/train/spheres-1x/gaussian-cg10.toml"
 path = "../../datasets/train/spheres-1x/gaussian-cg50.toml"
 
 [[jobs]]
-id = "pod-2g_rank100"
-path = "../../jobs/pod2g/pod2g-rank100.toml"
-display_name = "POD-2G (rank 100)"
+id = "pod_rank100"
+path = "../../jobs/pod/pod-rank100.toml"
+display_name = "POD (rank 100)"
 
 [[comparisons]]
 matrix_dataset = "gaussian-cg50-spheres-1x"
@@ -54,12 +54,12 @@ rhs_source = { kind = "gaussian", mask = { kind = "random", density = 0.1 } }
 
 [[assignments]]
 dataset = "gaussian-cg0-spheres-1x"
-job = "pod-2g_rank100"
+job = "pod_rank100"
 
 [[assignments]]
 dataset = "gaussian-cg10-spheres-1x"
-job = "pod-2g_rank100"
+job = "pod_rank100"
 
 [[assignments]]
 dataset = "gaussian-cg50-spheres-1x"
-job = "pod-2g_rank100"
+job = "pod_rank100"

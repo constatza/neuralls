@@ -8,7 +8,7 @@ max_iterations = 100
 [general.data]
 matrix_path = "tests/fixtures/data/matrix.npy"
 rhs_path = "tests/fixtures/data/rhs.npy"
-normalize_system = "matrix"
+system_scaling = { kind = "gershgorin", dimension_factor = "sqrt_n" }
 
 [[preconditioners]]
 name = "neural"

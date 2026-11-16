@@ -1,21 +1,19 @@
-id = "rhc-cg-start100-stop500-step100"
+id = "gaussian-cg20-rows-l2-rectangular-high-condition"
 
 [source]
 problem = "Rectangular high condition"
 matrix_path = "${NEURALLS_RAW_DIR}/matrices/rectangular-high-condition.txt"
 
 [generation]
-normalize = "matrix"
+scaling = { kind = "gershgorin", dimension_factor = "sqrt_n" }
 shuffle = true
 seed = 42
 
-# Five round checkpoints span the solution-calibrated 500-iteration trace.
 [[generation.strategy]]
-name = "gaussian_residuals"
-samples = 10000
-start = 100
-stop = 500
-step = 100
+name = "cg_errors"
+samples = 5000
+stop = 20
+snapshot_scaling = { kind = "norm", norm = "l2", power = 1.0 }
 
 [output]
 data_dir = "${NEURALLS_PROCESSED_DIR}"

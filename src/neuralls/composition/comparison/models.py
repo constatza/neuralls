@@ -34,7 +34,7 @@ from neuralls.platform.config.models.comparison import RHS_SOURCE_MODEL_BY_KIND
 from neuralls.platform.config.models.experiments import ComparisonRegistryEntry
 from neuralls.platform.config.models.preconditioner import PreconditionerConfig
 from neuralls.platform.config.models.preconditioner_family import PreconditionerFamilyKey
-from neuralls.platform.storage.manifest import DatasetNormalization
+from neuralls.platform.storage.manifest import PersistedMatrixScaling
 from neuralls.shared.digest import Digest, Json, canonical
 from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import (
@@ -208,11 +208,8 @@ class PreconditionerComparisonEntry:
             sink renders its legend text.
         family: Plot-style family key (see ``preconditioner_family.preconditioner_family``),
             driving shared linestyle across same-family preconditioners.
-        color_key: Optional plot color-axis key (e.g. a POD-2G fit dataset).
+        color_key: Optional plot color-axis key (e.g. a POD fit dataset).
             Entries sharing a key share a color; ``None`` falls back to ``family``.
-        marker_key: Optional plot marker-axis key (e.g. a POD-2G weighting
-            scheme). Entries sharing a key share a marker; ``None`` falls back
-            to ``family``.
     """
 
     name: str
@@ -220,7 +217,6 @@ class PreconditionerComparisonEntry:
     presentation: PreparedMethodPresentation
     family: PreconditionerFamilyKey
     color_key: str | None = None
-    marker_key: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -255,11 +251,11 @@ class ResolvedComparisonInput:
     row_kind: RowKind | None = None
     rhs_source_kind: ComparisonRhsSourceKind | None = None
     rhs_source_params: dict[str, object] | None = None
-    matrix_normalization: DatasetNormalization | None = None
-    """Persisted normalization metadata for the dataset the matrix was loaded
-    from, or None when the matrix came from a raw/external file with no
-    manifest. Drives whether comparison-time code treats the matrix as
-    already-normalized (skip/derive) or genuinely raw (compute fresh)."""
+    matrix_scaling: PersistedMatrixScaling | None = None
+    """The stored scaling of this matrix (the dataset's scaling and this matrix's
+    ``alpha``), or None when the matrix came from a raw/external file with no
+    manifest. Drives whether comparison-time code treats the matrix as already
+    scaled (never rescale) or genuinely raw (compute ``alpha`` fresh)."""
 
     @property
     def rhs_source_type(self) -> str:

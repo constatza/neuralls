@@ -106,6 +106,7 @@ from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.platform.tracking.mlflow import sanitize_metric_key_segment
 from neuralls.shared.digest import canonical_digest
 from neuralls.shared.scientific_description.policy import NotationPolicy
+from neuralls.shared.system_scaling import NoScaling
 from neuralls.shared.types import (
     ComparisonRhsSourceKind,
     CostProvenance,
@@ -175,8 +176,8 @@ def _write_train_job_config(path: Path) -> None:
     )
 
 
-def _write_fit_job_config(path: Path, *, rank: float = 0.99) -> None:
-    """Write a minimal, fully-loadable `run.type = "fit"` (POD-2G) job config."""
+def _write_fit_job_config(path: Path, *, rank: int = 10) -> None:
+    """Write a minimal, fully-loadable `run.type = "fit"` (POD) job config."""
     path.write_text(
         "\n".join(
             [
@@ -382,7 +383,7 @@ def test_resolve_comparison_config_presentation_override_replaces_case_default(
 ) -> None:
     """A per-entry `method` file's `[presentation]` fully replaces the case-level default.
 
-    Matches how `preconditioners`/`normalize_system` already override in
+    Matches how `preconditioners`/`system_scaling` already override in
     this same function — a full replace, not a field-level merge.
     """
     from neuralls.shared.scientific_description.policy import RenderTarget
@@ -640,16 +641,16 @@ def test_neural_specs_from_assignments_dispatches_fit_kind_to_pod_stub(
     """A `run.type = "fit"` assignment yields an unresolved AMG/POD stub, not neural."""
     cfg, config_dir, settings = _case_config_with_assignment(
         tmp_path,
-        job_writer=lambda path: _write_fit_job_config(path, rank=0.9999),
-        assignment_id="pod2g_cg1",
+        job_writer=lambda path: _write_fit_job_config(path, rank=25),
+        assignment_id="pod_cg1",
         dataset_id="solutions-cg1",
-        job_id="pod-2g_cg-0",
+        job_id="pod_cg-0",
     )
     tracking = MagicMock()
     entry = AssignmentEntry(
-        id="pod2g_cg1",
+        id="pod_cg1",
         dataset="solutions-cg1",
-        job="pod-2g_cg-0",
+        job="pod_cg-0",
         display_name="Shared model label",
     )
 
@@ -666,15 +667,12 @@ def test_neural_specs_from_assignments_dispatches_fit_kind_to_pod_stub(
     assert len(specs) == 1
     spec = specs[0]
     assert isinstance(spec, AMGPreconditionerConfig)
-    assert (
-        spec.name
-        == "amg_levels2_pre2_post2_smootheromegaauto_pod_rank0p9999_n-1_raw_assignment_pod2g_cg1"
-    )
+    assert spec.name == "amg_levels2_pre2_post2_smootheromegaauto_pod_rank25_n-1_assignment_pod_cg1"
     assert isinstance(spec.coarsening, PODCoarseningConfig)
-    assert spec.coarsening.assignment == "pod2g_cg1"
-    assert spec.coarsening.rank == 0.9999
+    assert spec.coarsening.assignment == "pod_cg1"
+    assert spec.coarsening.rank == 25
     assert spec.coarsening.dataset_dir == settings.processed_dir / "solutions-cg1"
-    assert spec.coarsening.model_ref == TrainedAssignmentRefConfig(assignment_id="pod2g_cg1")
+    assert spec.coarsening.model_ref == TrainedAssignmentRefConfig(assignment_id="pod_cg1")
     tracking.client.assert_not_called()
 
 
@@ -695,7 +693,7 @@ def _build_split_pinned_dataset(root: Path) -> Path:
         SourceSpec(matrix_path=str(matrix_path)),
         DatasetSpec(
             mixture=MixtureSpec(counts={"neutral_ones": 3}, seed=42, shuffle=False),
-            normalize="none",
+            scaling=NoScaling(),
         ),
         str(dataset_dir),
         dataset_format="hdf5",
@@ -1333,6 +1331,7 @@ def test_comparison_sweep_runs_one_system_per_held_out_matrix_and_rhs_draw(
             "max_iterations": 10,
             "stopping_criterion": "residual_norm",
             "m_max": 20,
+            "system_scaling": {"kind": "none"},
             "preconditioners": [{"name": "identity", "type": "identity"}],
         },
         "datasets": [{"id": "solutions", "path": "datasets/solutions.toml"}],
@@ -1441,11 +1440,11 @@ def test_comparison_sweep_runs_one_system_per_held_out_matrix_and_rhs_draw(
     ]
     assert [i.matrix_provenance for i in inputs] == expected_provenance
     assert [float(i.matrix[0, 0]) for i in inputs] == [5.0, 5.0, 9.0, 9.0]
-    # The comparison config's matrix normalization is applied while staging
-    # each bundle, so the diagonal 2x2 matrices have spectral norm 1/sqrt(2).
+    # The dataset is unscaled and the case asks for no scaling, so a stored matrix is
+    # staged as is: the diagonal 2x2 matrices keep spectral norms 5 and 9.
     assert [
         float(torch.linalg.matrix_norm(bundle.matrix.to_dense(), ord=2)) for bundle in bundles_seen
-    ] == pytest.approx([1 / np.sqrt(2), 1 / np.sqrt(2)])
+    ] == pytest.approx([5.0, 9.0])
     # Each system draws its own RHS, so no two vectors coincide.
     assert len({tuple(i.rhs) for i in inputs}) == 4
 
@@ -1476,6 +1475,7 @@ def test_an_external_rhs_of_the_wrong_length_fails_only_its_own_system(
             "max_iterations": 10,
             "stopping_criterion": "residual_norm",
             "m_max": 20,
+            "system_scaling": {"kind": "none"},
             "preconditioners": [{"name": "identity", "type": "identity"}],
         },
         "datasets": [{"id": "solutions", "path": "datasets/solutions.toml"}],

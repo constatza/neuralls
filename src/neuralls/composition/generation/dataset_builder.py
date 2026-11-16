@@ -26,7 +26,11 @@ from neuralls.platform.storage.dataset_digest import (
     stat_digest,
 )
 from neuralls.platform.storage.dense_stream import STREAMED_DENSE_FORMATS
-from neuralls.platform.storage.manifest_io import read_dataset_manifest, save_dataset_manifest
+from neuralls.platform.storage.manifest_io import (
+    load_dataset_manifest,
+    read_dataset_manifest,
+    save_dataset_manifest,
+)
 from neuralls.shared.constants import DATASET_MANIFEST_FILENAME
 from neuralls.shared.device import ResourceUsage, track_resource_usage
 from neuralls.shared.types import DatasetFormat, MatrixFormat, SparsityPattern
@@ -40,7 +44,7 @@ type StreamedWriter = Callable[
 _DEFAULT_SOLVER = make_solver()
 _DEFAULT_SOLVER_OVERRIDES: dict[str, Any] = {
     "residuals": _DEFAULT_SOLVER,
-    "gaussian_residuals": _DEFAULT_SOLVER,
+    "cg_errors": _DEFAULT_SOLVER,
 }
 
 
@@ -59,11 +63,12 @@ def _guard_format_conflict(dataset_dir: Path, intended: DatasetFormat) -> None:
     manifest_path = dataset_dir / DATASET_MANIFEST_FILENAME
     if not manifest_path.exists():
         return
+    # Only the raw format is read, so a manifest from an older version still guards
+    # against a cross-format overwrite instead of failing to decode.
     try:
-        manifest = read_dataset_manifest(dataset_dir)
+        existing = load_dataset_manifest(dataset_dir)["matrix"]["format"]
     except FileNotFoundError:
         return
-    existing = manifest.matrix.format
     if existing != intended:
         raise ValueError(
             f"Dataset at '{dataset_dir}' was generated as format '{existing}'. "
@@ -207,7 +212,7 @@ def build_dataset(
     Args:
         source: Where the run reads its matrix/RHS/solution/parameter samples from.
         spec: How the dataset is assembled — strategy budgets, RNG controls,
-            replacement policy and normalization.
+            replacement policy and scaling.
         dataset_dir: Target directory for the persisted dataset.
         dataset_format: Storage format family; zarr or hdf5 (npy is refused).
         force: Regenerate even when a complete dataset already exists.

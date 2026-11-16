@@ -40,7 +40,7 @@ def write_dense_streamed(
 
     Args:
         source: Where the run reads its samples from.
-        spec: Strategy budgets, RNG controls, normalization and batch size.
+        spec: Strategy budgets, RNG controls, scaling and batch size.
         dataset_dir: Final directory of the dataset; it is created only at commit.
         dataset_format: ``zarr`` or ``hdf5``.
 

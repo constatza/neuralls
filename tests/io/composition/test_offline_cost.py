@@ -21,9 +21,10 @@ from neuralls.composition.comparison.method_data_origin import (
 )
 from neuralls.domain.solver.models.cost import Known, NotApplicable, OfflineStages, Unavailable
 from neuralls.platform.config.models.checkpoint_refs import NeuralCheckpointRef
-from neuralls.platform.storage.manifest import DatasetArtifact, DatasetNormalization
+from neuralls.platform.storage.manifest import DatasetArtifact, DatasetScaling
 from neuralls.platform.storage.manifest_io import make_dataset_manifest, save_dataset_manifest
 from neuralls.platform.tracking.services import MlflowTrackingServices
+from neuralls.shared.system_scaling import NoScaling
 from neuralls.shared.types import CostProvenance
 from tests.fakes.mlflow_client import FakeMlflowClient
 
@@ -54,8 +55,11 @@ def dataset_dir(tmp_path: Path) -> Path:
             matrix=artifact,
             rhs=vector,
             solutions=vector,
-            normalization=DatasetNormalization(
-                type="none", matrix_norm=1.0, matrix_norm_type="spectral", scale={}
+            scaling=DatasetScaling(
+                scaling=NoScaling(),
+                matrix_norm=1.0,
+                matrix_norm_type="spectral",
+                matrix_scales={0: 1.0},
             ),
             generation_duration_seconds=GENERATION_SECONDS,
             generation_peak_memory_bytes=1024,
@@ -76,8 +80,11 @@ def unstamped_dataset(tmp_path: Path) -> Path:
             matrix=artifact,
             rhs=vector,
             solutions=vector,
-            normalization=DatasetNormalization(
-                type="none", matrix_norm=1.0, matrix_norm_type="spectral", scale={}
+            scaling=DatasetScaling(
+                scaling=NoScaling(),
+                matrix_norm=1.0,
+                matrix_norm_type="spectral",
+                matrix_scales={0: 1.0},
             ),
             generation_duration_seconds=None,
             generation_peak_memory_bytes=None,

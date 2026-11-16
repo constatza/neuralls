@@ -36,6 +36,7 @@ from neuralls.platform.config.models.preconditioner import (
 )
 from neuralls.platform.reporting.figure_text import method_legend
 from neuralls.shared.scientific_description.policy import NotationPolicy
+from neuralls.shared.system_scaling import GershgorinScaling, RhsScaling
 from neuralls.shared.types import (
     DatasetId,
     MatrixId,
@@ -282,7 +283,8 @@ def test_group_reporting_propagates_actual_solver_timing_context(
         timing_repeats=3,
         timing_warmup=1,
         timing_statistic="median",
-        normalization="matrix",
+        system_scaling=GershgorinScaling(),
+        rhs_scaling=RhsScaling.NONE,
     )
 
     class PresentationSink:
@@ -392,6 +394,6 @@ def test_a_skipped_group_is_named_by_its_scope_not_its_group_id(
     )
 
     assert messages[0] == (
-        "Comparison matrix set: Test problem | Gaussian CG Residuals (k=20, N=100) - Gaussian: "
+        "Comparison matrix set: Test problem | CG Errors (k=20, N=100) - Gaussian: "
         "no canonical setup events among 3 planned systems."
     )

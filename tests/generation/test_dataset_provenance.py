@@ -16,6 +16,7 @@ from neuralls.platform.config.models.data_models import (
     StrategyConfig,
 )
 from neuralls.shared.scientific_description.models import ScientificDescription
+from neuralls.shared.system_scaling import NoScaling
 
 DATA_DIR = Path("datasets")
 
@@ -36,7 +37,7 @@ def _config(problem: str | None) -> DataConfigFile:
         id="ds",
         source=SourceConfig(matrix_path="unopened/*.mtx", problem=problem),
         generation=GenerationConfig(
-            normalize="none", strategy=[StrategyConfig(name="neutral_ones", samples=1)]
+            scaling=NoScaling(), strategy=[StrategyConfig(name="neutral_ones", samples=1)]
         ),
         output=OutputConfig(data_dir=DATA_DIR),
     )

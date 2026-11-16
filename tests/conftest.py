@@ -69,6 +69,7 @@ from neuralls.shared.scientific_description.models import (
     ScientificDescription,
 )
 from neuralls.shared.scientific_description.policy import NotationPolicy, RenderTarget
+from neuralls.shared.system_scaling import GershgorinScaling, NoScaling
 from neuralls.shared.types import DatasetId, GenerationStrategyKind, PreconditionerName, RowKind
 from tests.fakes.comparison_runs import RecordingTrackingServices
 from tests.fakes.mlflow_client import FakeMlflowClient
@@ -475,7 +476,7 @@ def _build_diag_matrix_dataset(
         SourceSpec(matrix_path=str(raw / "*" / "K_ff.mtx")),
         DatasetSpec(
             mixture=MixtureSpec(counts={"neutral_ones": rows}, seed=42, shuffle=False),
-            normalize="none",
+            scaling=NoScaling(),
         ),
         str(dataset_dir),
         dataset_format="hdf5",
@@ -557,14 +558,14 @@ def dataset_presentation() -> DatasetPresentation:
         generation=DatasetGenerationProvenance(
             strategies=(
                 StrategyProvenance(
-                    GenerationStrategyKind.GAUSSIAN_RESIDUALS,
+                    GenerationStrategyKind.CG_ERRORS,
                     rows=100,
                     parameters=(make_fact(ITERATION_COUNT, 20),),
                     seed=DerivedSeed(),
                 ),
             ),
             generated_rows=100,
-            normalization="matrix",
+            scaling=GershgorinScaling(),
             root_seed=42,
         ),
     )
@@ -585,7 +586,7 @@ def pod_fit_presentation() -> DatasetPresentation:
                 ),
             ),
             generated_rows=8,
-            normalization="matrix",
+            scaling=GershgorinScaling(),
             root_seed=2024,
         ),
     )
@@ -728,7 +729,6 @@ def group_style_of(
             legend=legend_of(*names),
             families={},
             color_keys={},
-            marker_keys={},
             label_rotation_deg=DEFAULT_LABEL_ROTATION_DEG,
             row_limits=RowLimits(DEFAULT_MIN_BOX_SAMPLES, DEFAULT_MIN_VIOLIN_SAMPLES),
             show_titles=True,
@@ -741,7 +741,7 @@ def group_style_of(
 def training_presentation(dataset_presentation: DatasetPresentation) -> TrainingPresentation:
     """What a training run trains, for tests that prepare or finalize a training run."""
     return TrainingPresentation(
-        DatasetQualifiedMethodPresentation(ScientificDescription("POD-2G"), dataset_presentation),
+        DatasetQualifiedMethodPresentation(ScientificDescription("POD"), dataset_presentation),
         NotationPolicy.default(),
     )
 

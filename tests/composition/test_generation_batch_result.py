@@ -33,6 +33,4 @@ def test_each_result_carries_the_presentation_stamped_on_its_dataset(
 
     assert result.dataset is dataset_presentation
     assert result.notation == case_notation(cfg)
-    assert messages == [
-        f"Test problem | Gaussian CG Residuals (k=20, N=100) ready: {GENERATED_DIR}"
-    ]
+    assert messages == [f"Test problem | CG Errors (k=20, N=100) ready: {GENERATED_DIR}"]

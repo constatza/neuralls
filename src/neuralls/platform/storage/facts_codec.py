@@ -8,7 +8,7 @@ model validation, so a malformed payload cannot become a presentation object.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, assert_never, cast, get_args
+from typing import Any, assert_never
 
 from neuralls.domain.presentation.methods import (
     ConfiguredMethodPresentation,
@@ -60,10 +60,10 @@ from neuralls.shared.scientific_description.models import (
     TextFact,
     ValidatedLabel,
 )
+from neuralls.shared.system_scaling import parse_system_scaling
 from neuralls.shared.types import (
     GenerationStrategyKind,
     MatrixId,
-    NormalizeType,
     PreconditionerName,
     SystemId,
 )
@@ -85,8 +85,6 @@ __all__ = [
 ]
 
 type Payload = Mapping[str, Any]
-
-_NORMALIZATIONS: tuple[str, ...] = get_args(NormalizeType)
 
 
 def _encode_fact(fact: ScientificFact) -> dict[str, Any]:
@@ -221,7 +219,7 @@ def encode_dataset_presentation(presentation: DatasetPresentation) -> dict[str, 
                 for strategy in generation.strategies
             ],
             "generated_rows": generation.generated_rows,
-            "normalization": generation.normalization,
+            "scaling": generation.scaling.model_dump(mode="json"),
             "root_seed": generation.root_seed,
         },
     }
@@ -230,9 +228,6 @@ def encode_dataset_presentation(presentation: DatasetPresentation) -> dict[str, 
 def decode_dataset_presentation(payload: Payload) -> DatasetPresentation:
     """Decode and validate a dataset presentation produced by the encoder."""
     generation = payload["generation"]
-    normalization = generation["normalization"]
-    if normalization not in _NORMALIZATIONS:
-        raise ValueError(f"Unknown dataset normalization {normalization!r}")
     return DatasetPresentation(
         source=DatasetSourceProvenance(_decode_description(payload["source"])),
         generation=DatasetGenerationProvenance(
@@ -246,7 +241,7 @@ def decode_dataset_presentation(payload: Payload) -> DatasetPresentation:
                 for strategy in generation["strategies"]
             ),
             generated_rows=int(generation["generated_rows"]),
-            normalization=cast(NormalizeType, normalization),
+            scaling=parse_system_scaling(generation["scaling"]),
             root_seed=int(generation["root_seed"]),
         ),
     )

@@ -48,7 +48,7 @@ from neuralls.shared.types import MatrixId
 runner = CliRunner()
 WORKSPACE = Path("workspace")
 
-DATASET_TEXT = "Test problem | Gaussian CG Residuals (k=20, N=100)"
+DATASET_TEXT = "Test problem | CG Errors (k=20, N=100)"
 REGISTRY_ID = "cmp-secret-17"
 EDITORIAL = "Spectral 3D comparison"
 
@@ -192,7 +192,7 @@ def test_run_summary_names_trainings_and_comparisons_by_their_descriptions(
         NotationPolicy.default(),
     )
     results = [
-        AssignmentSucceeded("asg-1", training_presentation_of("POD-2G"), mlflow_run_id="run-1"),
+        AssignmentSucceeded("asg-1", training_presentation_of("POD"), mlflow_run_id="run-1"),
         AssignmentFailed("asg-2", editorial, error="out of memory"),
     ]
     outcomes = [
@@ -213,7 +213,7 @@ def test_run_summary_names_trainings_and_comparisons_by_their_descriptions(
         "Summary",
         "=" * 80,
         "Completed 2 assignments:",
-        "  SUCCESS POD-2G | Gaussian CG Residuals (k=20, N=100)",
+        "  SUCCESS POD | CG Errors (k=20, N=100)",
         f"  FAILED {EDITORIAL} | {DATASET_TEXT} (out of memory)",
         "Completed 1 comparisons:",
         f"  SUCCESS Comparison matrix set: {DATASET_TEXT} | matrix 3, RHS 1",

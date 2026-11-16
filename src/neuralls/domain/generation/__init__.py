@@ -26,8 +26,6 @@ Usage:
 
 from __future__ import annotations
 
-from neuralls.shared.types import NormalizeType
-
 # SOLID Architecture (Phases 1-2 complete)
 # Import strategies to trigger registration
 from . import providers, strategies, transforms
@@ -46,7 +44,6 @@ __all__ = [
     "GeneratedSamples",
     "GenerationPlan",
     "MixtureSpec",
-    "NormalizeType",
     "SourceSpec",
     "StrategySpec",
     # Main API

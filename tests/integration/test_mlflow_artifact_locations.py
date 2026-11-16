@@ -51,6 +51,7 @@ from neuralls.platform.tracking.report_sink import (
     METHOD_FIGURE_ARTIFACT_DIR,
 )
 from neuralls.platform.tracking.session_artifacts import REPORT_PHASE
+from neuralls.shared.system_scaling import NoScaling
 
 
 class _ReportFailure(Exception):
@@ -292,7 +293,7 @@ def _write_experiments_config(
             "max_iterations": 20,
             "stopping_criterion": "residual_norm",
             "m_max": 5,
-            "normalize_system": "matrix",
+            "system_scaling": {"kind": "none"},
             "preconditioners": [{"name": "identity", "type": "identity"}],
         },
     }
@@ -347,7 +348,7 @@ def test_comparison_logs_artifacts_to_mlflow_with_sqlite(
                 seed=42,
                 shuffle=False,
             ),
-            normalize="none",
+            scaling=NoScaling(),
         ),
         str(dataset_dir),
         dataset_format="hdf5",

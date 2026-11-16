@@ -35,7 +35,7 @@ from neuralls.platform.storage.comparison import (
 from neuralls.platform.storage.dataset_readers import (
     list_available_matrix_indices,
     resolve_canonical_training_triplet,
-    try_read_dataset_normalization,
+    try_read_matrix_scaling,
 )
 from neuralls.platform.storage.dataset_shape import system_dimension
 from neuralls.platform.storage.validation import (
@@ -188,7 +188,7 @@ class GeneratedSourceHandler:
             matrix_provenance=ctx.matrix_provenance,
             rhs_source_kind=ctx.rhs_source_kind,
             rhs_source_params=ctx.rhs_source_params,
-            matrix_normalization=try_read_dataset_normalization(ctx.matrix_path),
+            matrix_scaling=try_read_matrix_scaling(ctx.matrix_path, matrix_index),
         )
 
 
@@ -233,7 +233,7 @@ class RawLhsSourceHandler:
             row_kind=cfg.row_kind,
             rhs_source_kind=ctx.rhs_source_kind,
             rhs_source_params=ctx.rhs_source_params,
-            matrix_normalization=try_read_dataset_normalization(ctx.matrix_path),
+            matrix_scaling=try_read_matrix_scaling(ctx.matrix_path, matrix_index),
         )
 
 
@@ -277,7 +277,7 @@ class RawRhsSourceHandler:
             row_kind=cfg.row_kind,
             rhs_source_kind=ctx.rhs_source_kind,
             rhs_source_params=ctx.rhs_source_params,
-            matrix_normalization=try_read_dataset_normalization(ctx.matrix_path),
+            matrix_scaling=try_read_matrix_scaling(ctx.matrix_path, matrix_index),
         )
 
 
@@ -313,7 +313,6 @@ class DatasetSourceHandler:
             ctx.matrix_path,
             row.sample_index,
             require_standard=ctx.require_non_residual_rhs,
-            matrix_index=ctx.matrix_index,
         )
         return ResolvedComparisonInput(
             matrix=triplet.matrix,
@@ -327,7 +326,7 @@ class DatasetSourceHandler:
             row_kind=triplet.row_kind,
             rhs_source_kind=ctx.rhs_source_kind,
             rhs_source_params=ctx.rhs_source_params,
-            matrix_normalization=triplet.normalization,
+            matrix_scaling=triplet.matrix_scaling,
         )
 
 

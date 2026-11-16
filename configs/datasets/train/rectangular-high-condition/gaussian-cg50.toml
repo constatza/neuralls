@@ -5,12 +5,12 @@ problem = "Rectangular high condition"
 matrix_path = "${NEURALLS_RAW_DIR}/matrices/rectangular-high-condition.txt"
 
 [generation]
-normalize = "matrix"
+scaling = { kind = "gershgorin", dimension_factor = "sqrt_n" }
 shuffle = true
 seed = 42
 
 [[generation.strategy]]
-name = "gaussian_residuals"
+name = "cg_errors"
 samples = 5000
 stop = 50
 

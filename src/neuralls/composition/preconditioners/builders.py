@@ -164,8 +164,8 @@ def _build_sparse_amg(
 ) -> tuple[Preconditioner, CoarseningStrategy | None]:
     """Sparse CSR AMG: A stays CSR in every level and in the transfer operators.
 
-    Aggregation coarsening uses torchalg's sparse V-cycle preset. POD-2G and neural
-    POD-2G use the same multigrid engine with torchalg's sparse POD strategy, so the
+    Aggregation coarsening uses torchalg's sparse V-cycle preset. POD and neural
+    POD use the same multigrid engine with torchalg's sparse POD strategy, so the
     coarse operator is formed as P.T A P without densifying A. Target-dimension
     coarsening has no sparse counterpart and is rejected. The sparse AMG preset builds
     its aggregation internally and does not expose a coarsening object, so this always
@@ -227,7 +227,7 @@ def _build_amg(
     Args:
         matrix: System matrix A.
         config: AMG preconditioner configuration.
-        loaders: Checkpoint loaders, needed only by neural POD-2G coarsening.
+        loaders: Checkpoint loaders, needed only by neural POD coarsening.
         preloaded: Checkpoints loaded ahead of the build; the default loads inside it.
 
     Returns:

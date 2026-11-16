@@ -1,9 +1,6 @@
-"""Linear system loading and normalization for the comparison workflow."""
+"""Linear system scaling and validation for the comparison workflow."""
 
 from __future__ import annotations
-
-from collections.abc import Callable
-from dataclasses import dataclass
 
 import numpy as np
 import torch
@@ -13,7 +10,7 @@ from neuralls.composition.comparison.models import (
     LinearSystem,
     ResolvedComparisonInput,
 )
-from neuralls.domain.normalization import create_scale_from_config, load_scale_from_metadata
+from neuralls.domain.normalization import scale_factor, scale_matrix
 from neuralls.domain.solver.utils.validation import (
     validate_ax_equals_b,
     validate_matrix,
@@ -22,8 +19,26 @@ from neuralls.domain.solver.utils.validation import (
 from neuralls.platform.config.models.comparison import RHS_SOURCE_MODEL_BY_KIND
 from neuralls.platform.sparse_io.components import to_components
 from neuralls.platform.sparse_io.torch_convert import to_torch_csr
-from neuralls.platform.storage.manifest import DatasetNormalization
+from neuralls.platform.storage.manifest import PersistedMatrixScaling
+from neuralls.shared.system_scaling import RhsScaling, SystemScaling, scaling_label
 from neuralls.shared.types import ComparisonRhsSourceKind, SystemMatrix
+
+
+class ScalingMismatchError(ValueError):
+    """A stored matrix was scaled differently from what the case asks for.
+
+    A stored matrix is never rescaled, so a case whose ``system_scaling`` differs from the
+    dataset's would silently solve a differently scaled system than it declares.
+    """
+
+    def __init__(self, dataset_scaling: SystemScaling, case_scaling: SystemScaling) -> None:
+        self.dataset_scaling = dataset_scaling
+        self.case_scaling = case_scaling
+        super().__init__(
+            f"The dataset was generated with scaling {scaling_label(dataset_scaling)}, but the "
+            f"case asks for system_scaling {scaling_label(case_scaling)}; regenerate the "
+            "dataset or change the case."
+        )
 
 
 def _rhs_is_generated(rhs_source_kind: ComparisonRhsSourceKind | None) -> bool:
@@ -35,209 +50,93 @@ def _rhs_is_generated(rhs_source_kind: ComparisonRhsSourceKind | None) -> bool:
     return rhs_source_kind is not None and RHS_SOURCE_MODEL_BY_KIND[rhs_source_kind].generated
 
 
-def _self_normalize_rhs(rhs: np.ndarray) -> np.ndarray:
-    """Scale rhs by its own norm, independent of any matrix-derived scale."""
-    rhs_norm = float(np.linalg.norm(rhs))
-    if rhs_norm == 0.0:
-        return rhs
-    return rhs / rhs_norm
-
-
-def _apply_fresh_matrix_scale(
+def _scale_raw_system(
     matrix: SystemMatrix,
     rhs: np.ndarray,
+    scaling: SystemScaling,
     *,
     rhs_source_kind: ComparisonRhsSourceKind | None,
 ) -> tuple[SystemMatrix, np.ndarray]:
-    """Normalize a genuinely raw matrix, computing one shared scale for both sides.
+    """Scale a raw matrix (no manifest) and its RHS by one freshly computed ``alpha``.
 
-    The same freshly-computed scale is applied to the matrix and (unless the
-    RHS is generated) to the RHS — never two independently
-    derived scale values combined on the two sides of ``Ax = b``.
+    The same ``alpha`` divides the matrix and (unless the RHS is generated) the RHS, never
+    two independently derived values on the two sides of ``Ax = b``.
     """
-    scale = create_scale_from_config("matrix", matrix)
-    if scale is None:
-        return matrix, rhs
-    scaled_matrix = scale.scale_matrix(matrix)
+    alpha = scale_factor(matrix, scaling)
+    scaled = scale_matrix(matrix, alpha)
     if _rhs_is_generated(rhs_source_kind):
-        return scaled_matrix, rhs
-    return scaled_matrix, scale.scale_rhs(rhs)
+        return scaled, rhs
+    return scaled, rhs / alpha
 
 
-def _apply_persisted_matrix_scale(
+def _scale_stored_system(
     matrix: SystemMatrix,
     rhs: np.ndarray,
+    persisted: PersistedMatrixScaling,
     *,
     rhs_source_kind: ComparisonRhsSourceKind | None,
-    matrix_normalization: DatasetNormalization,
 ) -> tuple[SystemMatrix, np.ndarray]:
-    """Normalize against a matrix already known to be normalized on disk.
+    """Bring the RHS into the units of a matrix already scaled on disk.
 
-    The matrix is never rescaled. The RHS is scaled at most once, using the
-    dataset's *persisted* scale (never a fresh recompute), and only when it
-    hasn't already been made consistent with the matrix by construction:
+    The matrix is never rescaled. The RHS is divided at most once, by this matrix's stored
+    ``alpha`` (never a fresh recompute), and only when it is not already consistent with
+    the matrix by construction:
 
-    - DATASET-sourced RHS was normalized together with the matrix at
-      generation time — untouched.
-    - RAW_LHS-sourced RHS was just derived as ``cfg.scale * matrix @ lhs``
-      from this exact (already-normalized) matrix — untouched.
+    - DATASET-sourced RHS was scaled together with the matrix at generation — untouched.
+    - RAW_LHS-sourced RHS was just derived as ``cfg.scale * matrix @ lhs`` from this exact
+      (already scaled) matrix — untouched.
     - A generated RHS is independently configured — untouched.
-    - RAW_RHS is a genuinely raw external vector with no associated x — scaled
-      exactly once by the persisted scale to bring it into the matrix's units.
+    - RAW_RHS is a genuinely raw external vector with no associated x — divided by
+      ``alpha`` to bring it into the matrix's units.
     """
     if rhs_source_kind is ComparisonRhsSourceKind.RAW_RHS:
-        persisted_scale = load_scale_from_metadata(
-            matrix_normalization.type, matrix_normalization.scale
-        )
-        if persisted_scale is None:
-            return matrix, rhs
-        return matrix, persisted_scale.scale_rhs(rhs)
+        return matrix, rhs / persisted.alpha
     return matrix, rhs
 
 
-@dataclass(frozen=True, slots=True)
-class _NormalizationRequest:
-    """One matrix/RHS pair plus everything a normalization mode may consult."""
-
-    matrix: SystemMatrix
-    rhs: np.ndarray
-    rhs_source_kind: ComparisonRhsSourceKind | None
-    matrix_normalization: DatasetNormalization | None
-
-
-type NormalizationMode = Callable[[_NormalizationRequest], tuple[SystemMatrix, np.ndarray]]
-
-
-def _normalize_none(request: _NormalizationRequest) -> tuple[SystemMatrix, np.ndarray]:
-    """Leave both sides exactly as loaded."""
-    return request.matrix, request.rhs
-
-
-def _normalize_matrix(request: _NormalizationRequest) -> tuple[SystemMatrix, np.ndarray]:
-    """Bring the system into the matrix's units with one matrix-derived scale."""
-    persisted = request.matrix_normalization
-    if persisted is not None and persisted.type == "matrix":
-        return _apply_persisted_matrix_scale(
-            request.matrix,
-            request.rhs,
-            rhs_source_kind=request.rhs_source_kind,
-            matrix_normalization=persisted,
-        )
-    return _apply_fresh_matrix_scale(
-        request.matrix, request.rhs, rhs_source_kind=request.rhs_source_kind
-    )
-
-
-def _normalize_rhs(request: _NormalizationRequest) -> tuple[SystemMatrix, np.ndarray]:
-    """Scale the RHS by its own norm, leaving the matrix untouched."""
-    return request.matrix, _self_normalize_rhs(request.rhs)
-
-
-def _normalize_both(request: _NormalizationRequest) -> tuple[SystemMatrix, np.ndarray]:
-    """Apply the matrix mode, then self-normalize the RHS it produced."""
-    matrix, rhs = _normalize_matrix(request)
-    return matrix, _self_normalize_rhs(rhs)
-
-
-# Registry mapping config-level normalize_system names to their mode functions.
-_NORMALIZATION_REGISTRY: dict[str, NormalizationMode] = {
-    "none": _normalize_none,
-    "matrix": _normalize_matrix,
-    "rhs": _normalize_rhs,
-    "both": _normalize_both,
-}
-
-
-def register_normalization_mode(name: str, mode: NormalizationMode) -> None:
-    """Register a comparison-time normalization mode.
-
-    Args:
-        name: Config-level ``normalize_system`` value.
-        mode: Callable turning a request into the scaled ``(matrix, rhs)`` pair.
-    """
-    _NORMALIZATION_REGISTRY[name] = mode
-
-
-def _require_supported_persisted_normalization(
-    matrix_normalization: DatasetNormalization | None,
-) -> None:
-    """Reject a matrix whose on-disk normalization scheme is no longer supported.
-
-    Raises:
-        ValueError: If the persisted normalization type is neither
-            ``"none"`` nor ``"matrix"``.
-    """
-    if matrix_normalization is None or matrix_normalization.type in ("none", "matrix"):
-        return
-    raise ValueError(
-        f"Dataset's persisted normalization type {matrix_normalization.type!r} is no "
-        "longer supported (only 'none'/'matrix' are) — regenerate the dataset with "
-        "normalize_type='matrix'."
-    )
-
-
-def _normalize_linear_system(
+def _scale_system(
     matrix: SystemMatrix,
     rhs: np.ndarray,
-    normalize_system: str,
+    system_scaling: SystemScaling,
     *,
-    rhs_source_kind: ComparisonRhsSourceKind | None = None,
-    matrix_normalization: DatasetNormalization | None = None,
+    rhs_source_kind: ComparisonRhsSourceKind | None,
+    matrix_scaling: PersistedMatrixScaling | None,
 ) -> tuple[SystemMatrix, np.ndarray]:
-    """Apply comparison-time normalization to matrix and RHS.
-
-    Never independently recomputes a scale for data that is already known to
-    be normalized — see ``_apply_persisted_matrix_scale``. A single scale is
-    used for both sides of ``Ax = b`` in every mode; RHS is scaled at most
-    once, never zero-or-two times ambiguously.
-
-    Args:
-        matrix: System matrix A.
-        rhs: Right-hand side vector b.
-        normalize_system: Scaling mode — one of ``"none"``, ``"matrix"``,
-            ``"rhs"``, ``"both"``.
-        rhs_source_kind: Provenance of the RHS, used to decide whether it may
-            be touched by a matrix-derived scale at all.
-        matrix_normalization: Persisted normalization metadata for the
-            dataset the matrix was loaded from, or None for a raw/external
-            matrix with no manifest.
-
-    Returns:
-        Scaled (matrix, rhs) pair.
+    """Apply the case's ``system_scaling`` to one matrix/RHS pair.
 
     Raises:
-        ValueError: If normalize_system is not a registered mode, or if the
-            matrix's persisted normalization type is no longer supported.
-        TypeError: If create_scale_from_config returns an unexpected type.
+        ScalingMismatchError: If the matrix is stored with a different scaling.
     """
-    _require_supported_persisted_normalization(matrix_normalization)
-    mode = _NORMALIZATION_REGISTRY.get(normalize_system)
-    if mode is None:
-        raise ValueError(
-            f"Unsupported normalize_system value: {normalize_system!r}. "
-            f"Expected one of {', '.join(_NORMALIZATION_REGISTRY)}."
-        )
-    return mode(
-        _NormalizationRequest(
-            matrix=matrix,
-            rhs=rhs,
-            rhs_source_kind=rhs_source_kind,
-            matrix_normalization=matrix_normalization,
-        )
-    )
+    if matrix_scaling is None:
+        return _scale_raw_system(matrix, rhs, system_scaling, rhs_source_kind=rhs_source_kind)
+    if matrix_scaling.scaling != system_scaling:
+        raise ScalingMismatchError(matrix_scaling.scaling, system_scaling)
+    return _scale_stored_system(matrix, rhs, matrix_scaling, rhs_source_kind=rhs_source_kind)
+
+
+def _scale_rhs(rhs: np.ndarray, rhs_scaling: RhsScaling) -> np.ndarray:
+    """Apply the case's per-system RHS scaling; a zero RHS is left unchanged."""
+    match rhs_scaling:
+        case RhsScaling.NONE:
+            return rhs
+        case RhsScaling.UNIT:
+            rhs_norm = float(np.linalg.norm(rhs))
+            return rhs if rhs_norm == 0.0 else rhs / rhs_norm
 
 
 def prepare_resolved_linear_system(
     resolved_input: ResolvedComparisonInput,
-    normalize_system: str,
+    system_scaling: SystemScaling,
+    rhs_scaling: RhsScaling,
 ) -> LinearSystem:
-    """Normalize and validate an already-resolved comparison input."""
+    """Scale and validate an already-resolved comparison input."""
     return _prepare_linear_system(
         resolved_input.matrix,
         resolved_input.rhs,
-        normalize_system,
+        system_scaling,
+        rhs_scaling,
         rhs_source_kind=resolved_input.rhs_source_kind,
-        matrix_normalization=resolved_input.matrix_normalization,
+        matrix_scaling=resolved_input.matrix_scaling,
         lhs=resolved_input.lhs,
     )
 
@@ -245,24 +144,30 @@ def prepare_resolved_linear_system(
 def _prepare_linear_system(
     matrix: SystemMatrix,
     rhs: np.ndarray,
-    normalize_system: str,
+    system_scaling: SystemScaling,
+    rhs_scaling: RhsScaling,
     *,
     rhs_source_kind: ComparisonRhsSourceKind | None,
-    matrix_normalization: DatasetNormalization | None,
+    matrix_scaling: PersistedMatrixScaling | None,
     lhs: np.ndarray | None,
 ) -> LinearSystem:
-    """Apply comparison normalization and validation to in-memory arrays."""
-    matrix, rhs = _normalize_linear_system(
+    """Apply comparison scaling and validation to in-memory arrays.
+
+    ``Ax = b`` is checked against ``lhs`` before the RHS scaling, which rescales the
+    solution as well and would otherwise make the known ``lhs`` inconsistent.
+    """
+    matrix, rhs = _scale_system(
         matrix,
         rhs,
-        normalize_system,
+        system_scaling,
         rhs_source_kind=rhs_source_kind,
-        matrix_normalization=matrix_normalization,
+        matrix_scaling=matrix_scaling,
     )
     validate_matrix(matrix)
-    validate_rhs_vector(rhs, matrix)
     if lhs is not None:
         validate_ax_equals_b(matrix, rhs, lhs)
+    rhs = _scale_rhs(rhs, rhs_scaling)
+    validate_rhs_vector(rhs, matrix)
     return LinearSystem(
         matrix=(
             to_torch_csr(to_components(matrix))

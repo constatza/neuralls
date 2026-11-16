@@ -15,6 +15,7 @@ from neuralls.platform.config.dataset_entries import entry_from_path
 from neuralls.platform.storage.dataset_readers import resolve_dataset_artifacts
 from neuralls.platform.storage.manifest_io import load_dataset_manifest
 from neuralls.platform.storage.training_artifacts import Hdf5ArraySource, load_training_arrays
+from neuralls.shared.system_scaling import NoScaling
 from tests.dataset_support import build_test_dataset
 
 _SAMPLE_COUNT = 5
@@ -43,7 +44,7 @@ def streamed_hdf5_dir(tmp_path: Path, matrix_file: Path) -> Path:
         SourceSpec(matrix_path=str(matrix_file)),
         DatasetSpec(
             mixture=MixtureSpec(counts={"gaussian_forward": _SAMPLE_COUNT}, seed=0, shuffle=False),
-            normalize="none",
+            scaling=NoScaling(),
         ),
         str(dataset_dir),
         dataset_format="hdf5",
@@ -124,7 +125,7 @@ def test_streamed_parameter_arrays_are_stored_under_indexed_keys(
         SourceSpec(matrix_path=str(matrix_file), parameters_paths=(str(params_file),)),
         DatasetSpec(
             mixture=MixtureSpec(counts={"gaussian_forward": 3}, seed=0, shuffle=False),
-            normalize="none",
+            scaling=NoScaling(),
         ),
         str(dataset_dir),
         dataset_format="hdf5",

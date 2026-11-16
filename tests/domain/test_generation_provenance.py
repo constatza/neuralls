@@ -11,8 +11,8 @@ from neuralls.domain.generation.sample_writer import StrategyRowCount
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec
 from neuralls.domain.generation.strategy_configs import (
     BaseStrategyConfig,
+    JacobiProbesConfig,
     KrylovConfig,
-    SmootherFilteredProbesConfig,
     SolveConfig,
 )
 from neuralls.domain.presentation.provenance import (
@@ -29,6 +29,7 @@ from neuralls.shared.fact_binding import Fact, unbound_fields
 from neuralls.shared.scientific_description.models import ScientificDescription
 from neuralls.shared.scientific_description.policy import LEGEND_PROFILE, NotationPolicy
 from neuralls.shared.scientific_description.render import render
+from neuralls.shared.system_scaling import GershgorinScaling
 from neuralls.shared.types import GenerationStrategyKind
 
 STRATEGY_NAMES = [kind.value for kind in GenerationStrategyKind]
@@ -53,11 +54,18 @@ def test_krylov_label_states_the_subspace_dimension_and_seed() -> None:
     )
 
 
-def test_smoother_probe_label_orders_sweeps_count_then_distribution() -> None:
-    cfg = SmootherFilteredProbesConfig(samples=5000, stop=10, probe_distribution="gaussian", seed=1)
-    assert _plain(GenerationStrategyKind.SMOOTHER_FILTERED_PROBES, cfg, 5000) == (
-        "Jacobi-Filtered Probes (ν=10, N=5000, p=𝒩, ω=auto, s=1)"
-    )
+@pytest.mark.parametrize(
+    ("distribution", "expected"),
+    [
+        ("gaussian", "Jacobi-Filtered Probes (k=10, N=5000, ω=auto, s=1)"),
+        ("rademacher", "Jacobi-Filtered Probes (k=10, N=5000, 𝒟=Rad, ω=auto, s=1)"),
+    ],
+)
+def test_smoother_probe_label_states_sweeps_count_and_only_a_non_gaussian_distribution(
+    distribution: str, expected: str
+) -> None:
+    cfg = JacobiProbesConfig(samples=5000, stop=10, probe_distribution=distribution, seed=1)
+    assert _plain(GenerationStrategyKind.JACOBI_PROBES, cfg, 5000) == expected
 
 
 def test_seed_is_provenance_but_not_part_of_the_dataset_qualifier() -> None:
@@ -109,7 +117,7 @@ def test_counts_come_from_the_realized_rows_not_the_spec_budgets() -> None:
     ]
     assert [s.rows for s in generation.strategies] == [7, 13]
     assert generation.generated_rows == 20
-    assert generation.normalization == "matrix"
+    assert generation.scaling == GershgorinScaling()
 
 
 def test_open_ended_single_strategy_reports_realized_rows() -> None:

@@ -7,14 +7,10 @@ from dataclasses import dataclass
 from neuralls.platform.storage.manifest import (
     DatasetArtifact,
     DatasetManifest,
-    DatasetNormalization,
+    DatasetScaling,
 )
 from neuralls.platform.storage.manifest_io import make_dataset_manifest
-from neuralls.shared.types import (
-    LayoutType,
-    MatrixFormat,
-    ScaleMetadata,
-)
+from neuralls.shared.types import LayoutType, MatrixFormat
 
 _HDF5_DEFAULT_CHUNK_ROWS: int = 64
 
@@ -78,7 +74,7 @@ def build_dense_manifest(
     matrix_shape: tuple[int, ...],
     rhs_shape: tuple[int, ...],
     solutions_shape: tuple[int, ...],
-    normalization: DatasetNormalization,
+    scaling: DatasetScaling,
     layout: LayoutType,
     params: tuple[DatasetArtifact, ...],
     row_kind_shape: tuple[int, ...] | None = None,
@@ -95,7 +91,7 @@ def build_dense_manifest(
         matrix_shape: Physical shape of the persisted matrix artifact.
         rhs_shape: Shape of the RHS artifact, (samples, n).
         solutions_shape: Shape of the solutions artifact, (samples, n).
-        normalization: Normalization metadata recorded for the dataset.
+        scaling: How the dataset's systems were scaled.
         layout: Matrix layout the writer chose.
         params: Parameter artifact descriptors, in manifest order.
         row_kind_shape: Shape of the row-kind artifact, or None when absent.
@@ -122,7 +118,7 @@ def build_dense_manifest(
         ),
         rhs=_shape_artifact(rhs_shape, locations.rhs, format_name=format_name),
         solutions=_shape_artifact(solutions_shape, locations.solutions, format_name=format_name),
-        normalization=normalization,
+        scaling=scaling,
         params=params,
         row_kind=None
         if row_kind_shape is None
@@ -137,22 +133,6 @@ def build_dense_manifest(
             format_name=format_name,
             dtype="int64",
         ),
-    )
-
-
-def dense_normalization(
-    *,
-    normalization_type: str,
-    matrix_norm: float,
-    matrix_norm_type: str,
-    scale_metadata: ScaleMetadata | None,
-) -> DatasetNormalization:
-    """Normalization block of the manifest, with an absent scale recorded as an empty mapping."""
-    return DatasetNormalization(
-        type=normalization_type,
-        matrix_norm=float(matrix_norm),
-        matrix_norm_type=matrix_norm_type,
-        scale=dict(scale_metadata or {}),
     )
 
 

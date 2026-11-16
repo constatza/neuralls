@@ -49,7 +49,7 @@ def describe_dataset_generation(
 
     Args:
         spec: The spec the dataset was generated from; supplies strategy options, the seed
-            root and the normalization.
+            root and the scaling.
         realized: Rows each strategy wrote, from the sample writer.
 
     Returns:
@@ -76,6 +76,6 @@ def describe_dataset_generation(
     return DatasetGenerationProvenance(
         strategies=tuple(strategies),
         generated_rows=sum(counted.rows for counted in realized),
-        normalization=spec.normalize,
+        scaling=spec.scaling,
         root_seed=spec.mixture.seed,
     )

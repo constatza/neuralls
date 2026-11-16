@@ -2,7 +2,7 @@
 
 torchalg never wraps its own solve loop in ``torch.no_grad()``/
 ``torch.inference_mode()``. Dataset generation calls ``run_traced_pcg``
-thousands of times per binding (``gaussian_residuals``/``residuals`` run one
+thousands of times per binding (``cg_errors``/``residuals`` run one
 call per sample), so without this guard every call builds a full, unused
 autograd graph purely to be discarded by the ``.detach()`` at the end — see
 ``neuralls/composition/solvers/torchalg_runner.py``.

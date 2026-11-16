@@ -155,42 +155,6 @@ def test_residuals_multi_rhs_shapes(
     assert et.true_solutions.shape == (expected_systems, n)
 
 
-def test_gaussian_residuals_multi_rhs_shapes(
-    spd_matrix: np.ndarray,
-    residual_solver: TracingSolverCallable,
-    archive_source: InMemoryArchiveSource,
-) -> None:
-    """Gaussian residuals do not require archive solutions or solution globs."""
-    n = spd_matrix.shape[0]
-    requested_rows = 8
-    stop = 3
-    cfg = {"samples": requested_rows, "stop": stop, "start": 1, "seed": 0}
-
-    result = error_trace_rows(
-        run_generation(
-            "gaussian_residuals",
-            spd_matrix,
-            cfg=cfg,
-            solver=residual_solver,
-            archive_source=archive_source,
-        )
-    )
-    assert result.rhs is not None
-
-    rows_per_system = trace_rows_per_system(StepWindow(stop=stop, start=1))
-    expected_systems = _expected_trace_systems(requested_rows, rows_per_system)
-    total = requested_rows
-
-    assert result.rhs.shape == (expected_systems, n)
-
-    et = result.error_traces
-    assert et is not None
-    assert et.residuals.shape == (total, n)
-    assert et.solutions_current.shape == (total, n)
-    assert et.errors.shape == (total, n)
-    assert et.true_solutions.shape == (expected_systems, n)
-
-
 # ---------------------------------------------------------------------------
 # Mathematical correctness
 # ---------------------------------------------------------------------------
@@ -201,7 +165,6 @@ def test_gaussian_residuals_multi_rhs_shapes(
     [
         pytest.param("residuals", {"samples": 10, "stop": 4}, id="archive"),
         pytest.param("residuals", {"samples": 6, "stop": 5, "step": 2}, id="archive-stepped"),
-        pytest.param("gaussian_residuals", {"samples": 10, "stop": 4}, id="gaussian"),
     ],
 )
 def test_trace_pairs_satisfy_the_error_and_residual_identities(

@@ -322,6 +322,7 @@ def batch_solver_timing_contexts(
             timing_repeats=params.timing.repeats,
             timing_warmup=params.timing.warmup,
             timing_statistic=params.timing.statistic.value,
-            normalization=item.cfg.general.data.normalize_system,
+            system_scaling=item.cfg.general.data.system_scaling,
+            rhs_scaling=item.cfg.general.data.rhs_scaling,
         )
     return contexts

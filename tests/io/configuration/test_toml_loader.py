@@ -291,12 +291,12 @@ job = []
 """,
     "unknown-dataset-sweep-label": """
 [[jobs]]
-id = "pod-2g_cg-50"
+id = "pod_cg-50"
 path = "jobs/dummy-job.toml"
 
 [[assignment_sweeps]]
 dataset_sweep = "typo"
-job = "pod-2g_cg-50"
+job = "pod_cg-50"
 """,
     "missing-value-placeholder": """
 [[dataset_sweeps]]
@@ -360,12 +360,12 @@ path_template = "gaussian-cg50-{value}.toml"
 values = [1000, 2000]
 
 [[jobs]]
-id = "pod-2g_cg-50"
+id = "pod_cg-50"
 path = "jobs/dummy-job.toml"
 
 [[assignment_sweeps]]
 dataset_sweep = "cg50-samples"
-job = "pod-2g_cg-50"
+job = "pod_cg-50"
 """,
         encoding="utf-8",
     )
@@ -374,7 +374,7 @@ job = "pod-2g_cg-50"
         "gaussian-cg50-family-1000",
         "gaussian-cg50-family-2000",
     ]
-    assert all(a.job_id == "pod-2g_cg-50" for a in config.assignments)
+    assert all(a.job_id == "pod_cg-50" for a in config.assignments)
 
 
 def test_load_case_config_assignment_sweep_job_list_crosses_every_job(
@@ -448,7 +448,7 @@ def test_load_case_config_sweep_expansion_matches_hand_written_equivalent(
     swept_config.write_text(
         """
 [[jobs]]
-id = "pod-2g_cg-50"
+id = "pod_cg-50"
 path = "jobs/dummy-job.toml"
 
 [[dataset_sweeps]]
@@ -458,7 +458,7 @@ values = [1000, 2000]
 
 [[assignment_sweeps]]
 dataset_sweep = "cg50-samples"
-job = "pod-2g_cg-50"
+job = "pod_cg-50"
 """,
         encoding="utf-8",
     )
@@ -466,7 +466,7 @@ job = "pod-2g_cg-50"
     hand_written_config.write_text(
         """
 [[jobs]]
-id = "pod-2g_cg-50"
+id = "pod_cg-50"
 path = "jobs/dummy-job.toml"
 
 [[datasets]]
@@ -477,11 +477,11 @@ path = "gaussian-cg50-2000.toml"
 
 [[assignments]]
 dataset = "gaussian-cg50-family-1000"
-job = "pod-2g_cg-50"
+job = "pod_cg-50"
 
 [[assignments]]
 dataset = "gaussian-cg50-family-2000"
-job = "pod-2g_cg-50"
+job = "pod_cg-50"
 """,
         encoding="utf-8",
     )

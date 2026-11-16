@@ -2,8 +2,8 @@
 tracking_uri = "http://localhost:5000"
 
 [names]
-training = "Train-RectangularHighCondition-POD-2G-StopSearch"
-comparison = "Compare-RectangularHighCondition-POD-2G-StopSearch"
+training = "Train-RectangularHighCondition-POD-StopSearch"
+comparison = "Compare-RectangularHighCondition-POD-StopSearch"
 
 [comparison_baseline]
 rtol = 1.0e-6
@@ -39,9 +39,9 @@ path = "../../datasets/train/rectangular-high-condition/gaussian-cg10.toml"
 path = "../../datasets/train/rectangular-high-condition/gaussian-cg50.toml"
 
 [[jobs]]
-id = "pod-2g_rank100"
-path = "../../jobs/pod2g/pod2g-rank100.toml"
-display_name = "POD-2G (rank 100)"
+id = "pod_rank100"
+path = "../../jobs/pod/pod-rank100.toml"
+display_name = "POD (rank 100)"
 
 [[comparisons]]
 matrix_dataset = "gaussian-cg50-rectangular-high-condition"
@@ -54,12 +54,12 @@ rhs_source = { kind = "gaussian", mask = { kind = "random", density = 0.1 } }
 
 [[assignments]]
 dataset = "gaussian-cg0-rectangular-high-condition"
-job = "pod-2g_rank100"
+job = "pod_rank100"
 
 [[assignments]]
 dataset = "gaussian-cg10-rectangular-high-condition"
-job = "pod-2g_rank100"
+job = "pod_rank100"
 
 [[assignments]]
 dataset = "gaussian-cg50-rectangular-high-condition"
-job = "pod-2g_rank100"
+job = "pod_rank100"

@@ -402,7 +402,7 @@ def test_prepare_training_settings_builds_explicit_mlflow_run_config(
     run_config = prepared.run_config
     assert run_config.experiment_name == "CustomTrain"
     assert re.match(
-        r"^POD-2G \| Gaussian CG Residuals \(k=20, N=100\) \| "
+        r"^POD \| CG Errors \(k=20, N=100\) \| "
         r"[A-Z][a-z]{2} \d{2} [A-Z][a-z]{2} \d{4} - \d{2}:\d{2}:\d{2}$",
         run_name_text(run_config.name),
     )
@@ -410,9 +410,9 @@ def test_prepare_training_settings_builds_explicit_mlflow_run_config(
         "phase": "training",
         "assignment_id": "exp-1",
         "dataset_id": "dataset-1",
-        "dataset": "Test problem | Gaussian CG Residuals (k=20, N=100)",
+        "dataset": "Test problem | CG Errors (k=20, N=100)",
         "job_id": "job-1",
-        "assignment_label": "POD-2G | Gaussian CG Residuals (k=20, N=100)",
+        "assignment_label": "POD | CG Errors (k=20, N=100)",
     }
 
 
@@ -483,7 +483,7 @@ def test_prepare_training_settings_without_registry_ids_builds_an_untagged_run(
     run_config = prepared.run_config
     assert run_config.experiment_name == ExperimentNamesConfig().training
     assert re.match(
-        r"^POD-2G \| Gaussian CG Residuals \(k=20, N=100\) \| "
+        r"^POD \| CG Errors \(k=20, N=100\) \| "
         r"[A-Z][a-z]{2} \d{2} [A-Z][a-z]{2} \d{4} - \d{2}:\d{2}:\d{2}$",
         run_name_text(run_config.name),
     )

@@ -58,7 +58,7 @@ def write_csr_streamed(
 
     Args:
         source: Where the run reads its samples from.
-        spec: Strategy budgets, RNG controls, normalization and batch size.
+        spec: Strategy budgets, RNG controls, scaling and batch size.
         dataset_dir: Final directory of the dataset; it is created only at commit.
         dataset_format: ``zarr`` or ``hdf5``.
         sparsity_pattern: ``[output].sparsity_pattern``. ``shared`` stores one pattern and

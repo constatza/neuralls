@@ -53,6 +53,7 @@ from neuralls.platform.reporting.figure_metadata import (
 from neuralls.platform.storage.facts_codec import decode_figure_scope, encode_figure_scope
 from neuralls.shared.rhs_recipe import SinusoidalRecipe
 from neuralls.shared.scientific_description.policy import NotationPolicy, RenderTarget
+from neuralls.shared.system_scaling import GershgorinScaling, RhsScaling
 from neuralls.shared.types import MatrixId, PreconditionerName
 
 SESSION_RUN_ID = "session-run"
@@ -67,7 +68,8 @@ CONTEXT = SolverTimingContext(
     timing_repeats=3,
     timing_warmup=1,
     timing_statistic="median",
-    normalization="matrix",
+    system_scaling=GershgorinScaling(),
+    rhs_scaling=RhsScaling.NONE,
 )
 
 
@@ -103,7 +105,7 @@ def test_figure_scopes_name_matrix_sets_separately_from_methods(
     every_scope: dict[str, FigureScope], notation: NotationPolicy
 ) -> None:
     plain = replace(notation, target=RenderTarget.PLAIN)
-    dataset = "Comparison matrix set: Test problem | Gaussian CG Residuals (k=20, N=100)"
+    dataset = "Comparison matrix set: Test problem | CG Errors (k=20, N=100)"
     assert {
         kind: render_figure_scope(scope, CARD_PROFILE, plain).text
         for kind, scope in every_scope.items()
@@ -155,7 +157,8 @@ def test_card_of_each_scope_kind_round_trips_through_toml(
             "timing_repeats": 3,
             "timing_warmup": 1,
             "timing_statistic": "median",
-            "normalization": "matrix",
+            "system_scaling": {"kind": "gershgorin", "dimension_factor": "sqrt_n"},
+            "rhs_scaling": "none",
         }
     ]
     assert payload["source"] == {
@@ -241,7 +244,7 @@ def test_card_stores_structured_scope_and_its_rendered_text(
     assert stored["kind"] == "recipe"
     assert (
         stored["display"]
-        == "Comparison matrix set: Test problem | Gaussian CG Residuals (k=20, N=100) - Sinusoidal (ω=6.28319)"
+        == "Comparison matrix set: Test problem | CG Errors (k=20, N=100) - Sinusoidal (ω=6.28319)"
     )
 
 
@@ -410,10 +413,10 @@ def test_collision_keys_equate_filesystem_unsafe_spellings() -> None:
 def test_slugs_follow_rendered_text_and_disambiguate_in_encounter_order() -> None:
     slugs = FigureSlugs()
 
-    assert slugs.slug("method:a", "POD-2G (r=10)") == "POD-2G_r_10"
-    assert slugs.slug("method:b", "POD-2G (r=10)") == "POD-2G_r_10_2"
-    assert slugs.slug("method:c", "pod-2g (r=10)") == "pod-2g_r_10_3"
-    assert slugs.slug("method:a", "ignored once allocated") == "POD-2G_r_10"
+    assert slugs.slug("method:a", "POD (r=10)") == "POD_r_10"
+    assert slugs.slug("method:b", "POD (r=10)") == "POD_r_10_2"
+    assert slugs.slug("method:c", "pod (r=10)") == "pod_r_10_3"
+    assert slugs.slug("method:a", "ignored once allocated") == "POD_r_10"
 
 
 def test_slugs_are_truncated_and_stay_unique() -> None:

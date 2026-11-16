@@ -246,7 +246,7 @@ def case_cfg_and_path(tmp_path: Path, atomic_source: SourceSpec) -> tuple[CaseCo
         "id": DATASET_ID,
         "source": {"matrix_path": str(tmp_path / "unused.txt"), "problem": "Atomic test"},
         "generation": {
-            "normalize": "none",
+            "scaling": {"kind": "none"},
             "seed": 1,
             "strategy": [{"name": "neutral_ones", "samples": 1}],
         },

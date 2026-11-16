@@ -47,8 +47,8 @@ def _comparison_scope(dataset: DatasetPresentation) -> ComparisonScopePresentati
     return ComparisonScopePresentation(dataset)
 
 
-def _pod2g(dataset: DatasetPresentation) -> DatasetQualifiedMethodPresentation:
-    return DatasetQualifiedMethodPresentation(ScientificDescription("POD-2G"), dataset)
+def _pod(dataset: DatasetPresentation) -> DatasetQualifiedMethodPresentation:
+    return DatasetQualifiedMethodPresentation(ScientificDescription("POD"), dataset)
 
 
 def _graph_net(dataset: DatasetPresentation) -> EditorialTrainingSubject:
@@ -67,31 +67,30 @@ def _graph_net(dataset: DatasetPresentation) -> EditorialTrainingSubject:
         ),
         pytest.param(
             lambda ds: SessionRunName(_comparison_scope(ds), STAMP, "session_comparison"),
-            "Comparison matrix set: Test problem | Gaussian CG Residuals (k=20, N=100) "
+            "Comparison matrix set: Test problem | CG Errors (k=20, N=100) "
             "| Mon 26 Oct 2026 - 10:00:00",
             id="session-comparison-matrix-set",
         ),
         pytest.param(
             lambda ds: SessionRunName(_comparison_scope(ds), STAMP, "session_training"),
-            "Test problem | Gaussian CG Residuals (k=20, N=100) | Mon 26 Oct 2026 - 10:00:00",
+            "Test problem | CG Errors (k=20, N=100) | Mon 26 Oct 2026 - 10:00:00",
             id="session-training-keeps-role",
         ),
         pytest.param(
             lambda ds: SessionRunName(_comparison_scope(ds), STAMP, "session_evaluation"),
-            "Test problem | Gaussian CG Residuals (k=20, N=100) | Mon 26 Oct 2026 - 10:00:00",
+            "Test problem | CG Errors (k=20, N=100) | Mon 26 Oct 2026 - 10:00:00",
             id="session-evaluation-keeps-role",
         ),
         pytest.param(
             lambda ds: ComparisonRunName(_comparison_scope(ds), SOLE, Untimed()),
-            "Comparison matrix set: Test problem | Gaussian CG Residuals (k=20, N=100)",
+            "Comparison matrix set: Test problem | CG Errors (k=20, N=100)",
             id="untimed-comparison",
         ),
         pytest.param(
             lambda ds: ComparisonRunName(
                 EditorialComparison(EditorialPresentation("Spectral study"), ds), SOLE, Untimed()
             ),
-            "Spectral study | Comparison matrix set: Test problem "
-            "| Gaussian CG Residuals (k=20, N=100)",
+            "Spectral study | Comparison matrix set: Test problem | CG Errors (k=20, N=100)",
             id="editorial-comparison",
         ),
         pytest.param(
@@ -100,19 +99,18 @@ def _graph_net(dataset: DatasetPresentation) -> EditorialTrainingSubject:
             id="standalone-method",
         ),
         pytest.param(
-            lambda ds: MethodRunName(_pod2g(ds)),
-            "POD-2G | Gaussian CG Residuals (k=20, N=100)",
+            lambda ds: MethodRunName(_pod(ds)),
+            "POD | CG Errors (k=20, N=100)",
             id="dataset-trained-method",
         ),
         pytest.param(
-            lambda ds: TrainingRunName(_pod2g(ds), Untimed()),
-            "POD-2G | Gaussian CG Residuals (k=20, N=100)",
+            lambda ds: TrainingRunName(_pod(ds), Untimed()),
+            "POD | CG Errors (k=20, N=100)",
             id="training-trained-method",
         ),
         pytest.param(
             lambda ds: TrainingRunName(_graph_net(ds), STAMP),
-            "Graph net run | Test problem | Gaussian CG Residuals (k=20, N=100)"
-            " | Mon 26 Oct 2026 - 10:00:00",
+            "Graph net run | Test problem | CG Errors (k=20, N=100) | Mon 26 Oct 2026 - 10:00:00",
             id="training-editorial",
         ),
     ],
@@ -168,7 +166,7 @@ def test_a_session_over_different_titles_lists_each_once_in_a_stable_order(
     ) == render_run_name(SessionRunName(backward, STAMP, "session_comparison"), PLAIN)
     text = render_run_name(SessionRunName(forward, STAMP, "session_comparison"), PLAIN)
     assert text == (
-        "Comparison matrix set: Test problem | Gaussian CG Residuals (k=20, N=100); "
+        "Comparison matrix set: Test problem | CG Errors (k=20, N=100); "
         f"Spectral comparison | {STAMP.text}"
     )
 

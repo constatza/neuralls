@@ -309,7 +309,7 @@ CALIBER_GROWTH_PENALTY = _key("caliber_growth_penalty")
 USE_LSR = _key("use_lsr")
 RANK = _key("rank")
 SNAPSHOT_COUNT = _key("snapshot_count")
-WEIGHTING = _key("weighting")
+INNER_PRODUCT = _key("inner_product")
 METRIC = _key("metric")
 BETA = _key("beta")
 MODEL_ARCHITECTURE = _key("model_architecture")
@@ -362,7 +362,7 @@ FACT_DEFINITIONS: tuple[FactDefinition, ...] = (
         frozenset({FactValueKind.TEXT, FactValueKind.DECIMAL}),
         categories=_categories(("auto", "auto", "\\mathrm{auto}")),
     ),
-    _definition(STEPS, _A, _C, 350, None, "ν", "\\nu", frozenset({FactValueKind.INTEGER})),
+    _definition(STEPS, _A, _C, 350, None, "k", "k", frozenset({FactValueKind.INTEGER})),
     # --- Generation-strategy facts ---
     _definition(KRYLOV_DIMENSION, _A, _C, 40, None, "m", "m", frozenset({FactValueKind.INTEGER})),
     _definition(MEAN, _A, _C, 110, 3, "μ", "\\mu", frozenset({FactValueKind.DECIMAL})),
@@ -377,8 +377,8 @@ FACT_DEFINITIONS: tuple[FactDefinition, ...] = (
         _C,
         360,
         None,
-        "p",
-        "p",
+        "𝒟",
+        "\\mathcal{D}",
         frozenset({FactValueKind.TEXT}),
         categories=_categories(
             ("gaussian", "𝒩", "\\mathcal{N}"), ("rademacher", "Rad", "\\mathrm{Rad}")
@@ -533,7 +533,7 @@ FACT_DEFINITIONS: tuple[FactDefinition, ...] = (
         frozenset({FactValueKind.TEXT, FactValueKind.DECIMAL}),
         categories=_categories(("auto", "auto", "\\mathrm{auto}")),
     ),
-    _definition(CANDIDATE_COUNT, _A, _C, 190, None, "k", "k", frozenset({FactValueKind.INTEGER})),
+    _definition(CANDIDATE_COUNT, _A, _C, 190, None, "m", "m_c", frozenset({FactValueKind.INTEGER})),
     _definition(
         CANDIDATE_ITERATIONS,
         _A,
@@ -598,25 +598,18 @@ FACT_DEFINITIONS: tuple[FactDefinition, ...] = (
         frozenset({FactValueKind.TEXT}),
         categories=_categories(("off", "off", "\\mathrm{off}"), ("on", "on", "\\mathrm{on}")),
     ),
-    _definition(
-        RANK, _A, _C, 300, 4, "r", "r", frozenset({FactValueKind.INTEGER, FactValueKind.DECIMAL})
-    ),
+    _definition(RANK, _A, _C, 300, None, "c", "c", frozenset({FactValueKind.INTEGER})),
     _definition(SNAPSHOT_COUNT, _A, _C, 310, None, "Nₛ", "N_s", frozenset({FactValueKind.INTEGER})),
     _definition(
-        WEIGHTING,
+        INNER_PRODUCT,
         _A,
         _C,
         320,
         None,
-        "w",
-        "w",
+        "W",
+        "W",
         frozenset({FactValueKind.TEXT}),
-        categories=_categories(
-            ("power_norm", "PN", "\\mathrm{PN}"),
-            ("raw", "raw", "\\mathrm{raw}"),
-            ("smoother_persistence", "SP", "\\mathrm{SP}"),
-            ("uniform", "uniform", "\\mathrm{uniform}"),
-        ),
+        categories=_categories(("euclidean", "I", "I"), ("energy", "Ā", "\\bar{A}")),
     ),
     _definition(
         METRIC,
@@ -624,10 +617,10 @@ FACT_DEFINITIONS: tuple[FactDefinition, ...] = (
         _C,
         330,
         None,
-        "p",
-        "p",
+        "‖·‖",
+        "\\|\\cdot\\|",
         frozenset({FactValueKind.TEXT}),
-        categories=_categories(("a", "A", "A"), ("l2", "ℓ₂", "\\ell_2")),
+        categories=_categories(("energy", "A", "A"), ("l2", "ℓ₂", "\\ell_2")),
     ),
     _definition(BETA, _A, _C, 340, 3, "β", "\\beta", frozenset({FactValueKind.DECIMAL})),
     _definition(
@@ -703,15 +696,18 @@ FACT_DEFINITIONS: tuple[FactDefinition, ...] = (
 
 SHARED_SYMBOL_GROUPS: frozenset[frozenset[FieldKey]] = frozenset(
     {
-        frozenset({ITERATION_COUNT, CANDIDATE_COUNT}),
+        frozenset({RANK, COARSE_DIMENSION}),
+        frozenset({KRYLOV_DIMENSION, CANDIDATE_COUNT}),
         frozenset({DAMPING, FREQUENCY}),
-        frozenset({COMPATIBLE_RELAXATION_SWEEPS, STEPS}),
-        frozenset({METRIC, PROBE_DISTRIBUTION}),
+        frozenset({ITERATION_COUNT, STEPS}),
     }
 )
 """Keys that deliberately share one plain symbol because they never describe the same object
-(for example the iteration count of a residual trace and the candidate count of an adaptive
-hierarchy). Any other repeated symbol is a catalog error."""
+(for example a POD method's configured coarse dimension, its rank, and the realized coarse
+dimension of an aggregation hierarchy). CG iterations and Jacobi sweeps are both iteration counts, written k;
+a snapshot dataset has one strategy, so the two never describe the same object. Any other repeated symbol is a catalog error. The
+candidate count shares only its plain symbol with the Krylov dimension; its MathText is
+``m_c``."""
 
 
 def validate_catalog(

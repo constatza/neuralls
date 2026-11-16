@@ -121,16 +121,16 @@ def test_row_kind_codes_length_matches_trace_rows(
 ) -> None:
     """row_kind_codes must align with the trace rows, not with the base-system count.
 
-    gaussian_residuals produces N base systems but N*rows_per_system trace pairs, so one
+    cg_errors produces N base systems but N*rows_per_system trace pairs, so one
     row kind per emitted pair is required.
     """
     # stop=4, start=1 → K = 4 - 1 + 1 = 4 rows per system; samples=8 → 2 base systems, 8 trace pairs.
     result = _stack_strategies(
         spd_matrix,
         MixtureSpec(
-            counts={"gaussian_residuals": 8},
+            counts={"cg_errors": 8},
             seed=0,
-            strategy_overrides={"gaussian_residuals": {"stop": 4, "start": 1}},
+            strategy_overrides={"cg_errors": {"stop": 4, "start": 1}},
             solver_overrides=solver_overrides,
         ),
         archive_source,
@@ -149,15 +149,15 @@ def test_mixed_strategy_row_kind_codes_concatenated_correctly(
     from neuralls.shared.types import RowKind
 
     # gaussian_forward:3 → 3 STANDARD rows
-    # gaussian_residuals:4 with stop=2, start=1 → K = 2 - 1 + 1 = 2 rows per system;
+    # cg_errors:4 with stop=2, start=1 → K = 2 - 1 + 1 = 2 rows per system;
     #   2 base systems × 2 rows = 4 trace rows (iterates 1 and 2 of each system)
     result = _stack_strategies(
         spd_matrix,
         MixtureSpec(
-            counts={"gaussian_forward": 3, "gaussian_residuals": 4},
+            counts={"gaussian_forward": 3, "cg_errors": 4},
             seed=0,
             shuffle=False,
-            strategy_overrides={"gaussian_residuals": {"stop": 2, "start": 1}},
+            strategy_overrides={"cg_errors": {"stop": 2, "start": 1}},
             solver_overrides=solver_overrides,
         ),
         archive_source,
@@ -184,11 +184,11 @@ def test_gaussian_split_mix_preserves_requested_total_rows(
     result = _stack_strategies(
         spd_matrix,
         MixtureSpec(
-            counts={"gaussian_residuals": 5, "gaussian_forward": 5},
+            counts={"cg_errors": 5, "gaussian_forward": 5},
             seed=0,
             shuffle=False,
             strategy_overrides={
-                "gaussian_residuals": {"stop": 2, "start": 1, "seed": 42},
+                "cg_errors": {"stop": 2, "start": 1, "seed": 42},
                 "gaussian_forward": {"seed": 43},
             },
             solver_overrides=solver_overrides,

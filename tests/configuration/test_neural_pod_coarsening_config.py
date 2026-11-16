@@ -2,7 +2,7 @@
 
 Only schema/validity is tested here (per project convention: no tests
 asserting on specific values inside a checked-in TOML) — parsing, discriminated
-union resolution, and the shared rank validator.
+union resolution, the rank's mode-count rule, and the POD inner product's rules.
 """
 
 from __future__ import annotations
@@ -12,8 +12,12 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from neuralls.platform.config.models.coarsening import NeuralPODCoarseningConfig
+from neuralls.platform.config.models.coarsening import (
+    NeuralPODCoarseningConfig,
+    PODCoarseningConfig,
+)
 from neuralls.platform.config.models.preconditioner import AMGPreconditionerConfig
+from neuralls.shared.types import InnerProductKind
 
 WORKSPACE = Path("workspace")
 
@@ -43,19 +47,50 @@ def test_amg_config_resolves_neural_pod_coarsening_via_discriminator() -> None:
             "dataset_dir": str(WORKSPACE / "params-dataset"),
             "checkpoint_path": str(WORKSPACE / "model.ckpt"),
             "input_names": ["young_modulus"],
-            "rank": 0.99,
+            "rank": 12,
         },
     )
     assert isinstance(config.coarsening, NeuralPODCoarseningConfig)
-    assert config.coarsening.rank == 0.99
+    assert config.coarsening.rank == 12
 
 
-def test_neural_pod_coarsening_config_rejects_invalid_energy_rank() -> None:
-    """Float rank outside (0, 1] is rejected, matching PODCoarseningConfig's rule."""
-    with pytest.raises(ValidationError):
-        NeuralPODCoarseningConfig(
-            dataset_dir=WORKSPACE / "params-dataset",
-            checkpoint_path=WORKSPACE / "model.ckpt",
-            input_names=("young_modulus",),
-            rank=1.5,
-        )
+@pytest.fixture
+def neural_pod_fields() -> dict[str, object]:
+    """Every field a NeuralPODCoarseningConfig needs besides its rank."""
+    return {
+        "dataset_dir": WORKSPACE / "params-dataset",
+        "checkpoint_path": WORKSPACE / "model.ckpt",
+        "input_names": ("young_modulus",),
+    }
+
+
+@pytest.mark.parametrize("rank", [0.99, 10.0, 0])
+@pytest.mark.parametrize("neural", [False, True], ids=["pod", "neural-pod"])
+def test_a_pod_rank_is_a_positive_mode_count(
+    neural_pod_fields: dict[str, object], rank: float, neural: bool
+) -> None:
+    """A rank is the coarse dimension, so a fraction, a float or zero is rejected."""
+    with pytest.raises(ValidationError) as error:
+        if neural:
+            NeuralPODCoarseningConfig.model_validate({**neural_pod_fields, "rank": rank})
+        else:
+            PODCoarseningConfig.model_validate({"dataset_dir": WORKSPACE, "rank": rank})
+    assert [item["loc"] for item in error.value.errors()] == [("rank",)]
+
+
+def test_an_energy_inner_product_on_an_inline_fit_is_rejected() -> None:
+    """Only a fit job's checkpoint carries an energy basis; the inline fit is Euclidean."""
+    with pytest.raises(ValidationError) as error:
+        PODCoarseningConfig.model_validate({"dataset_dir": WORKSPACE, "inner_product": "energy"})
+    assert [(item["type"], item["loc"]) for item in error.value.errors()] == [("value_error", ())]
+
+
+def test_an_energy_fit_has_its_own_slug_and_a_euclidean_one_keeps_its_slug() -> None:
+    """The inner product separates two otherwise equal fitted bases in every path."""
+    euclidean = PODCoarseningConfig(dataset_dir=WORKSPACE, rank=10, assignment="fit_job_1")
+    energy = euclidean.model_copy(update={"inner_product": InnerProductKind.ENERGY})
+
+    assert (euclidean.slug(), energy.slug()) == (
+        f"pod_rank10_n-1_{euclidean.checkpoint_slug()}",
+        f"pod_rank10_n-1_energy_{euclidean.checkpoint_slug()}",
+    )

@@ -139,7 +139,7 @@ class TestTrainingPipelineWithMLflow:
                         "rhs_path": str(rhs_path),
                     },
                     "generation": {
-                        "normalize": "none",
+                        "scaling": {"kind": "none"},
                         "shuffle": True,
                         "seed": 42,
                         "strategy": [{"name": "random", "samples": 20}],
@@ -197,7 +197,7 @@ class TestTrainingPipelineWithMLflow:
                     "id": "injection_test",
                     "source": {"matrix_path": str(matrix_path), "rhs_path": str(rhs_path)},
                     "generation": {
-                        "normalize": "none",
+                        "scaling": {"kind": "none"},
                         "strategy": [{"name": "random", "samples": 10}],
                     },
                     "output": {"data_dir": str(data_dir / "processed")},
@@ -302,7 +302,7 @@ def test_load_assignment_accepts_fit_job_without_trainer_section(
                 "id": "fit_test_data",
                 "source": {"matrix_path": str(matrix_path), "rhs_path": str(rhs_path)},
                 "generation": {
-                    "normalize": "none",
+                    "scaling": {"kind": "none"},
                     "shuffle": True,
                     "seed": 42,
                     "strategy": [{"name": "random", "samples": 20}],

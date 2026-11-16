@@ -5,12 +5,12 @@ problem = "93x31"
 matrix_path = "${NEURALLS_RAW_DIR}/SpectralData/93x31-displacements/stiffness/subdomain_1_Kaa.txt"
 
 [generation]
-normalize = "matrix"
+scaling = { kind = "gershgorin", dimension_factor = "sqrt_n" }
 shuffle = true
 seed = 42
 
 # "0-CG": the true 0-CG case, x ~ N(mu, sigma) with
-# b = A @ x and no CG solve at all. POD-2G fitting never sees the real
+# b = A @ x and no CG solve at all. POD fitting never sees the real
 # archived displacement solutions - solution archives are comparison-only.
 [[generation.strategy]]
 name = "gaussian_forward"
