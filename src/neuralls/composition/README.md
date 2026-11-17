@@ -28,7 +28,7 @@ tuple after assignment filters and auto-generated methods are applied. If
 runtime checkpoint resolution skips that configured method, reporting keeps
 `ReferenceUnavailable` with the resolution reason and never chooses a fallback
 from observed outcomes. Paired outputs (`speed_ratio_summary` over a group's observations, on
-amortized online time) use the reference/method speed ratio;
+the online time per pair) use the reference/method speed ratio;
 performance profiles still normalize independently by the fastest method on
 each problem.
 
@@ -578,14 +578,17 @@ versioned, artifact-relative `setup_events.parquet`, `solve_attempts.parquet`,
 `convergence.parquet`, `planned_systems.parquet`, `summary.toml`, `method_config.toml` and
 `presentation.toml` files (see `platform/README.md`). The Parquet frames are canonical; the TOML summary is
 reconciled from the workload reducers (`domain/solver/reporting/aggregation.py`) and records the method name/config digest,
-planned/attempted/converged counts and online workload totals. Its `[online]`
-`setup_s`, `solve_s`, and `workload_s` are sums of representative matrix setup and
-attempted RHS solve-only events; they are not per-system values or one end-to-end timer. It also records
+planned/attempted/converged counts and online workload sums. Its `[online]`
+`workload_setup_s`, `workload_setup_amortized_s`, `workload_solve_s`, `workload_online_s` and
+`workload_online_amortized_s` (names from the cost vocabulary in `domain/solver/README.md`) are sums
+of representative matrix setup and attempted RHS solve-only events, the pair names charging every
+pair its matrix's setup and the `_amortized` names one setup per matrix; they are not per-system
+values or one end-to-end timer. It also records
 workload peak memory. The method's path-free data evidence is in `presentation.toml`; the
 method-child reuse gate requires it to match the current resolution, so older runs without it
 execute again. The method's offline cost is an `OfflineStages` of a `GenerationCost` and a
-training `StageCost`, written as
-the `[offline.generation]` and `[offline.training]` tables (see `platform/README.md`): a stage that does
+fit `StageCost`, written as
+the `[offline.generation]` and `[offline.fit]` tables (see `platform/README.md`): a stage that does
 not apply stores only its status, a recorded one its seconds and provenance, and an unavailable one
 its reason and no number. `execute_method_workload` resolves it once per method (not per matrix) with
 `composition/comparison/_offline_cost.py::resolve_offline_cost` from the already validated method
@@ -757,16 +760,17 @@ manual action (e.g. called ad hoc or via the MLflow UI for alias management)
 
 ## Benchmark timing and references
 
-Comparison reports use **generation** for offline dataset/training work,
-**setup** for preparing a method for one matrix, and **solve** for one RHS
-attempt. Checkpoint and data loading, reference-only diagnostics, staging,
-plotting, persistence, and MLflow calls are excluded from online timing.
-Workload online time is setup plus solve; amortized online/RHS time charges a
-matrix setup once across its planned RHS values. Success rate is converged
+Comparison reports name every cost by the cost vocabulary of `domain/solver/README.md`:
+**generation** and **fit** are the offline stages, **setup** prepares a method for one
+matrix and **solve** is one RHS attempt. Checkpoint and data loading, reference-only
+diagnostics, staging, plotting, persistence, and MLflow calls are excluded from online timing.
+The run loop sets each matrix up once and shares it with its RHS; the report charges each
+(matrix, RHS) pair its matrix's whole setup (**online**), while every `_amortized` quantity
+charges a matrix setup once across its planned RHS values. Success rate is converged
 attempts over planned systems, so failures stay visible without a synthetic
 penalty.
 
-Matrix-set-and-RHS-type profiles use one RHS type. Solve-only and amortized-online ECDFs and
+Matrix-set-and-RHS-type profiles use one RHS type. Solve-only, online and amortized-online ECDFs and
 Dolan--Moré profiles show their respective absolute budgets and fastest-method
 ratios. Matrix-set and all-matrix-sets outputs are workload mixtures: they emit the workload and
 cost bars, the means, time per iteration, distributions and convergence factors
@@ -779,12 +783,12 @@ kinds above is one unsuffixed figure of that recipe
 (`platform/reporting/cohort_variants.py::cohort_level`); the kinds it gets are still those of its
 level. The
 break-even curve and the heatmap are recipe-level only.
-Every level also emits a total-cost figure (`cost_breakdown`): each method's offline generation and
-training, read from the offline block of its stored `summary.toml` and paid once per artifact, stacked on
-the setup and solve seconds of that level's workload. A report never recomputes training from MLflow, so
+Every level also emits a full-cost figure (`full_cost_breakdown`): each method's offline generation and
+fit, read from the offline block of its stored `summary.toml` and paid once per artifact, stacked on
+the pair setup and solve seconds of that level's workload. A report never recomputes the fit from MLflow, so
 a session stored without the offline block cannot be reported; `compare` runs such methods again because
 the reuse gate requires the block. A method whose offline stage has no recorded number is drawn without
-that segment and labelled as having an unknown total.
+that segment and labelled as having an unknown full cost.
 Paired time and reference/method speed ratios use only the same matrix/RHS
 systems and only a `reference_preconditioner` explicitly configured by the
 user. Missing or failed sides remain counted but do not produce a ratio.

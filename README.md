@@ -281,11 +281,13 @@ Additional guidance:
 
 ## Comparison metrics
 
-Comparison artifacts distinguish offline generation from online workload
-timing. Online time contains only per-matrix setup and RHS solve events;
-checkpoint/data loading, reference-only work, plotting, persistence, and
-MLflow calls are excluded. Workload online time sums those events, while
-amortized online/RHS time charges setup across planned RHSs. Success rate is
+Comparison artifacts distinguish offline cost (dataset generation and fit)
+from online workload timing, with every cost named by the cost vocabulary in
+`src/neuralls/domain/solver/README.md`. Online time contains only per-matrix
+setup and RHS solve events; checkpoint/data loading, reference-only work,
+plotting, persistence, and MLflow calls are excluded. The online time of a
+(matrix, RHS) pair is its matrix's setup plus its solve, while every
+`_amortized` quantity shares a matrix setup across its planned RHSs. Success rate is
 converged attempts divided by planned systems. ECDFs use absolute time
 budgets, and Dolan--Moré profiles use per-system ratios to the fastest method.
 Paired time and reference/method speed ratios require an explicitly configured
