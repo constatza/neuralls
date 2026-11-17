@@ -207,8 +207,9 @@ A case config is the authoritative persisted source for one experiment. It
 binds:
 
 - `[[datasets]]` — processed-dataset generation configs
-- `[[jobs]]` — thin runnable entrypoints (`run.type = "train" | "search" | "fit"`)
-  referencing a model profile, data profile, and training profile
+- `[[jobs]]` — thin runnable entrypoints (`run.type = "train" | "search"`)
+  referencing a model profile, data profile, and training profile, or POD
+  recipes (`run.type = "pod"` plus `[pod] rank`) that the comparison fits
 - `[[comparisons]]` — solver-comparison scenarios on a **single-matrix**
   dataset (RHS source, optionally zero-masked via
   `mask = { kind = "random", density = 0.1 }`, `rhs_count` draws, seed), evaluated against
