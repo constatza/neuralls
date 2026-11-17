@@ -30,7 +30,7 @@ from neuralls.platform.config.models.preconditioner import (
 )
 from neuralls.platform.sparse_io.components import to_components
 from neuralls.platform.sparse_io.torch_convert import to_torch_csr
-from neuralls.shared.device import track_resource_usage
+from neuralls.shared.device import release_device_memory, track_resource_usage
 from neuralls.shared.types import CostProvenance, InnerProductKind
 
 MIN_CAPTURED_ENERGY = 0.95
@@ -102,38 +102,58 @@ def fit_method(
             return NoMethodFit()
 
 
+@dataclass(frozen=True, slots=True)
+class _PODFitInputs:
+    """What the fit read: kept only to report the captured energy after the measured region."""
+
+    snapshots: torch.Tensor
+    weight: torch.Tensor | None
+
+
 def _fit_pod(
     cfg: PODCoarseningConfig, *, fit_data: FitDataLoader, splits: SplitStore, device: torch.device
 ) -> FittedPOD | MethodFitFailed:
     with track_resource_usage(device) as usage:
         try:
-            result: torch.Tensor | Exception = _pod_basis(
-                cfg, fit_data=fit_data, splits=splits, device=device
+            inputs = _pod_fit_inputs(cfg, fit_data=fit_data, splits=splits, device=device)
+            result: torch.Tensor | Exception = compute_pod_basis(
+                inputs.snapshots, cfg.rank, inner_product=inputs.weight
             )
         except (ValueError, RuntimeError) as exc:  # LinAlgError and OOM are RuntimeErrors
-            result = exc
+            # The traceback's frames hold the snapshots and weight on the device; dropping it
+            # frees them before the method's matrices run.
+            result = exc.with_traceback(None)
     measured = usage()
     cost = Known(measured.wall_time_seconds, measured.peak_memory_bytes, CostProvenance.MEASURED)
     match result:
         case torch.Tensor():
+            _warn_on_low_capture(cfg, inputs, result)
             return FittedPOD(result, cost)
         case Exception():
+            release_device_memory()
             return MethodFitFailed(result, cost)
         case unreachable:
             assert_never(unreachable)
 
 
-def _pod_basis(
+def _pod_fit_inputs(
     cfg: PODCoarseningConfig, *, fit_data: FitDataLoader, splits: SplitStore, device: torch.device
-) -> torch.Tensor:
-    """The train-fold POD basis of ``cfg``, in float64 on ``device``; warns on a low capture."""
+) -> _PODFitInputs:
+    """The train-fold snapshots of ``cfg`` and its inner-product weight, in float64 on ``device``."""
     train = list(pinned_train_rows(cfg.dataset_dir, splits))
     _, solutions = fit_data.dense(cfg.dataset_dir)
     rows = solutions[train]
     snapshots = torch.as_tensor(rows[: cfg.inline_fit_rows(len(rows))], dtype=FIT_DTYPE).to(device)
-    weight = _inner_product_weight(cfg, fit_data=fit_data, splits=splits, device=device)
-    basis = compute_pod_basis(snapshots, cfg.rank, inner_product=weight)
-    captured = captured_energy_fraction(snapshots, basis, weight=weight)
+    return _PODFitInputs(
+        snapshots, _inner_product_weight(cfg, fit_data=fit_data, splits=splits, device=device)
+    )
+
+
+def _warn_on_low_capture(
+    cfg: PODCoarseningConfig, inputs: _PODFitInputs, basis: torch.Tensor
+) -> None:
+    """Warn when the basis misses much of the snapshot energy; a diagnostic, never measured."""
+    captured = captured_energy_fraction(inputs.snapshots, basis, weight=inputs.weight)
     if captured < MIN_CAPTURED_ENERGY:
         logger.warning(
             "POD rank {} on {} captures {:.1%} of the snapshot energy, below {:.0%}; "
@@ -143,7 +163,6 @@ def _pod_basis(
             captured,
             MIN_CAPTURED_ENERGY,
         )
-    return basis
 
 
 def _inner_product_weight(

@@ -423,9 +423,11 @@ def warm_up_device(device: torch.device) -> None:
     preconditioner is measured first absorbs them and the comparison depends on
     configuration order. This runs a tiny throwaway workload covering the ops the
     preconditioners and CG use (dense matmul and triangular solve, CSR matvec, and
-    the dot/axpy loop of CG) on a small SPD system. It does not pre-pay first use
-    of LU, Cholesky, SVD, eigensolvers or an iterative spectral-radius estimate; such
-    costs fall in whichever timed region first needs them, and the device cache is
+    the dot/axpy loop of CG) on a small SPD system, plus the dense factorizations a POD
+    fit and a coarse solve use (QR, Cholesky, SVD, LU), so the first measured fit or
+    setup does not absorb their library initialization. It does not pre-pay first use of
+    eigensolvers or an iterative spectral-radius estimate; such costs fall in whichever
+    timed region first needs them, and the device cache is
     released after each matrix and each preconditioner, never between repeats.
 
     This is a per-*process* warm-up. It is deliberately not the per-run
@@ -443,6 +445,10 @@ def warm_up_device(device: torch.device) -> None:
     csr = matrix.to_sparse_csr()
 
     torch.linalg.solve_triangular(torch.tril(matrix), rhs[:, None], upper=False)
+    torch.linalg.qr(matrix)
+    torch.linalg.cholesky(matrix)
+    torch.linalg.svd(matrix, full_matrices=False)
+    torch.linalg.lu_factor(matrix)
     x = torch.zeros_like(rhs)
     residual = rhs.clone()
     direction = residual.clone()

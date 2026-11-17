@@ -7,7 +7,11 @@ from pathlib import Path
 
 import pytest
 
-from neuralls.composition.assignments.assembler import load_assignment_batch
+from neuralls.composition.assignments.assembler import (
+    load_assignment_batch,
+    load_validated_case_config,
+)
+from neuralls.composition.assignments.comparison_prepare import pod_fit_dataset_ids
 from neuralls.platform.config.models.workspace import AssignmentWorkspace
 from neuralls.platform.config.settings import NeurallsSettings
 
@@ -254,3 +258,16 @@ def test_load_assignments_no_assignments(
             case_config_path=temp_config_structure / "configs" / "experiments.toml",
             neuralls_settings=neuralls_settings,
         )
+
+
+def test_the_comparison_gates_the_fit_dataset_of_every_pod_recipe(
+    temp_config_structure: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    neuralls_settings: NeurallsSettings,
+):
+    """A POD basis is fitted from its dataset at compare time, so that dataset is gated too."""
+    monkeypatch.chdir(temp_config_structure)
+    case_path = temp_config_structure / "configs" / "experiments.toml"
+    cfg, config_dir = load_validated_case_config(case_path, neuralls_settings)
+
+    assert pod_fit_dataset_ids(cfg, config_dir, neuralls_settings) == ["exp1_data"]

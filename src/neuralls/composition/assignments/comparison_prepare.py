@@ -28,6 +28,7 @@ from neuralls.composition.assignments.comparison_resolution import (
     resolve_comparison_specs,
 )
 from neuralls.composition.assignments.comparison_topology import ComparisonTopology
+from neuralls.composition.assignments.job_loader import is_pod_recipe
 from neuralls.composition.assignments.presentation_preflight import (
     compose_comparison_title,
     prepare_comparison_presentation,
@@ -83,6 +84,7 @@ from neuralls.platform.config.models.experiments import (
     CaseConfig,
     ComparisonRegistryEntry,
 )
+from neuralls.platform.config.registry import resolve_assignment_binding
 from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.platform.storage.dataset_digest import current_dataset_digest
 from neuralls.platform.storage.manifest_io import load_dataset_presentation
@@ -303,6 +305,23 @@ def validate_comparison_sources(cfg: ComparisonConfig) -> None:
     )
 
 
+def pod_fit_dataset_ids(
+    master_cfg: CaseConfig, config_dir: Path, settings: NeurallsSettings
+) -> list[str]:
+    """Registry ids of the datasets the case's POD recipes are fitted on inside the comparison.
+
+    A POD basis is fitted from its dataset at compare time, so that dataset must be as current
+    as a matrix dataset: a stale one would be fitted silently.
+    """
+    return [
+        entry.dataset_id
+        for entry in master_cfg.assignments
+        if is_pod_recipe(
+            resolve_assignment_binding(master_cfg, config_dir, entry).job_config_path, settings
+        )
+    ]
+
+
 def prepare_comparison_batch(
     master_cfg: CaseConfig,
     topology: ComparisonTopology,
@@ -332,8 +351,11 @@ def prepare_comparison_batch(
         config_dir,
         settings,
         [
-            entry.matrix_dataset
-            for entry in (*master_cfg.comparisons, *master_cfg.comparison_sweeps)
+            *(
+                entry.matrix_dataset
+                for entry in (*master_cfg.comparisons, *master_cfg.comparison_sweeps)
+            ),
+            *pod_fit_dataset_ids(master_cfg, config_dir, settings),
         ],
     )
     context = ComparisonResolutionContext(
