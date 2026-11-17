@@ -16,5 +16,11 @@ seed = 42
 name = "gaussian_forward"
 samples = 5000
 
+# Only POD fit jobs read this dataset, and a fit has no training loop to
+# serve a validation fold, so the dataset keeps none.
+[split]
+test_ratio = 0.1
+val_ratio = 0.0
+
 [output]
 data_dir = "${NEURALLS_PROCESSED_DIR}"
