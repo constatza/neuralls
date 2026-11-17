@@ -60,7 +60,8 @@ from neuralls.shared.scientific_description.policy import (
 )
 from tests.fakes.comparison_runs import RecordingTrackingServices
 from tests.fakes.mlflow_client import FakeMlflowClient
-from tests.presentation_support import datasets_by_dir, pod_spec
+from tests.fakes.split_store import InMemorySplitStore
+from tests.presentation_support import datasets_by_dir, pod_spec, train_splits
 from tests.workflows.comparison_support import (
     VIRTUAL_CASE,
     in_memory_case,
@@ -269,6 +270,7 @@ def test_a_method_run_and_a_plot_legend_render_the_same_presentation(
         {pod_spec(FIT_DIR, 10).name: InlineFit(FIT_DIR)},
         ComparisonScopePresentation(dataset_presentation),
         datasets_by_dir({FIT_DIR: pod_fit_presentation}),
+        train_splits(FIT_DIR),
     ).methods[0]
     method = prepared.compact
     name = MethodRunName(method)
@@ -297,6 +299,7 @@ def test_bare_method_legend_and_run_name_keep_comparison_scope_separate(
         {cfg.name: NoFitData()},
         ComparisonScopePresentation(dataset_presentation),
         lambda path: pytest.fail("unexpected fit dataset read"),
+        InMemorySplitStore(),
     )
     method = prepared.methods[0].compact
     assert method_legend({cfg.name: method}, PLAIN).label(cfg.name) == expected
@@ -312,6 +315,7 @@ def test_configured_facts_become_stable_parameters_without_rendered_text(
         {pod_spec(FIT_DIR, 10).name: InlineFit(FIT_DIR)},
         ComparisonScopePresentation(dataset_presentation),
         datasets_by_dir({FIT_DIR: pod_fit_presentation}),
+        train_splits(FIT_DIR),
     ).methods[0]
 
     parameters = encode_method_parameters(prepared)
@@ -333,7 +337,10 @@ def test_describing_a_method_yields_a_presentation_with_no_assignment_id(
     pod_fit_presentation: DatasetPresentation,
 ) -> None:
     load = datasets_by_dir({FIT_DIR: pod_fit_presentation})
-    method = describe_method(pod_spec(FIT_DIR, 10, assignment="fit-job"), InlineFit(FIT_DIR), load)
+    splits = train_splits(FIT_DIR)
+    method = describe_method(
+        pod_spec(FIT_DIR, 10, assignment="fit-job"), InlineFit(FIT_DIR), load, splits
+    )
     assert method == describe_method(
-        pod_spec(FIT_DIR, 10, assignment="another-job"), InlineFit(FIT_DIR), load
+        pod_spec(FIT_DIR, 10, assignment="another-job"), InlineFit(FIT_DIR), load, splits
     )

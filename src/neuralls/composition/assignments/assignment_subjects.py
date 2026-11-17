@@ -19,6 +19,9 @@ from neuralls.composition.assignments.job_loader import load_experiment_job
 from neuralls.composition.assignments.presentation_preflight import (
     DatasetPresentationLoader,
 )
+from neuralls.composition.comparison.method_data_origin import fold_rows
+from neuralls.composition.generation.ports import SplitStore
+from neuralls.composition.generation.split_pinning import require_pinned_split
 from neuralls.composition.preconditioners.descriptions import describe_configured_preconditioner
 from neuralls.composition.preconditioners.pod_fittable import configured_inner_product
 from neuralls.domain.presentation.methods import (
@@ -30,6 +33,7 @@ from neuralls.domain.presentation.run_names import (
     TrainingSubject,
 )
 from neuralls.domain.presentation.titles import EditorialPresentation
+from neuralls.domain.solver.models.cost import FitFolds
 from neuralls.platform.config.loaders import load_data_config
 from neuralls.platform.config.models.checkpoint_refs import TrainedAssignmentRefConfig
 from neuralls.platform.config.models.coarsening import PODCoarseningConfig
@@ -151,16 +155,19 @@ def training_subject(
     config_dir: Path,
     settings: NeurallsSettings,
     load_dataset: DatasetPresentationLoader,
+    splits: SplitStore,
 ) -> TrainingSubject:
     """What the assignment's training and evaluation runs are about, from typed facts.
 
     An explicit assignment ``display_name`` is an editorial title shown beside the dataset;
-    otherwise the method the job trains is qualified by its assignment dataset.
-    No registry id is ever used as text.
+    otherwise the method the job trains is qualified by its assignment dataset and the rows
+    of its pinned split the job reads: a POD fit job the train fold, a neural job the train
+    and validation folds. No registry id is ever used as text.
 
     Raises:
         MissingDatasetProvenanceError: When the dataset predates scientific provenance.
         MissingArchitectureNameError: When a neural job declares no architecture name.
+        StageInputsStale: When the dataset has no pinned split.
     """
     inputs = resolve_assignment_inputs(entry, cfg=cfg, config_dir=config_dir, settings=settings)
     dataset = load_dataset(inputs.dataset_dir)
@@ -171,11 +178,16 @@ def training_subject(
             stub = pod_fit_spec_from_assignment(
                 entry, job=inputs.job, dataset_dir=inputs.dataset_dir
             )
+            folds = FitFolds.TRAIN
         case _:
             stub = neural_spec_from_assignment(
                 entry, extra_input_names=(), architecture=inputs.binding.architecture
             )
-    return qualify_method(describe_configured_preconditioner(stub), dataset)
+            folds = FitFolds.TRAIN_AND_VALIDATION
+    split = require_pinned_split(inputs.dataset_dir, splits)
+    return qualify_method(
+        describe_configured_preconditioner(stub), dataset, fold_rows(split, folds)
+    )
 
 
 def case_notation(cfg: CaseConfig) -> NotationPolicy:
@@ -198,6 +210,7 @@ def training_presentations(
     settings: NeurallsSettings,
     assignment_ids: Sequence[str],
     load_dataset: DatasetPresentationLoader,
+    splits: SplitStore,
 ) -> dict[str, TrainingPresentation]:
     """Describe every named assignment before any run opens, so a bad one aborts the batch.
 
@@ -214,6 +227,7 @@ def training_presentations(
                 config_dir=config_dir,
                 settings=settings,
                 load_dataset=load_dataset,
+                splits=splits,
             ),
             notation,
         )

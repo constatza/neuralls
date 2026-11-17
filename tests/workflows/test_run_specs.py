@@ -51,7 +51,11 @@ DATASET_TEXT = "Test problem | CG Errors (k=20, N=100)"
 def trained(dataset_presentation: DatasetPresentation) -> TrainingPresentation:
     """A POD method trained on the test dataset."""
     return TrainingPresentation(
-        DatasetQualifiedMethodPresentation(ScientificDescription("POD"), dataset_presentation),
+        DatasetQualifiedMethodPresentation(
+            ScientificDescription("POD"),
+            dataset_presentation,
+            dataset_presentation.generation.generated_rows,
+        ),
         PLAIN,
     )
 

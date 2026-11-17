@@ -15,7 +15,7 @@ import numpy as np
 import pytest
 from mlflow.tracking import MlflowClient
 from tests.dataset_support import build_test_dataset
-from tests.presentation_support import fixture_origins, pod_spec
+from tests.presentation_support import fixture_origins, pod_spec, train_splits
 
 from neuralls.composition.assignments.presentation_preflight import prepare_comparison_presentation
 from neuralls.composition.tracking.run_specs import build_benchmark_method_run_spec
@@ -133,13 +133,16 @@ def configs(fit_dirs: tuple[Path, Path]) -> tuple[PreconditionerConfig, ...]:
 
 @pytest.fixture
 def cohort(
-    configs: tuple[PreconditionerConfig, ...], spectral_dataset: DatasetPresentation
+    configs: tuple[PreconditionerConfig, ...],
+    spectral_dataset: DatasetPresentation,
+    fit_dirs: tuple[Path, Path],
 ) -> PreparedComparisonPresentation:
     return prepare_comparison_presentation(
         configs,
         fixture_origins(configs),
         ComparisonScopePresentation(spectral_dataset),
         load_dataset_presentation,
+        train_splits(*fit_dirs),
     )
 
 

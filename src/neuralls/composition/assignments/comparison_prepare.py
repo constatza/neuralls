@@ -232,7 +232,7 @@ def prepare_comparison_entry(
 
         scope = matrix_scope(planned, context)
         presentation = prepare_comparison_presentation(
-            resolved.specs, origins_by_method, scope, context.load_dataset
+            resolved.specs, origins_by_method, scope, context.load_dataset, FS_SPLIT_STORE
         )
         title = compose_comparison_title(entry.display_name, scope.dataset)
         run = comparison_run(planned, title, scope.dataset, cfg.notation_policy, Untimed())

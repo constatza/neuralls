@@ -151,8 +151,7 @@ def _pod_coarsening(
             )
         case _:
             raise ValueError("POD fit data must contain parameter and solution arrays")
-    if cfg.n_snapshots != -1:
-        solutions = solutions[: cfg.n_snapshots]
+    solutions = solutions[: cfg.inline_fit_rows(len(solutions))]
     snapshots = torch.as_tensor(solutions, dtype=matrix.dtype, device=matrix.device)
     coarsening = pod_cls(rank=cfg.rank)
     coarsening.fit(snapshots)

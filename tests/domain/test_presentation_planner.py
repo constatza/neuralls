@@ -125,7 +125,11 @@ def _compact_keys(method: PreparedMethodPresentation) -> list[str]:
 
 def test_standalone_presentation_has_no_dataset_field() -> None:
     assert {f.name for f in fields(StandaloneMethodPresentation)} == {"method"}
-    assert {f.name for f in fields(DatasetQualifiedMethodPresentation)} == {"method", "dataset"}
+    assert {f.name for f in fields(DatasetQualifiedMethodPresentation)} == {
+        "method",
+        "dataset",
+        "fit_rows",
+    }
 
 
 def test_dataset_generation_requires_a_strategy() -> None:
@@ -147,7 +151,7 @@ def test_assignment_identity_is_never_rendered(dataset: DatasetPresentation) -> 
         facts=(_int(RANK, 10), make_fact(ASSIGNMENT, 1)),
     )
     text = render_method(
-        DatasetQualifiedMethodPresentation(method, dataset),
+        DatasetQualifiedMethodPresentation(method, dataset, dataset.generation.generated_rows),
         LEGEND_PROFILE,
         NotationPolicy.default(),
     ).text
@@ -157,7 +161,7 @@ def test_assignment_identity_is_never_rendered(dataset: DatasetPresentation) -> 
 def test_pod_method_composes_with_its_dataset_exactly_once(dataset: DatasetPresentation) -> None:
     method = ScientificDescription("POD", facts=(_int(RANK, 10),))
     rendered = render_method(
-        DatasetQualifiedMethodPresentation(method, dataset),
+        DatasetQualifiedMethodPresentation(method, dataset, dataset.generation.generated_rows),
         LEGEND_PROFILE,
         NotationPolicy.default(),
     )
@@ -276,10 +280,12 @@ def test_same_method_on_different_datasets_is_not_a_duplicate(
     cohort = _cohort(
         scope,
         MethodPresentationCandidate(
-            PreconditionerName("g"), DatasetQualifiedMethodPresentation(pod, dataset)
+            PreconditionerName("g"),
+            DatasetQualifiedMethodPresentation(pod, dataset, dataset.generation.generated_rows),
         ),
         MethodPresentationCandidate(
-            PreconditionerName("s"), DatasetQualifiedMethodPresentation(pod, other)
+            PreconditionerName("s"),
+            DatasetQualifiedMethodPresentation(pod, other, other.generation.generated_rows),
         ),
     )
     assert len(prepare_presentations(cohort).methods) == 2

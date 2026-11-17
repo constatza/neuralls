@@ -229,6 +229,13 @@ class PODCoarseningConfig(NeuralCheckpointRef):
         """
         return expand_path_field(v, info)
 
+    def inline_fit_rows(self, available: int) -> int:
+        """How many of ``available`` staged snapshot rows an inline fit reads.
+
+        The first ``n_snapshots`` of them, or all when ``n_snapshots`` is -1.
+        """
+        return available if self.n_snapshots == -1 else min(self.n_snapshots, available)
+
     def exposed_checkpoint_ref(self) -> NeuralCheckpointRef | None:
         """Opt into checkpoint resolution only when a resolvable identity is set.
 

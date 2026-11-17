@@ -45,6 +45,7 @@ from neuralls.shared.types import (
     SetupEventId,
     SystemId,
 )
+from tests.fakes.split_store import InMemorySplitStore
 from tests.measurement_support import NO_REFERENCE, NO_RESIDUAL, SINGLE_RUN
 from tests.observation_support import observations_of_workloads
 from tests.presentation_support import NO_DATASET_READS, PreparedMethodFactory
@@ -326,6 +327,7 @@ def test_group_reporting_keeps_aggregation_configuration_in_method_labels(
         {config.name: NoFitData() for config in configs},
         ComparisonScopePresentation(dataset_presentation),
         NO_DATASET_READS,
+        InMemorySplitStore(),
     )
 
     def workload(config: AMGPreconditionerConfig) -> CompletedMethodWorkload:

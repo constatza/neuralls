@@ -20,7 +20,11 @@ from neuralls.domain.presentation.titles import (
     ComparisonTitle,
     EditorialPresentation,
 )
-from neuralls.shared.scientific_description.catalog import fact_definition
+from neuralls.shared.scientific_description.catalog import (
+    SAMPLE_COUNT,
+    fact_definition,
+    make_fact,
+)
 from neuralls.shared.scientific_description.models import (
     DecimalFact,
     FieldKey,
@@ -66,18 +70,24 @@ def _method_parts(configured: ConfiguredMethodPresentation) -> tuple[ScientificD
 
     A POD method named by its snapshot source (POD-CG, POD-JP) already says which strategy
     made its data, so that strategy's facts join the method's own parenthesis
-    (``POD-CG (c=100, k=20, N=5000)``) instead of following a dataset qualifier.
+    (``POD-CG (c=100, k=20, N=4500)``) instead of following a dataset qualifier. There
+    ``N`` is the method's own: the columns of the snapshot matrix it fit, one per fit
+    row (a trajectory's kept steps are separate rows), not the rows generation produced.
     """
     match configured:
         case StandaloneMethodPresentation(method=method):
             return (method,)
-        case DatasetQualifiedMethodPresentation(method=method, dataset=dataset):
+        case DatasetQualifiedMethodPresentation(method=method, dataset=dataset, fit_rows=fit_rows):
             qualifier = dataset_qualifier(dataset)
             match qualifier:
                 case (strategy,) if method.base_name == pod_source_name(dataset):
+                    fitted = make_fact(SAMPLE_COUNT, fit_rows)
+                    strategy_facts = tuple(
+                        fitted if fact.key == SAMPLE_COUNT else fact for fact in strategy.facts
+                    )
                     folded = ScientificDescription(
                         base_name=method.base_name,
-                        facts=(*method.facts, *strategy.facts),
+                        facts=(*method.facts, *strategy_facts),
                         context_facts=(*method.context_facts, *strategy.context_facts),
                     )
                     return (folded,)

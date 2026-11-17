@@ -90,6 +90,20 @@ def split_is_current(dataset_dir: Path, split: IndexSplit, store: SplitStore) ->
     return store.read(dataset_dir) == split
 
 
+def require_pinned_split(dataset_dir: Path, store: SplitStore) -> IndexSplit:
+    """The split pinned for ``dataset_dir``.
+
+    Raises:
+        StageInputsStale: If generation has not pinned a split for the dataset.
+    """
+    split = store.read(dataset_dir)
+    if split is None:
+        raise StageInputsStale(
+            StageInputsStaleReason.SPLIT_MISSING, f"Dataset '{dataset_dir}' has no pinned split"
+        )
+    return split
+
+
 def pinned_train_rows(dataset_dir: Path, store: SplitStore) -> tuple[int, ...]:
     """The dataset rows of the train fold of the split pinned for ``dataset_dir``.
 
@@ -97,11 +111,7 @@ def pinned_train_rows(dataset_dir: Path, store: SplitStore) -> tuple[int, ...]:
         StageInputsStale: If generation has not pinned a split for the dataset.
         ValueError: If the train fold is empty.
     """
-    split = store.read(dataset_dir)
-    if split is None:
-        raise StageInputsStale(
-            StageInputsStaleReason.SPLIT_MISSING, f"Dataset '{dataset_dir}' has no pinned split"
-        )
+    split = require_pinned_split(dataset_dir, store)
     if not split.train:
         raise ValueError(f"Dataset '{dataset_dir}' has an empty train fold.")
     return split.train

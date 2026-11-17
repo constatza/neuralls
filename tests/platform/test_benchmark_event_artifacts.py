@@ -681,7 +681,9 @@ def qualified_method(dataset_presentation: DatasetPresentation) -> PreparedMetho
                 MethodPresentationCandidate(
                     PreconditionerName("pod"),
                     DatasetQualifiedMethodPresentation(
-                        ScientificDescription("POD"), dataset_presentation
+                        ScientificDescription("POD"),
+                        dataset_presentation,
+                        dataset_presentation.generation.generated_rows,
                     ),
                 ),
             ),

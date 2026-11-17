@@ -46,7 +46,14 @@ from neuralls.platform.storage.manifest import MissingDatasetProvenanceError
 from neuralls.platform.tracking.run_names import run_name_text
 from neuralls.shared.scientific_description.models import ValidatedLabel
 from neuralls.shared.scientific_description.policy import LEGEND_PROFILE, NotationPolicy
-from tests.presentation_support import NO_DATASET_READS, datasets_by_dir, fixture_origins, pod_spec
+from tests.fakes.split_store import InMemorySplitStore
+from tests.presentation_support import (
+    NO_DATASET_READS,
+    datasets_by_dir,
+    fixture_origins,
+    pod_spec,
+    train_splits,
+)
 
 PLAIN = NotationPolicy.default()
 FIT_DIR = Path("pod-fit")
@@ -56,7 +63,10 @@ def test_pod_method_is_qualified_by_its_fit_dataset_exactly_once(
     pod_fit_presentation: DatasetPresentation,
 ) -> None:
     presentation = describe_method(
-        pod_spec(FIT_DIR, 10), InlineFit(FIT_DIR), datasets_by_dir({FIT_DIR: pod_fit_presentation})
+        pod_spec(FIT_DIR, 10),
+        InlineFit(FIT_DIR),
+        datasets_by_dir({FIT_DIR: pod_fit_presentation}),
+        train_splits(FIT_DIR),
     )
 
     assert isinstance(presentation, DatasetQualifiedMethodPresentation)
@@ -64,10 +74,58 @@ def test_pod_method_is_qualified_by_its_fit_dataset_exactly_once(
     assert text == "POD (c=10) | Gaussian Solutions (μ=0, σ=1, N=8)"
 
 
+FIT_SPLIT = IndexSplit(train=(0, 1, 2, 3, 4), validation=(5, 6), test=(7,), predict=None)
+"""Five train, two validation and one test row of the eight-row fit dataset."""
+
+
+def _verified(folds: FitFolds) -> CheckpointBased:
+    cfg = AMGPreconditionerConfig(
+        coarsening=PODCoarseningConfig(dataset_dir=FIT_DIR, checkpoint_path=Path("basis.pt"))
+    )
+    split = PinnedSplit(FIT_SPLIT, "sha256:split")
+    return CheckpointBased(
+        tuple(ref for _, ref in cfg.checkpoint_refs()),
+        VerifiedTrainingDataset(FIT_DIR, "sha256:abcdef0123456789", split, folds),
+    )
+
+
+@pytest.mark.parametrize(
+    ("snapshots", "origin", "fit_rows"),
+    [
+        (-1, InlineFit(FIT_DIR), 5),
+        (3, InlineFit(FIT_DIR), 3),
+        (-1, _verified(FitFolds.TRAIN), 5),
+        (-1, _verified(FitFolds.TRAIN_AND_VALIDATION), 7),
+    ],
+    ids=["inline-train-fold", "inline-cut-to-n-snapshots", "fit-job-train", "train-and-validation"],
+)
+def test_a_fit_is_qualified_by_the_rows_of_the_folds_it_read(
+    pod_fit_presentation: DatasetPresentation,
+    snapshots: int,
+    origin: InlineFit | CheckpointBased,
+    fit_rows: int,
+) -> None:
+    """One dataset row is one snapshot vector, so the fit folds' rows are the columns of V."""
+    cfg = AMGPreconditionerConfig(
+        coarsening=PODCoarseningConfig(dataset_dir=FIT_DIR, rank=2, n_snapshots=snapshots)
+    )
+
+    presentation = describe_method(
+        cfg,
+        origin,
+        datasets_by_dir({FIT_DIR: pod_fit_presentation}),
+        InMemorySplitStore({FIT_DIR: FIT_SPLIT}),
+    )
+
+    assert isinstance(presentation, DatasetQualifiedMethodPresentation)
+    assert presentation.fit_rows == fit_rows
+
+
 def test_ordinary_methods_are_standalone() -> None:
     cfg = AMGPreconditionerConfig(coarsening=AggregationCoarseningConfig())
     assert isinstance(
-        describe_method(cfg, NoFitData(), NO_DATASET_READS), StandaloneMethodPresentation
+        describe_method(cfg, NoFitData(), NO_DATASET_READS, InMemorySplitStore()),
+        StandaloneMethodPresentation,
     )
 
 
@@ -83,6 +141,7 @@ def test_unverified_checkpoint_pod_has_no_fit_dataset_qualifier() -> None:
                 TrainingDataUnavailable("no training run"),
             ),
             NO_DATASET_READS,
+            InMemorySplitStore(),
         ),
         StandaloneMethodPresentation,
     )
@@ -130,6 +189,7 @@ def test_neural_method_label_follows_checkpoint_provenance(
         {neural_checkpoint.name: CheckpointBased(ref, training)},
         ComparisonScopePresentation(dataset_presentation),
         datasets_by_dir({FIT_DIR: pod_fit_presentation}) if verified else NO_DATASET_READS,
+        InMemorySplitStore(),
     )
     method = prepared.methods[0].compact
     label = method_legend({neural_checkpoint.name: method}, PLAIN).label(neural_checkpoint.name)
@@ -150,6 +210,7 @@ def test_pod_ranks_over_one_dataset_are_distinguished_by_rank(
         fixture_origins(specs),
         ComparisonScopePresentation(dataset_presentation),
         datasets_by_dir({FIT_DIR: pod_fit_presentation}),
+        train_splits(FIT_DIR),
     )
     labels = [render_method(m.compact, LEGEND_PROFILE, PLAIN).text for m in prepared.methods]
     assert labels == [
@@ -163,7 +224,9 @@ def test_a_dataset_that_cannot_be_described_is_rejected() -> None:
         raise MissingDatasetProvenanceError(directory)
 
     with pytest.raises(MissingDatasetProvenanceError) as error:
-        describe_method(pod_spec(FIT_DIR, 10), InlineFit(FIT_DIR), unprovenanced)
+        describe_method(
+            pod_spec(FIT_DIR, 10), InlineFit(FIT_DIR), unprovenanced, train_splits(FIT_DIR)
+        )
     assert error.value.dataset_dir == FIT_DIR
 
 
@@ -183,6 +246,7 @@ def test_indistinguishable_methods_are_rejected_before_execution(
             fixture_origins(copies),
             ComparisonScopePresentation(dataset_presentation),
             datasets_by_dir({copy_a: pod_fit_presentation, copy_b: pod_fit_presentation}),
+            train_splits(copy_a, copy_b),
         )
 
     assert len(caught.value.method_ids) == 2

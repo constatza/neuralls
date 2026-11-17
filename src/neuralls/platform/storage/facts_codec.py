@@ -252,11 +252,12 @@ def encode_method_presentation(presentation: ConfiguredMethodPresentation) -> di
     match presentation:
         case StandaloneMethodPresentation(method=method):
             return {"kind": "standalone", "method": _encode_description(method)}
-        case DatasetQualifiedMethodPresentation(method=method, dataset=dataset):
+        case DatasetQualifiedMethodPresentation(method=method, dataset=dataset, fit_rows=rows):
             return {
                 "kind": "dataset_qualified",
                 "method": _encode_description(method),
                 "dataset": encode_dataset_presentation(dataset),
+                "fit_rows": rows,
             }
         case _:
             assert_never(presentation)
@@ -270,7 +271,7 @@ def decode_method_presentation(payload: Payload) -> ConfiguredMethodPresentation
             return StandaloneMethodPresentation(method)
         case "dataset_qualified":
             return DatasetQualifiedMethodPresentation(
-                method, decode_dataset_presentation(payload["dataset"])
+                method, decode_dataset_presentation(payload["dataset"]), int(payload["fit_rows"])
             )
         case other:
             raise ValueError(f"Unknown method presentation kind {other!r}")

@@ -26,6 +26,7 @@ from neuralls.composition.assignments.evaluation_prepare import (
     prepare_eval_run_specs,
     resolve_base_output,
 )
+from neuralls.composition.generation.default_services import FS_SPLIT_STORE
 from neuralls.composition.tracking.run_specs import (
     build_evaluation_tags,
     build_session_run_spec,
@@ -256,6 +257,7 @@ def eval_batch(
         settings=settings,
         assignment_ids=[assignment.id for assignment in assignments],
         load_dataset=load_dataset_presentation,
+        splits=FS_SPLIT_STORE,
     )
     base_output = resolve_base_output(cfg, settings, output_root, configs_dir)
     eval_mlflow_env = build_workflow_environment(

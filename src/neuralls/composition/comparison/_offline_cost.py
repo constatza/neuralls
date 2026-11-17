@@ -16,6 +16,7 @@ from neuralls.composition.comparison.method_data_origin import (
     NoFitData,
     TrainingDataUnavailable,
     VerifiedTrainingDataset,
+    fold_rows,
 )
 from neuralls.composition.generation.ports import SplitStore
 from neuralls.domain.solver.models.cost import (
@@ -116,18 +117,8 @@ def _share_of_generation(
         return Unavailable("the fit dataset's pinned split has no train rows")
     total_rows = len(split.train) + len(split.validation) + len(split.test)
     return TrainShareOfGeneration(
-        whole, TrainShare.of_rows(_read_rows(split, folds), total_rows, folds)
+        whole, TrainShare.of_rows(fold_rows(split, folds), total_rows, folds)
     )
-
-
-def _read_rows(split: IndexSplit, folds: FitFolds) -> int:
-    match folds:
-        case FitFolds.TRAIN:
-            return len(split.train)
-        case FitFolds.TRAIN_AND_VALIDATION:
-            return len(split.train) + len(split.validation)
-        case unreachable:
-            assert_never(unreachable)
 
 
 def _dataset_generation_cost(dataset_dir: Path) -> Known | Unavailable:

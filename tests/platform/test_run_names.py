@@ -48,7 +48,9 @@ def _comparison_scope(dataset: DatasetPresentation) -> ComparisonScopePresentati
 
 
 def _pod(dataset: DatasetPresentation) -> DatasetQualifiedMethodPresentation:
-    return DatasetQualifiedMethodPresentation(ScientificDescription("POD"), dataset)
+    return DatasetQualifiedMethodPresentation(
+        ScientificDescription("POD"), dataset, dataset.generation.generated_rows
+    )
 
 
 def _graph_net(dataset: DatasetPresentation) -> EditorialTrainingSubject:

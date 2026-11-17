@@ -41,7 +41,7 @@ from neuralls.shared.scientific_description.catalog import INNER_PRODUCT, make_f
 from neuralls.shared.scientific_description.models import ScientificFact, ValidatedLabel
 from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import InnerProductKind
-from tests.presentation_support import datasets_by_dir
+from tests.presentation_support import datasets_by_dir, train_splits
 
 PLAIN = NotationPolicy.default()
 FIT_DIR = Path("pod-fit")
@@ -95,6 +95,7 @@ def _subject(entry: AssignmentEntry, fit_presentation: DatasetPresentation) -> o
         config_dir=Path("."),
         settings=MagicMock(),
         load_dataset=datasets_by_dir({FIT_DIR: fit_presentation}),
+        splits=train_splits(FIT_DIR),
     )
 
 
@@ -178,6 +179,7 @@ def test_presentations_are_built_for_every_named_assignment_with_the_case_notati
         settings=MagicMock(),
         assignment_ids=["fit_job_1"],
         load_dataset=datasets_by_dir({FIT_DIR: pod_fit_presentation}),
+        splits=train_splits(FIT_DIR),
     )
 
     assert set(built) == {"fit_job_1"}
@@ -265,6 +267,7 @@ def test_fits_that_differ_only_in_inner_product_have_distinct_labels(
         settings=MagicMock(),
         assignment_ids=list(jobs),
         load_dataset=datasets_by_dir({FIT_DIR: pod_fit_presentation}),
+        splits=train_splits(FIT_DIR),
     )
 
     assert {name: render_training_label(built[name]) for name in jobs} == {

@@ -61,6 +61,17 @@ def read_pinned_split(dataset_dir: Path, store: SplitStore) -> PinnedSplit | Non
     return PinnedSplit(split, content_digest(store.require(dataset_dir)))
 
 
+def fold_rows(split: IndexSplit, folds: FitFolds) -> int:
+    """The number of dataset rows in ``folds`` of ``split``: the rows a fit of those folds read."""
+    match folds:
+        case FitFolds.TRAIN:
+            return len(split.train)
+        case FitFolds.TRAIN_AND_VALIDATION:
+            return len(split.train) + len(split.validation)
+        case unreachable:
+            assert_never(unreachable)
+
+
 @dataclass(frozen=True, slots=True)
 class VerifiedTrainingDataset:
     """A dataset whose current digest and pinned split match the training run's identity.

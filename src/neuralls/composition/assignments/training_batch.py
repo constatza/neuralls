@@ -58,6 +58,7 @@ from neuralls.composition.assignments.training import (
     prepare_training_settings,
     to_run_spec,
 )
+from neuralls.composition.generation.default_services import FS_SPLIT_STORE
 from neuralls.composition.identity.gate import reuse_lookup
 from neuralls.composition.identity.training import dataset_unchanged_since, training_identity
 from neuralls.composition.tracking.run_specs import build_session_run_spec
@@ -419,6 +420,7 @@ def run_assignment_sweep(
         settings=settings,
         assignment_ids=[assignment.spec.assignment_id for assignment in assignments],
         load_dataset=load_dataset_presentation,
+        splits=FS_SPLIT_STORE,
     )
     training_mlflow_env = build_workflow_environment(
         tracking_uri=cfg.mlflow.tracking_uri,

@@ -51,7 +51,8 @@ from neuralls.shared.scientific_description.policy import (
     RenderTarget,
 )
 from neuralls.shared.scientific_description.render import RenderedScientificDescription
-from tests.presentation_support import datasets_by_dir, fixture_origins, pod_spec
+from tests.fakes.split_store import InMemorySplitStore
+from tests.presentation_support import datasets_by_dir, fixture_origins, pod_spec, train_splits
 
 MATHTEXT = NotationPolicy.default(RenderTarget.MATHTEXT)
 PLAIN = NotationPolicy.default(RenderTarget.PLAIN)
@@ -106,6 +107,9 @@ def acceptance_cohort(
         fixture_origins(acceptance_configs),
         ComparisonScopePresentation(dataset_presentation),
         fit_datasets,
+        InMemorySplitStore(
+            {**train_splits(FIT_DIRS[0]).splits, **train_splits(FIT_DIRS[1], rows=4).splits}
+        ),
     )
 
 

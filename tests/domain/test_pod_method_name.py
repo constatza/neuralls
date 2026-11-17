@@ -14,6 +14,10 @@ from neuralls.shared.scientific_description.models import ScientificDescription
 from neuralls.shared.scientific_description.policy import LEGEND_PROFILE, NotationPolicy
 from neuralls.shared.types import GenerationStrategyKind
 
+FIT_ROWS = 90
+"""Rows the fit read: fewer than the fixture dataset's 100 generated rows, as under a split.
+A source-named POD states them as its ``N``; a dataset qualifier keeps the generated rows."""
+
 
 def _with_strategies(
     dataset: DatasetPresentation, kinds: tuple[GenerationStrategyKind, ...]
@@ -53,7 +57,7 @@ def test_qualified_method_names_its_snapshot_source(
 ) -> None:
     dataset = _with_strategies(dataset_presentation, kinds)
 
-    qualified = qualify_method(ScientificDescription(base_name), dataset)
+    qualified = qualify_method(ScientificDescription(base_name), dataset, FIT_ROWS)
 
     assert qualified.method == ScientificDescription(expected)
     assert qualified.dataset == dataset
@@ -62,7 +66,7 @@ def test_qualified_method_names_its_snapshot_source(
 @pytest.mark.parametrize(
     ("kinds", "base_name", "expected"),
     [
-        ((GenerationStrategyKind.CG_ERRORS,), "POD", "POD-CG (c=100, k=20, N=100)"),
+        ((GenerationStrategyKind.CG_ERRORS,), "POD", "POD-CG (c=100, k=20, N=90)"),
         (
             (GenerationStrategyKind.CG_ERRORS, GenerationStrategyKind.JACOBI_PROBES),
             "POD",
@@ -89,7 +93,7 @@ def test_only_a_source_named_pod_folds_its_strategy_facts_into_its_parenthesis(
     method = ScientificDescription(base_name, facts=(make_fact(RANK, 100),))
 
     rendered = render_method(
-        qualify_method(method, dataset), LEGEND_PROFILE, NotationPolicy.default()
+        qualify_method(method, dataset, FIT_ROWS), LEGEND_PROFILE, NotationPolicy.default()
     )
 
     assert rendered.text == expected
@@ -107,7 +111,7 @@ def test_pod_jp_label_states_the_sweeps_as_k(dataset_presentation: DatasetPresen
     method = ScientificDescription("POD", facts=(make_fact(RANK, 100),))
 
     rendered = render_method(
-        qualify_method(method, dataset), LEGEND_PROFILE, NotationPolicy.default()
+        qualify_method(method, dataset, FIT_ROWS), LEGEND_PROFILE, NotationPolicy.default()
     )
 
-    assert rendered.text == "POD-JP (c=100, k=10, N=100)"
+    assert rendered.text == "POD-JP (c=100, k=10, N=90)"

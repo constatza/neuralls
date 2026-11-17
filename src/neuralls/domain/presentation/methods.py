@@ -64,10 +64,24 @@ class StandaloneMethodPresentation:
 
 @dataclass(frozen=True, slots=True)
 class DatasetQualifiedMethodPresentation:
-    """A dataset-trained method; the dataset is rendered once after the method."""
+    """A dataset-trained method; the dataset is rendered once after the method.
+
+    ``fit_rows`` counts the dataset rows the method's fit read: the folds of the pinned
+    split it was fit on, which is fewer than the dataset's generated rows whenever the
+    split holds rows out.
+    """
 
     method: ScientificDescription
     dataset: DatasetPresentation
+    fit_rows: int
+
+    def __post_init__(self) -> None:
+        """Require a fit that read at least one and at most every generated row."""
+        if not 0 < self.fit_rows <= self.dataset.generation.generated_rows:
+            raise ValueError(
+                f"fit_rows must lie in [1, {self.dataset.generation.generated_rows}], "
+                f"got {self.fit_rows}"
+            )
 
 
 def pod_source_name(dataset: DatasetPresentation) -> str | None:
@@ -85,18 +99,19 @@ def pod_source_name(dataset: DatasetPresentation) -> str | None:
 
 
 def qualify_method(
-    method: ScientificDescription, dataset: DatasetPresentation
+    method: ScientificDescription, dataset: DatasetPresentation, fit_rows: int
 ) -> DatasetQualifiedMethodPresentation:
     """Qualify a dataset-trained method by its data; a POD method names its snapshot source.
 
     POD-CG (truncated-CG errors) and POD-JP (Jacobi-filtered probes) are distinct methods,
     so the source belongs in the method name, and the renderer then states the strategy's
     facts inside the method's own parenthesis instead of after a dataset qualifier.
+    ``fit_rows`` is the number of dataset rows the fit read.
     """
     name = pod_source_name(dataset)
     if name is not None and method.base_name == PreconditionerFamily.POD.abbreviation():
         method = replace(method, base_name=name)
-    return DatasetQualifiedMethodPresentation(method, dataset)
+    return DatasetQualifiedMethodPresentation(method, dataset, fit_rows)
 
 
 type ConfiguredMethodPresentation = (

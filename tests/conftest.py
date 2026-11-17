@@ -741,7 +741,11 @@ def group_style_of(
 def training_presentation(dataset_presentation: DatasetPresentation) -> TrainingPresentation:
     """What a training run trains, for tests that prepare or finalize a training run."""
     return TrainingPresentation(
-        DatasetQualifiedMethodPresentation(ScientificDescription("POD"), dataset_presentation),
+        DatasetQualifiedMethodPresentation(
+            ScientificDescription("POD"),
+            dataset_presentation,
+            dataset_presentation.generation.generated_rows,
+        ),
         NotationPolicy.default(),
     )
 
@@ -768,7 +772,9 @@ def training_presentation_of(
     def build(method_name: str) -> TrainingPresentation:
         return TrainingPresentation(
             DatasetQualifiedMethodPresentation(
-                ScientificDescription(method_name), dataset_presentation
+                ScientificDescription(method_name),
+                dataset_presentation,
+                dataset_presentation.generation.generated_rows,
             ),
             NotationPolicy.default(),
         )

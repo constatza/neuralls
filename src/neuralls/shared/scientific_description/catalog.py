@@ -249,6 +249,8 @@ _R = FactPhase.REALIZED
 # Counts and seeds that datasets, methods, and realized systems all report, and the two keys (damping, steps) whose symbol means the same thing for a strategy and a preconditioner.
 # ==============================================================================
 SAMPLE_COUNT = _key("sample_count")
+"""``N``: the rows a dataset or generation strategy holds; in a POD method's label, the fitted
+snapshot columns, i.e. the rows of the pinned split's fit folds its basis was fit on."""
 SYSTEM_DIMENSION = _key("system_dimension")
 ITERATION_COUNT = _key("iteration_count")
 SEED = _key("seed")

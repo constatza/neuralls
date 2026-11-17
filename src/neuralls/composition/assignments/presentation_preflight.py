@@ -1,7 +1,8 @@
 """Builds the typed scientific presentation of a comparison before anything runs.
 
 Every method is described from its resolved config and validated data origin. A fit or
-verified training dataset is read from its manifest. Failures (a dataset without provenance, a neural method without a
+verified training dataset is read from its manifest, and the rows the fit read from its
+pinned split. Failures (a dataset without provenance, a neural method without a
 display name, two indistinguishable methods) are raised here, before any MLflow run is
 opened or any method executes.
 """
@@ -19,7 +20,10 @@ from neuralls.composition.comparison.method_data_origin import (
     NoFitData,
     TrainingDataUnavailable,
     VerifiedTrainingDataset,
+    fold_rows,
 )
+from neuralls.composition.generation.ports import SplitStore
+from neuralls.composition.generation.split_pinning import pinned_train_rows
 from neuralls.composition.preconditioners.descriptions import describe_configured_preconditioner
 from neuralls.domain.presentation.methods import (
     ConfiguredMethodPresentation,
@@ -36,7 +40,9 @@ from neuralls.domain.presentation.titles import (
     ComparisonTitle,
     EditorialPresentation,
 )
+from neuralls.platform.config.models.coarsening import PODCoarseningConfig
 from neuralls.platform.config.models.preconditioner import (
+    AMGPreconditionerConfig,
     ConcretePreconditionerConfig,
     PreconditionerConfig,
 )
@@ -55,17 +61,33 @@ type DatasetPresentationLoader = Callable[[Path], DatasetPresentation]
 
 
 def describe_method(
-    cfg: PreconditionerConfig, origin: MethodDataOrigin, load_dataset: DatasetPresentationLoader
+    cfg: PreconditionerConfig,
+    origin: MethodDataOrigin,
+    load_dataset: DatasetPresentationLoader,
+    splits: SplitStore,
 ) -> ConfiguredMethodPresentation:
-    """Describe a comparison method using only validated fit or training data."""
+    """Describe a comparison method using only validated fit or training data.
+
+    A fit is qualified by the rows it read: an inline POD fit the train fold of the split
+    pinned now (cut to its ``n_snapshots``), a verified checkpoint the folds its job read of
+    the split its run recorded. Each row is one snapshot vector, so for a POD basis these
+    are the columns of its snapshot matrix.
+
+    Raises:
+        StageInputsStale: An inline fit's dataset has no pinned split.
+    """
     method = describe_configured_preconditioner(cfg)
     match origin:
         case InlineFit(fit_dataset=directory):
-            return qualify_method(method, load_dataset(directory))
+            dataset = load_dataset(directory)
+            train_rows = len(pinned_train_rows(directory, splits))
+            return qualify_method(method, dataset, _inline_fit_rows(cfg, train_rows))
         case CheckpointBased(training_data=training_data):
             match training_data:
-                case VerifiedTrainingDataset(dataset=directory):
-                    return qualify_method(method, load_dataset(directory))
+                case VerifiedTrainingDataset(dataset=directory, split=pinned, folds=folds):
+                    return qualify_method(
+                        method, load_dataset(directory), fold_rows(pinned.split, folds)
+                    )
                 case TrainingDataUnavailable():
                     return StandaloneMethodPresentation(method=method)
                 case unreachable:
@@ -76,11 +98,21 @@ def describe_method(
             assert_never(unreachable)
 
 
+def _inline_fit_rows(cfg: PreconditionerConfig, train_rows: int) -> int:
+    """The train rows an inline fit reads; only a POD coarsening fits inline."""
+    match cfg:
+        case AMGPreconditionerConfig(coarsening=PODCoarseningConfig() as pod):
+            return pod.inline_fit_rows(train_rows)
+        case _:
+            raise ValueError("only a POD coarsening is fit inline")
+
+
 def prepare_comparison_presentation(
     specs: Sequence[ConcretePreconditionerConfig],
     origins_by_method: Mapping[str, MethodDataOrigin],
     scope: ComparisonScopePresentation,
     load_dataset: DatasetPresentationLoader,
+    splits: SplitStore,
 ) -> PreparedComparisonPresentation:
     """Describe every method of one comparison and validate the whole cohort."""
     if set(origins_by_method) != {spec.name for spec in specs} or len(specs) != len(
@@ -90,7 +122,7 @@ def prepare_comparison_presentation(
     candidates = tuple(
         MethodPresentationCandidate(
             PreconditionerName(spec.name),
-            describe_method(spec, origins_by_method[spec.name], load_dataset),
+            describe_method(spec, origins_by_method[spec.name], load_dataset, splits),
         )
         for spec in specs
     )

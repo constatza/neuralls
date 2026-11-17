@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from pathlib import Path
 
+from dlkit.infrastructure.types.split import IndexSplit
+
 from neuralls.composition.assignments.presentation_preflight import DatasetPresentationLoader
 from neuralls.composition.comparison.method_data_origin import (
     InlineFit,
@@ -18,6 +20,7 @@ from neuralls.platform.config.models.preconditioner import (
     AMGPreconditionerConfig,
     PreconditionerConfig,
 )
+from tests.fakes.split_store import InMemorySplitStore
 
 type PreparedMethodFactory = Callable[[str], PreparedMethodPresentation]
 """The `prepared_method` fixture: the validated presentation of one method id."""
@@ -57,3 +60,9 @@ def datasets_by_dir(by_dir: Mapping[Path, DatasetPresentation]) -> DatasetPresen
     Raises ``KeyError`` for a directory no test registered, so a stray read fails loudly.
     """
     return lambda directory: by_dir[Path(directory)]
+
+
+def train_splits(*dataset_dirs: Path, rows: int = 8) -> InMemorySplitStore:
+    """Pinned splits whose train fold holds all ``rows`` rows of each directory's dataset."""
+    split = IndexSplit(train=tuple(range(rows)), validation=(), test=(), predict=None)
+    return InMemorySplitStore({Path(directory): split for directory in dataset_dirs})
