@@ -60,8 +60,9 @@ class GroupAggregated:
 class RecipeProfileReport(GroupAggregated):
     """Matrix-set-and-RHS-type report for one recipe.
 
-    One homogeneous recipe is what makes a performance profile and a paired comparison against
-    the reference meaningful, so only this report type is planned those figures.
+    One recipe on one matrix set is what makes a raw-scale aggregate (a mean, a sum, a quantile,
+    a break-even point) independent of mixing weights, so only this report type is planned those
+    figures (``platform/reporting/cohort_variants.py``).
     """
 
     label: MatrixSetRhsTypeLabel
@@ -76,7 +77,7 @@ class RecipeProfileReport(GroupAggregated):
 class WorkloadMixtureReport(GroupAggregated):
     """Matrix-set or all-matrix-sets report, whose workload pools every recipe it names.
 
-    It is drawn as a mixture only when it names two or more recipes
+    It is drawn as a mixture, with scale-free figures only, even when it names one recipe
     (``platform/reporting/cohort_variants.py::cohort_level``).
     """
 

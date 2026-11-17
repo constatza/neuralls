@@ -11,9 +11,7 @@ import polars as pl
 from neuralls.domain.solver.models.group_outcomes import GroupReport
 from neuralls.domain.solver.models.group_presentation import GroupPresentation
 from neuralls.domain.solver.models.plot_style import plot_style_maps
-from neuralls.domain.solver.reporting.cohorts import cohort_observations, cohort_rows
 from neuralls.platform.config.models.figure_style import FigureStyleConfig
-from neuralls.platform.reporting.cohort_variants import is_cohort_table
 from neuralls.platform.reporting.distribution_mode import RowLimits
 from neuralls.platform.reporting.figure_formats import FigureTarget
 from neuralls.platform.reporting.figure_metadata import (
@@ -52,6 +50,7 @@ class GroupStyler:
             title=plan.title,
             scope=plan.metadata.scope,
             cohort=plan.metadata.cohort,
+            recipes=plan.metadata.recipes,
             setup_sharing=plan.metadata.setup_sharing,
             notation=self.notation,
             legend=method_legend(
@@ -77,10 +76,8 @@ def write_outcome_plots(
 ) -> tuple[StagedTabledFigure, ...]:
     """Draw every planned figure whose data supports it, in plan order.
 
-    ``summaries`` holds the frame of each planned variant by stem (``figure_summaries``); a figure of one cohort draws that
-    cohort's rows of it and the observations of its systems (a table that is not split by cohort
-    is drawn whole), and is staged with the rows it drew
-    as its table.
+    ``summaries`` holds the frame of each planned variant by stem (``figure_summaries``); a figure
+    draws it whole over the group's observations and is staged with it as its table.
     """
     use_headless_backend()
     drawn: list[StagedTabledFigure] = []
@@ -88,10 +85,8 @@ def write_outcome_plots(
         metadata = plan.metadata
         recipe = group_recipe(metadata.kind)
         summary = summaries[recipe.variant(metadata.metric, metadata.population).stem]
-        if is_cohort_table(recipe.table):
-            summary = cohort_rows(summary, metadata.cohort)
         data = FigureData(
-            cohort_observations(outcome.observations, metadata.cohort),
+            outcome.observations,
             summary,
             styler.style(plan),
             metadata.metric,

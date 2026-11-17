@@ -135,11 +135,10 @@ def test_real_sweep_execution_logs_group_metrics_and_reports(
 
     times = ("solve", "online", "online_amortized")
 
-    def cohort_figures(stem: str, *suffixes: str) -> set[str]:
-        """The figures drawn once per cohort, one per stem suffix of the level's cohorts."""
+    def cohort_figures(stem: str) -> set[str]:
+        """The per-method means and distributions, drawn at the class level only."""
         return {
-            f"{kind}_{stem}{suffix}.png"
-            for suffix in suffixes
+            f"{kind}_{stem}.png"
             for kind in (
                 "convergence_factor",
                 "iteration_means",
@@ -155,10 +154,10 @@ def test_real_sweep_execution_logs_group_metrics_and_reports(
             )
         }
 
-    def pooled_figures(stem: str) -> set[str]:
+    def pooled_figures(stem: str, suffix: str = "") -> set[str]:
         """The profile figures of the group; the case has no reference to pair against."""
         return {
-            f"{kind}_{stem}.png"
+            f"{kind}_{stem}{suffix}.png"
             for kind in (
                 *(f"performance_profile_{time}" for time in times),
                 "ecdf_iterations",
@@ -167,7 +166,7 @@ def test_real_sweep_execution_logs_group_metrics_and_reports(
         }
 
     def workload_figures(stem: str) -> set[str]:
-        """The workload sums and the full cost, one whole-group figure at every level."""
+        """The workload sums and the full cost, drawn at the class level only."""
         return {
             f"{kind}_{stem}.png"
             for kind in (
@@ -186,21 +185,11 @@ def test_real_sweep_execution_logs_group_metrics_and_reports(
             *workload_figures(recipe_stem),
             *pooled_figures(recipe_stem),
             f"matrix_heatmap_iterations_{recipe_stem}.png",
-            *cohort_figures(recipe_stem, ""),
+            *cohort_figures(recipe_stem),
         }
     )
+    # A mixture level, even of one recipe, draws only the pooled scale-free figures.
     assert artifact_names(run_of_level("matrix_set").info.run_id) == with_cards(
-        {
-            *workload_figures(dataset_stem),
-            # One recipe is no mixture: each cohort kind is one unsuffixed figure at every level.
-            *cohort_figures(dataset_stem, ""),
-            *pooled_figures(dataset_stem),
-        }
+        pooled_figures(dataset_stem, "__mixture")
     )
-    assert artifact_names(report.report_run_id) == with_cards(
-        {
-            *workload_figures(all_stem),
-            *cohort_figures(all_stem, ""),
-            *pooled_figures(all_stem),
-        }
-    )
+    assert artifact_names(report.report_run_id) == with_cards(pooled_figures(all_stem, "__mixture"))

@@ -1,4 +1,4 @@
-"""Time per iteration as a ratio of sums, and summaries split by recipe with a pooled mixture."""
+"""Time per iteration as a ratio of sums, and summaries labelled by their recipe."""
 
 from __future__ import annotations
 
@@ -10,8 +10,6 @@ from neuralls.domain.solver.reporting.cohorts import (
     COHORT_COLUMN,
     COHORT_RATIO_OF_SUMS_SCHEMA,
     COHORT_SUMMARY_SCHEMA,
-    MIXTURE_COHORT,
-    CohortRows,
     by_cohort,
 )
 from neuralls.domain.solver.reporting.metrics import MetricId
@@ -87,9 +85,7 @@ def test_the_ratio_of_sums_has_its_schema_and_one_row_per_method(
 def test_recipe_cohorts_summarize_each_recipe_on_its_own_systems(
     two_recipe_observations: pl.DataFrame,
 ) -> None:
-    table = by_cohort(
-        two_recipe_observations, _iterations_summary, CohortRows.RECIPES, schema=SUMMARY_SCHEMA
-    )
+    table = by_cohort(two_recipe_observations, _iterations_summary, schema=SUMMARY_SCHEMA)
 
     expected = pl.concat(
         [
@@ -100,25 +96,6 @@ def test_recipe_cohorts_summarize_each_recipe_on_its_own_systems(
         ]
     )
     assert_frame_equal(table, expected)
-
-
-def test_a_mixture_adds_the_pooled_rows_labelled_as_the_mixture(
-    two_recipe_observations: pl.DataFrame,
-) -> None:
-    table = by_cohort(
-        two_recipe_observations,
-        _iterations_summary,
-        CohortRows.RECIPES_AND_MIXTURE,
-        schema=SUMMARY_SCHEMA,
-    )
-
-    assert table[COHORT_COLUMN].unique(maintain_order=True).to_list() == [
-        GAUSSIAN_KEY,
-        SINE_KEY,
-        MIXTURE_COHORT,
-    ]
-    pooled = table.filter(pl.col(COHORT_COLUMN) == MIXTURE_COHORT).drop(COHORT_COLUMN)
-    assert_frame_equal(pooled, _iterations_summary(two_recipe_observations))
 
 
 def test_cohort_tables_put_the_cohort_first_in_front_of_the_statistics_schema() -> None:
@@ -132,7 +109,6 @@ def test_a_view_without_systems_has_an_empty_cohort_table(
     table = by_cohort(
         two_recipe_observations.clear(),
         _iterations_summary,
-        CohortRows.RECIPES,
         schema=SUMMARY_SCHEMA,
     )
 

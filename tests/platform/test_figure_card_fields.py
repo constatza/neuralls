@@ -71,12 +71,7 @@ SESSION_RUN_ID = "session-run"
 _GROUP_RECIPES = [
     recipe for recipe in FIGURE_RECIPES.values() if isinstance(recipe, GroupFigureRecipe)
 ]
-_PROFILE_VARIANTS = [
-    variant
-    for recipe in _GROUP_RECIPES
-    if RecipeProfileReport in recipe.applies_to
-    for variant in recipe.variants
-]
+_PROFILE_VARIANTS = [variant for recipe in _GROUP_RECIPES for variant in recipe.variants]
 _BY_STEM = {variant.stem: variant for variant in _PROFILE_VARIANTS}
 _RECIPE_OF_STEM = {variant.stem: recipe for recipe in _GROUP_RECIPES for variant in recipe.variants}
 _ONLINE_STEMS = sorted(

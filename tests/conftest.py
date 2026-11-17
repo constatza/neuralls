@@ -724,6 +724,7 @@ def group_style_of(
             title=title,
             scope=AllDatasetsScope(),
             cohort=WholeGroup(),
+            recipes=(),
             setup_sharing=setup_sharing,
             notation=notation,
             legend=legend_of(*names),

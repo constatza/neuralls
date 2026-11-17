@@ -6,10 +6,6 @@ from dataclasses import replace
 
 import pytest
 
-from neuralls.domain.solver.models.group_outcomes import (
-    RecipeProfileReport,
-    WorkloadMixtureReport,
-)
 from neuralls.domain.solver.reporting.metrics import MetricId
 from neuralls.domain.solver.reporting.summary import Population
 from neuralls.platform.reporting.figure_metadata import (
@@ -49,32 +45,6 @@ def test_method_plots_are_exactly_the_kinds_with_a_history_recipe() -> None:
         kind for kind, recipe in FIGURE_RECIPES.items() if isinstance(recipe, HistoryFigureRecipe)
     }
     assert set(METHOD_PLOTS) == histories
-
-
-def test_mixture_reports_plan_every_kind_but_the_recipe_level_ones() -> None:
-    mixture_kinds = {
-        kind
-        for kind, recipe in FIGURE_RECIPES.items()
-        if isinstance(recipe, GroupFigureRecipe) and WorkloadMixtureReport in recipe.applies_to
-    }
-    assert mixture_kinds == {
-        FigureKind.SOLVE_TIME,
-        FigureKind.ONLINE_TIME,
-        FigureKind.ITERATION_MEANS,
-        FigureKind.TIME_MEANS,
-        FigureKind.SETUP_MEANS,
-        FigureKind.TIME_PER_ITERATION,
-        FigureKind.ITERATION_DISTRIBUTION,
-        FigureKind.TIME_DISTRIBUTION,
-        FigureKind.CONVERGENCE_FACTOR,
-        FigureKind.FULL_COST_BREAKDOWN,
-        FigureKind.ECDF_ITERATIONS,
-        FigureKind.ECDF_TIME,
-        FigureKind.PERFORMANCE_PROFILE,
-        FigureKind.PAIRED_TIME,
-        FigureKind.SPEED_RATIO,
-    }
-    assert all(RecipeProfileReport in group_recipe(kind).applies_to for kind in mixture_kinds)
 
 
 def test_the_cost_breakdown_is_one_figure_of_offline_plus_online_totals() -> None:

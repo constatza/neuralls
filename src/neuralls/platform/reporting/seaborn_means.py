@@ -1,4 +1,4 @@
-"""Bars of per-method means and of time per iteration, one figure per cohort.
+"""Bars of per-method means and of time per iteration, drawn at the class level only.
 
 Every summary mark is read from the figure's summary frame, the table stored beside it: the bar
 is the frame's statistic column, the whisker its matrix-cluster interval columns and the "k/n"
@@ -7,8 +7,8 @@ because its own error bars resample rows independently, which is wrong when the 
 share it. Only the per-system points of time per iteration, which have no table counterpart, are
 read from the observations.
 
-A figure draws one cohort: the rows of a recipe, or of the pooled mixture, of the cohort table.
-Planning gives every cohort its own figure (``cohort_variants.py``), so a figure has one axes.
+A figure draws the one recipe block of its class-level cohort table on one axes; a mean pooled
+over a mixture is never drawn (``cohort_variants.py``).
 """
 
 from __future__ import annotations
@@ -101,7 +101,7 @@ class BarPanel:
 
 
 def bar_panel(summary: pl.DataFrame, statistic: BarStatistic) -> BarPanel:
-    """The panel of the one cohort ``summary`` holds, a recipe's or the pooled mixture's."""
+    """The panel of the one recipe ``summary`` holds."""
     return _panel(single_cohort(summary), summary, statistic)
 
 

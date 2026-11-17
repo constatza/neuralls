@@ -1,4 +1,4 @@
-"""The figures planned at each report level, and the cohort rows each one draws and stores."""
+"""The figures planned at each report level, and what a pooled mixture figure draws and stores."""
 
 from __future__ import annotations
 
@@ -21,18 +21,9 @@ from neuralls.domain.solver.models.group_outcomes import (
 )
 from neuralls.domain.solver.models.group_presentation import GroupPresentation
 from neuralls.domain.solver.models.labels import AllMatrixSetsLabel
-from neuralls.domain.solver.reporting.cohorts import (
-    COHORT_COLUMN,
-    MIXTURE_COHORT,
-    MixtureCohort,
-    RecipeCohort,
-    WholeGroup,
-    cohort_observations,
-    cohort_rows,
-)
+from neuralls.domain.solver.reporting.cohorts import MixtureCohort
 from neuralls.platform.config.models.figure_style import FigureStyleConfig
 from neuralls.platform.reporting import group_plots
-from neuralls.platform.reporting.cohort_variants import is_cohort_table
 from neuralls.platform.reporting.figure_card import (
     build_figure_card,
     card_payload,
@@ -46,10 +37,9 @@ from neuralls.platform.reporting.figure_metadata import (
     SiblingTable,
     TableKind,
 )
-from neuralls.platform.reporting.figure_planning import figure_plans, table_of
-from neuralls.platform.reporting.figure_recipes import group_recipe, group_recipes
+from neuralls.platform.reporting.figure_planning import figure_plans
+from neuralls.platform.reporting.figure_recipes import group_recipe
 from neuralls.platform.reporting.figure_summaries import figure_summaries
-from neuralls.platform.reporting.figure_text import MIXTURE_NOTE
 from neuralls.platform.reporting.group_drawers import FigureData
 from neuralls.platform.reporting.group_plots import GroupStyler, write_outcome_plots
 from neuralls.shared.rhs_recipe import recipe_key
@@ -57,39 +47,13 @@ from neuralls.shared.scientific_description.policy import NotationPolicy
 
 KEY = "key"
 
-_GAUSSIAN_SLUG = "gaussian_m0.0_s1.0"
-_SINE_SLUG = "sinusoidal_w6.28319"
-
-_AGGREGATE_BARS = (
+_RAW_SCALE = (
     "workload_solve_bars",
     "workload_online_bars",
     "workload_online_amortized_bars",
     "full_cost_breakdown",
-)
-"""Pooled single figures at every level."""
-
-_POOLED_FIGURES = (
-    "paired_online_scatter",
-    "paired_online_amortized_scatter",
-    "speed_ratio_online_cdf",
-    "speed_ratio_online_amortized_cdf",
-    "performance_profile_solve",
-    "performance_profile_online",
-    "performance_profile_online_amortized",
-    "ecdf_iterations",
-    "ecdf_solve",
-    "ecdf_online",
-    "ecdf_online_amortized",
-)
-"""Figures with one unsuffixed figure at recipe level and one pooled figure at mixture levels."""
-
-_RECIPE_LEVEL_ONLY = (
     "breakeven_online_amortized",
     "matrix_heatmap_iterations",
-)
-"""Figures drawn only for a single recipe of a matrix set."""
-
-_COHORT_FIGURES = (
     "convergence_factor",
     "iteration_means",
     "time_means_solve_own",
@@ -105,7 +69,22 @@ _COHORT_FIGURES = (
     "time_distribution_online",
     "time_distribution_online_amortized",
 )
-"""Figures drawn once per cohort."""
+"""Raw-scale figures, drawn only at the matrix-set-and-RHS-type level."""
+
+_POOLED_FIGURES = (
+    "paired_online_scatter",
+    "paired_online_amortized_scatter",
+    "speed_ratio_online_cdf",
+    "speed_ratio_online_amortized_cdf",
+    "performance_profile_solve",
+    "performance_profile_online",
+    "performance_profile_online_amortized",
+    "ecdf_iterations",
+    "ecdf_solve",
+    "ecdf_online",
+    "ecdf_online_amortized",
+)
+"""Scale-free figures: one unsuffixed figure at recipe level, one pooled figure at mixtures."""
 
 
 def _stems(*names: str, suffix: str = "") -> set[str]:
@@ -135,103 +114,20 @@ def test_a_matrix_set_and_rhs_type_report_has_one_unsuffixed_figure_of_every_kin
     profile_report: RecipeProfileReport, presentation: GroupPresentation
 ) -> None:
     assert _stems_of(_planned(profile_report, presentation)) == _stems(
-        *_AGGREGATE_BARS, *_POOLED_FIGURES, *_RECIPE_LEVEL_ONLY, *_COHORT_FIGURES
+        *_RAW_SCALE, *_POOLED_FIGURES
     )
 
 
-def test_a_matrix_set_report_has_only_the_pooled_figure_of_each_cohort_kind(
-    two_recipe_mixture_report: WorkloadMixtureReport, presentation: GroupPresentation
+@pytest.mark.parametrize("level", ["matrix_set", "all_matrix_sets"])
+def test_a_mixture_report_has_only_the_pooled_scale_free_figures(
+    two_recipe_mixture_report: WorkloadMixtureReport,
+    all_sets_report: WorkloadMixtureReport,
+    presentation: GroupPresentation,
+    level: str,
 ) -> None:
-    assert _stems_of(_planned(two_recipe_mixture_report, presentation)) == (
-        _stems(*_AGGREGATE_BARS)
-        | _stems(*_POOLED_FIGURES, suffix="__mixture")
-        | _stems(*_COHORT_FIGURES, suffix="__mixture")
-    )
+    report = two_recipe_mixture_report if level == "matrix_set" else all_sets_report
 
-
-def test_an_all_matrix_sets_report_has_a_figure_per_recipe_and_the_pooled_one(
-    all_sets_report: WorkloadMixtureReport, presentation: GroupPresentation
-) -> None:
-    assert _stems_of(_planned(all_sets_report, presentation)) == (
-        _stems(*_AGGREGATE_BARS)
-        | _stems(*_POOLED_FIGURES, suffix="__mixture")
-        | _stems(*_COHORT_FIGURES, suffix=f"__{_GAUSSIAN_SLUG}")
-        | _stems(*_COHORT_FIGURES, suffix=f"__{_SINE_SLUG}")
-        | _stems(*_COHORT_FIGURES, suffix="__mixture")
-    )
-
-
-def test_a_cohort_figure_records_its_cohort_and_the_evidence_of_its_systems(
-    all_sets_report: WorkloadMixtureReport, presentation: GroupPresentation
-) -> None:
-    plans = {plan.stem: plan.metadata for plan in _planned(all_sets_report, presentation)}
-
-    sine = plans[f"iteration_means_{KEY}__{_SINE_SLUG}"]
-    pooled = plans[f"iteration_means_{KEY}__mixture"]
-    bars = plans[f"workload_solve_bars_{KEY}"]
-
-    assert sine.cohort == RecipeCohort(SINE)
-    assert (sine.recipes, sine.recipe_counts, sine.recipe_weights) == (
-        (SINE,),
-        (all_sets_report.recipe_counts[1],),
-        (1.0,),
-    )
-    assert sine.n_planned_rhs == all_sets_report.recipe_counts[1]
-    assert pooled.cohort == MixtureCohort()
-    assert pooled.recipes == (GAUSSIAN, SINE)
-    assert pooled.n_planned_rhs == all_sets_report.n_planned_rhs
-    assert bars.cohort == WholeGroup()
-
-
-def test_every_figure_of_a_report_has_its_own_sibling_table_named_by_its_stem(
-    all_sets_report: WorkloadMixtureReport, presentation: GroupPresentation
-) -> None:
-    for plan in _planned(all_sets_report, presentation):
-        metadata = plan.metadata
-        recipe = group_recipe(metadata.kind)
-        assert table_of(plan.stem, metadata.kind) == SiblingTable(
-            f"{plan.stem}.parquet", recipe.table
-        )
-
-
-def test_the_variant_of_a_suffixed_figure_is_found_from_its_metadata(
-    all_sets_report: WorkloadMixtureReport, presentation: GroupPresentation
-) -> None:
-    plans = _planned(all_sets_report, presentation)
-
-    found = {
-        plan.stem: group_recipe(plan.metadata.kind)
-        .variant(plan.metadata.metric, plan.metadata.population)
-        .stem
-        for plan in plans
-    }
-
-    assert (
-        found[f"time_means_online_amortized_common_{KEY}__{_SINE_SLUG}"]
-        == "time_means_online_amortized_common"
-    )
-    assert found[f"time_distribution_solve_{KEY}__mixture"] == "time_distribution_solve"
-
-
-@pytest.mark.parametrize("kind", [FigureKind.ITERATION_MEANS, FigureKind.TIME_PER_ITERATION])
-def test_the_cohort_tables_split_the_full_table_without_losing_a_row(
-    all_sets_report: WorkloadMixtureReport, kind: FigureKind
-) -> None:
-    recipe = group_recipe(kind)
-    stem = recipe.variants[0].stem
-    table = figure_summaries(all_sets_report, no_offline_cost(all_sets_report))[stem]
-
-    parts = [
-        cohort_rows(table, cohort)
-        for cohort in (RecipeCohort(GAUSSIAN), RecipeCohort(SINE), MixtureCohort())
-    ]
-
-    assert [set(part[COHORT_COLUMN]) for part in parts] == [
-        {recipe_key(GAUSSIAN)},
-        {recipe_key(SINE)},
-        {MIXTURE_COHORT},
-    ]
-    assert_frame_equal(pl.concat(parts), table)
+    assert _stems_of(_planned(report, presentation)) == _stems(*_POOLED_FIGURES, suffix="__mixture")
 
 
 @dataclass(frozen=True, slots=True)
@@ -283,58 +179,7 @@ def write_all(
     return write
 
 
-def test_a_cohort_figure_draws_and_stores_the_rows_of_its_cohort(
-    all_sets_report: WorkloadMixtureReport,
-    drawn: list[Drawn],
-    write_all: Callable[[], tuple[dict[str, GroupFigureMetadata], dict[str, pl.DataFrame]]],
-) -> None:
-    metadata, tables = write_all()
-    full = figure_summaries(all_sets_report, no_offline_cost(all_sets_report))
-
-    assert set(tables) == set(metadata)
-    for stem, table in tables.items():
-        plan = metadata[stem]
-        variant = group_recipe(plan.kind).variant(plan.metric, plan.population).stem
-        expected = full[variant]
-        if is_cohort_table(group_recipe(plan.kind).table):
-            expected = cohort_rows(expected, plan.cohort)
-        assert_frame_equal(table, expected)
-    cohort_stem = f"iteration_means_{KEY}__{_SINE_SLUG}"
-    (call,) = (call for call in drawn if call.stem == cohort_stem)
-    assert_frame_equal(call.data.summary, tables[cohort_stem])
-    assert_frame_equal(
-        call.data.observations,
-        cohort_observations(all_sets_report.observations, RecipeCohort(SINE)),
-    )
-
-
-def test_the_pooled_figure_draws_every_system(
-    all_sets_report: WorkloadMixtureReport,
-    drawn: list[Drawn],
-    write_all: Callable[[], tuple[dict[str, GroupFigureMetadata], dict[str, pl.DataFrame]]],
-) -> None:
-    write_all()
-
-    (call,) = (call for call in drawn if call.stem == f"iteration_means_{KEY}__mixture")
-    assert_frame_equal(call.data.observations, all_sets_report.observations)
-
-
-def test_a_cohort_figure_names_its_recipe_and_the_pooled_figure_the_mixture(
-    all_sets_report: WorkloadMixtureReport,
-    drawn: list[Drawn],
-    write_all: Callable[[], tuple[dict[str, GroupFigureMetadata], dict[str, pl.DataFrame]]],
-) -> None:
-    write_all()
-
-    subtitles = {call.stem: call.data.style.subtitle for call in drawn}
-    assert subtitles[f"iteration_means_{KEY}__{_SINE_SLUG}"] == (
-        "All comparison matrix sets\nRHS recipe: Sinusoidal ($\\omega=6.28319$)"
-    )
-    assert subtitles[f"iteration_means_{KEY}__mixture"] == (
-        f"All comparison matrix sets\n{MIXTURE_NOTE}"
-    )
-    assert len(subtitles[f"workload_solve_bars_{KEY}"].splitlines()) == 1
-
+_MIXTURE_NOTE = "equal-weight mixture of Gaussian, Sinusoidal ($\\omega=6.28319$)"
 
 _SETUP_SHARING_LINE = (
     "each matrix's setup is shared by its r_m planned RHS, r_m = 1, 2 or 3 (varies by matrix)"
@@ -368,39 +213,20 @@ def test_a_pooled_profile_figure_is_a_mixture_figure_drawn_whole(
     assert_frame_equal(call.data.observations, all_sets_report.observations)
     assert call.data.style.subtitle.splitlines() == [
         "All comparison matrix sets",
-        MIXTURE_NOTE,
+        _MIXTURE_NOTE,
         *extra_lines,
     ]
 
 
-def test_the_kinds_of_the_per_cohort_figures_are_exactly_the_cohort_table_kinds() -> None:
-    per_cohort = {recipe.kind.value for recipe in group_recipes() if is_cohort_table(recipe.table)}
-    assert per_cohort == {
-        "convergence_factor",
-        "iteration_means",
-        "time_means",
-        "setup_means",
-        "time_per_iteration",
-        "iteration_distribution",
-        "time_distribution",
-    }
-    assert {recipe.table for recipe in group_recipes() if recipe.kind.value in per_cohort} == {
-        TableKind.COHORT_SUMMARY,
-        TableKind.COHORT_RATIO_OF_SUMS,
-    }
-
-
-@pytest.mark.parametrize("suffix", [f"__{_SINE_SLUG}", "__mixture"])
-def test_a_cohort_figures_card_round_trips_its_cohort_and_names_its_own_table(
+def test_a_pooled_figures_card_names_the_equal_weight_mixture_and_round_trips(
     all_sets_report: WorkloadMixtureReport,
     presentation: GroupPresentation,
     notation: NotationPolicy,
-    suffix: str,
 ) -> None:
     (plan,) = (
         plan
         for plan in _planned(all_sets_report, presentation)
-        if plan.stem == f"iteration_means_{KEY}{suffix}"
+        if plan.stem == f"ecdf_iterations_{KEY}__mixture"
     )
 
     card = build_figure_card(
@@ -411,8 +237,11 @@ def test_a_cohort_figures_card_round_trips_its_cohort_and_names_its_own_table(
         environment=SESSION_ENVIRONMENT,
         notation=notation,
     )
-    decoded = decode_figure_card(card_payload(card))
+    payload = card_payload(card)
+    decoded = decode_figure_card(payload)
 
+    assert payload["cohort"] == (
+        f"equal-weight mixture of {recipe_key(GAUSSIAN)}, {recipe_key(SINE)}"
+    )
     assert decoded == card
-    assert decoded.metadata == plan.metadata
-    assert decoded.table == SiblingTable(f"{plan.stem}.parquet", TableKind.COHORT_SUMMARY)
+    assert decoded.table == SiblingTable(f"{plan.stem}.parquet", TableKind.SERIES)

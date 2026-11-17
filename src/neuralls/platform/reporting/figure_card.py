@@ -33,11 +33,10 @@ from neuralls.domain.presentation.methods import ConfiguredMethodPresentation
 from neuralls.domain.solver.models.figure_scope import render_figure_scope
 from neuralls.domain.solver.models.group_presentation import SolverTimingContext
 from neuralls.domain.solver.reporting.cohorts import (
-    MIXTURE_COHORT,
     Cohort,
     MixtureCohort,
-    RecipeCohort,
     WholeGroup,
+    mixture_label,
 )
 from neuralls.domain.solver.reporting.metrics import MetricId
 from neuralls.domain.solver.reporting.observations import Outcome
@@ -89,7 +88,7 @@ from neuralls.platform.storage.facts_codec import (
     encode_recipe,
 )
 from neuralls.shared.errors import ReasonedError
-from neuralls.shared.rhs_recipe import parse_recipe_key, recipe_key
+from neuralls.shared.rhs_recipe import RhsRecipe, recipe_key
 from neuralls.shared.runtime_environment import (
     RuntimeEnvironment,
     decode_environment,
@@ -141,7 +140,7 @@ class InvalidFigureCardReason(StrEnum):
     INTERVAL_KIND_UNKNOWN = "interval_kind_unknown"
     INTERVAL_FIELDS_NOT_EXACT = "interval_fields_not_exact"
     INTERVAL_FIELD_WRONG_TYPE = "interval_field_wrong_type"
-    COHORT_NOT_A_NAME = "cohort_not_a_name"
+    COHORT_NOT_THE_MIXTURE = "cohort_not_the_mixture"
     TIMING_WARNING_WITHOUT_SPREADS = "timing_warning_without_spreads"
     NOT_A_TABLE = "not_a_table"
     MISSING_FIELDS = "missing_fields"
@@ -444,31 +443,31 @@ def _typed[T: (int, float)](table: Mapping[str, Any], key: str, kind: type[T]) -
     return value
 
 
-def _encode_cohort(cohort: Cohort) -> dict[str, Any]:
-    """A figure split by cohort names its cohort as the cohort table's ``cohort`` column does."""
+def _encode_cohort(cohort: Cohort, recipes: tuple[RhsRecipe, ...]) -> dict[str, Any]:
+    """A figure pooled over a mixture names itself by its recipes' keys; a class figure needs none."""
     match cohort:
         case WholeGroup():
             return {}
-        case RecipeCohort(recipe=recipe):
-            return {"cohort": recipe_key(recipe)}
         case MixtureCohort():
-            return {"cohort": MIXTURE_COHORT}
+            return {"cohort": _mixture_label(recipes)}
         case unreachable:
             assert_never(unreachable)
 
 
-def _decode_cohort(payload: Mapping[str, Any]) -> Cohort:
+def _mixture_label(recipes: tuple[RhsRecipe, ...]) -> str:
+    return mixture_label(recipe_key(recipe) for recipe in recipes)
+
+
+def _decode_cohort(payload: Mapping[str, Any], recipes: tuple[RhsRecipe, ...]) -> Cohort:
     match payload.get("cohort"):
         case None:
             return WholeGroup()
-        case str(name) if name == MIXTURE_COHORT:
+        case str(label) if label == _mixture_label(recipes):
             return MixtureCohort()
-        case str(key):
-            return RecipeCohort(parse_recipe_key(key))
         case other:
             raise InvalidFigureCardError(
-                InvalidFigureCardReason.COHORT_NOT_A_NAME,
-                f"figure card cohort is not a name: {other!r}",
+                InvalidFigureCardReason.COHORT_NOT_THE_MIXTURE,
+                f"figure card cohort is not the mixture of its recipes: {other!r}",
             )
 
 
@@ -525,7 +524,7 @@ def _group_payload(metadata: GroupFigureMetadata) -> dict[str, Any]:
     """The fields only a group figure records: what it summarizes and the evidence under it."""
     return {
         "failure_treatment": metadata.failure_treatment.value,
-        **_encode_cohort(metadata.cohort),
+        **_encode_cohort(metadata.cohort, metadata.recipes),
         "metric": metadata.metric.value,
         "population": metadata.population.value,
         "statistic": metadata.statistic.value,
@@ -670,9 +669,10 @@ def _decode_group_metadata(kind: FigureKind, payload: Mapping[str, Any]) -> Grou
         ),
         "group document",
     )
+    common = _common_fields(kind, payload)
     return GroupFigureMetadata(
-        **_common_fields(kind, payload),
-        cohort=_decode_cohort(payload),
+        **common,
+        cohort=_decode_cohort(payload, common["recipes"]),
         interval=_decode_interval(payload["interval"]),
         setup_sharing=_decode_setup_sharing(payload),
         outcome_counts=tuple(

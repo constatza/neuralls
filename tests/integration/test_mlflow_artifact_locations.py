@@ -452,17 +452,18 @@ def test_comparison_logs_artifacts_to_mlflow_with_sqlite(
     root_names = group_artifacts(report_id)
     assert "figure_manifest.toml" not in root_names
     assert {
-        "workload_solve_bars_All_comparison_matrix_sets.png",
-        "workload_online_bars_All_comparison_matrix_sets.png",
-        "full_cost_breakdown_All_comparison_matrix_sets.png",
+        "ecdf_iterations_All_comparison_matrix_sets__mixture.png",
+        "performance_profile_solve_All_comparison_matrix_sets__mixture.png",
     } <= set(root_names)
+    assert not any(name.startswith("workload_") for name in root_names)
     assert {
-        "workload_solve_bars_Comparison_matrix_set_Test_problem_Ones_Solutions_N_1.png",
-        "workload_online_bars_Comparison_matrix_set_Test_problem_Ones_Solutions_N_1.png",
-        "full_cost_breakdown_Comparison_matrix_set_Test_problem_Ones_Solutions_N_1.png",
+        "ecdf_iterations_Comparison_matrix_set_Test_problem_Ones_Solutions_N_1__mixture.png",
+        "performance_profile_solve_Comparison_matrix_set_Test_problem_Ones_Solutions_N_1__mixture.png",
     } <= set(group_artifacts(matrix_set_id))
     recipe_stem = "Comparison_matrix_set_Test_problem_Ones_Solutions_N_1_-_Gaussian"
     assert {
+        f"workload_solve_bars_{recipe_stem}.png",
+        f"full_cost_breakdown_{recipe_stem}.png",
         f"performance_profile_solve_{recipe_stem}.png",
         f"performance_profile_online_{recipe_stem}.png",
         f"ecdf_iterations_{recipe_stem}.png",

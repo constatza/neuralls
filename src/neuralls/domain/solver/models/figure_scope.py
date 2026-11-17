@@ -58,8 +58,7 @@ class SystemScope:
 
 
 type GroupScope = RecipeScope | DatasetScope | AllDatasetsScope
-"""What one report group pools; a matrix-set or all-matrix-sets group of two or more recipes is a
-mixture."""
+"""What one report group pools; a matrix-set or all-matrix-sets group is a mixture."""
 
 type FigureScope = GroupScope | MethodScope | SystemScope
 """What a figure is about."""

@@ -114,10 +114,11 @@ group's first setup. Every `GroupAggregated` report carries `observations`, the 
 all-methods observation view (`classify_level` receives the view of the whole workload and keeps the
 rows of the group's systems): a `RecipeProfileReport` holds its one recipe's rows, a
 `WorkloadMixtureReport` the pooled rows of every recipe it names. The recipe-versus-mixture split
-only gates which figure kinds apply: the break-even curve and the matrix heatmap need one
-recipe, while the ECDFs, performance profiles, pairings and speed ratios are also computed on a
-mixture's pooled `observations` (every function is keyed by `(dataset, system_id)`, and system
-ids are unique per session, so recipes cannot collide). Failed attempts keep their measured time in the observation frame and in
+gates which figure kinds apply: a raw-scale aggregate (mean, sum, quantile, convergence factor,
+break-even, heatmap, full cost) needs one recipe on one matrix set, because pooled it would depend
+on the mixing weights, while the scale-free ECDFs, performance profiles, pairings and speed ratios
+are also computed on a mixture's pooled `observations` (every function is keyed by
+`(dataset, system_id)`, and system ids are unique per session, so recipes cannot collide). Failed attempts keep their measured time in the observation frame and in
 workload totals, and every per-system metric excludes them through `select`.
 
 ## Observation view and metric catalog
@@ -237,15 +238,14 @@ $\Theta_p = \sum_{s \in \mathcal{P}_p} t^{\mathrm{solve}}_{p,s} / \sum_{s \in \m
 which weighs every iteration the same, unlike the mean of $\theta_{p,s}$ that lets many short solves
 (whose fixed per-solve overhead inflates their rate) outvote a few long ones; the sums and ratio are
 null when the method has no such system.
-`reporting/cohorts.py::by_cohort(obs, statistic, rows, schema=...)` splits any per-method statistic
-by RHS recipe: one block of `statistic`'s rows per recipe of `obs` (in order of first appearance,
-each computed on that recipe's systems only, so `Population.COMMON` is taken within the recipe),
-behind a leading `cohort` column holding the recipe's lossless key; with
-`CohortRows.RECIPES_AND_MIXTURE` a last block is `statistic` of the whole of `obs`, labelled
-`MIXTURE_COHORT` (`"mixture"`, never a recipe key). A figure draws one block: `Cohort`
-(`WholeGroup | RecipeCohort | MixtureCohort`) names it, `cohort_rows` / `cohort_observations`
-select its rows of a cohort table and of the observations behind it, and `single_cohort` rejects a
-table holding several. `COHORT_SUMMARY_SCHEMA` and
+`reporting/cohorts.py::by_cohort(obs, statistic, schema=...)` labels any per-method statistic by
+RHS recipe: one block of `statistic`'s rows per recipe of `obs` (each computed on that recipe's
+systems only, so `Population.COMMON` is taken within the recipe), behind a leading `cohort` column
+holding the recipe's lossless key. It is drawn only at the matrix-set-and-RHS-type level, so a
+stored table holds one block, and `single_cohort` rejects a table holding several. `Cohort`
+(`WholeGroup | MixtureCohort`) says whether a figure draws one class or pools a mixture level's
+systems, and `mixture_label` is how a pooled figure names itself ("equal-weight mixture of …":
+each pair counts once). `COHORT_SUMMARY_SCHEMA` and
 `COHORT_RATIO_OF_SUMS_SCHEMA` are `cohort_schema` of `SUMMARY_SCHEMA` and `RATIO_OF_SUMS_SCHEMA`.
 `reporting/matrix_breakdown.py::matrix_breakdown(obs, metric)` keeps each matrix apart: one
 `MATRIX_BREAKDOWN_SCHEMA` row per method and planned matrix (`method`, `metric`, `dataset`,
@@ -372,8 +372,9 @@ failures remain in the denominator and are never assigned a penalty time. An
 **empirical cumulative distribution function (ECDF)** shows the fraction of
 planned systems solved within an absolute time budget. A **Dolan--Moré
 performance profile** instead shows the fraction within a factor of the
-fastest method on each system. Profiles are emitted only for one homogeneous
-recipe; heterogeneous recipes are reported as workload mixtures.
+fastest method on each system. Both are scale-free per-pair views, so they are also drawn pooled
+over a mixture level, labelled an equal-weight mixture of its recipes; raw-scale aggregates are
+drawn only for one recipe on one matrix set.
 
 Every planned system ends in exactly one **outcome** (`reporting/observations.py::Outcome`).
 `solve_outcome` / `solve_outcome_expr` derive it from the stored `solve_status` and

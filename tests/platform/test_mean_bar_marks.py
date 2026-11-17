@@ -10,21 +10,14 @@ import polars as pl
 import pytest
 from polars.testing import assert_frame_equal
 from tests.figure_support import no_offline_cost
-from tests.recipe_support import GAUSSIAN, SINE
 
 from neuralls.domain.solver.models.group_outcomes import (
     RecipeProfileReport,
     WorkloadMixtureReport,
 )
-from neuralls.domain.solver.reporting.cohorts import (
-    MixtureCohort,
-    NotOneCohortError,
-    RecipeCohort,
-    cohort_observations,
-    cohort_rows,
-)
+from neuralls.domain.solver.reporting.cohorts import NotOneCohortError, by_cohort
 from neuralls.domain.solver.reporting.metrics import MetricId
-from neuralls.domain.solver.reporting.summary import Population, select
+from neuralls.domain.solver.reporting.summary import SUMMARY_SCHEMA, Population, select, summarize
 from neuralls.platform.reporting.cohort_points import panel_points
 from neuralls.platform.reporting.figure_metadata import Statistic
 from neuralls.platform.reporting.figure_summaries import figure_summaries
@@ -38,7 +31,6 @@ from neuralls.platform.reporting.seaborn_means import (
     bar_panel,
     defined_label,
 )
-from neuralls.shared.rhs_recipe import recipe_key
 from neuralls.shared.types import PreconditionerName
 
 AMG = PreconditionerName("amg")
@@ -127,64 +119,43 @@ def test_time_per_iteration_bars_are_the_ratio_of_sums_without_a_whisker(
     assert _bars(panel)[AMG].height == Bar(_row(summary, AMG)["ratio_of_sums"], NoWhisker())
 
 
-def test_each_cohort_of_a_mixture_is_its_own_panel(
-    two_recipe_mixture_report: WorkloadMixtureReport,
-) -> None:
-    summary = figure_summaries(
-        two_recipe_mixture_report, no_offline_cost(two_recipe_mixture_report)
-    )["iteration_means"]
-
-    panels = [
-        bar_panel(cohort_rows(summary, cohort), Statistic.MEAN_OVER_SYSTEMS)
-        for cohort in (RecipeCohort(GAUSSIAN), RecipeCohort(SINE), MixtureCohort())
-    ]
-
-    assert [panel.cohort for panel in panels] == [recipe_key(GAUSSIAN), recipe_key(SINE), "mixture"]
-    # amg converged on four systems of the Gaussian matrices and none of the second recipe
-    assert [_bars(panel)[AMG].n_defined for panel in panels] == [4, 0, 4]
-
-
 def test_a_panel_of_several_cohorts_is_rejected(
     two_recipe_mixture_report: WorkloadMixtureReport,
 ) -> None:
-    summary = figure_summaries(
-        two_recipe_mixture_report, no_offline_cost(two_recipe_mixture_report)
-    )["iteration_means"]
+    summary = by_cohort(
+        two_recipe_mixture_report.observations,
+        lambda frame: summarize(frame, MetricId.ITERATIONS, Population.OWN),
+        schema=SUMMARY_SCHEMA,
+    )
 
     with pytest.raises(NotOneCohortError):
         bar_panel(summary, Statistic.MEAN_OVER_SYSTEMS)
 
 
-def test_a_panel_states_the_population_of_its_rows(
-    two_recipe_mixture_report: WorkloadMixtureReport,
-) -> None:
-    summary = figure_summaries(
-        two_recipe_mixture_report, no_offline_cost(two_recipe_mixture_report)
-    )["time_means_solve_common"]
+def test_a_panel_states_the_population_of_its_rows(profile_report: RecipeProfileReport) -> None:
+    summary = figure_summaries(profile_report, no_offline_cost(profile_report))[
+        "time_means_solve_common"
+    ]
 
-    panel = bar_panel(cohort_rows(summary, MixtureCohort()), Statistic.MEAN_OVER_SYSTEMS)
+    panel = bar_panel(summary, Statistic.MEAN_OVER_SYSTEMS)
 
     assert panel.population == Population.COMMON
 
 
-def test_time_per_iteration_points_are_each_recipes_systems_with_an_iterate(
-    two_recipe_mixture_report: WorkloadMixtureReport,
+def test_time_per_iteration_points_are_the_systems_with_an_iterate(
+    profile_report: RecipeProfileReport,
 ) -> None:
-    observations = two_recipe_mixture_report.observations
-    summary = figure_summaries(
-        two_recipe_mixture_report, no_offline_cost(two_recipe_mixture_report)
-    )["time_per_iteration"]
-    cohort = RecipeCohort(GAUSSIAN)
-    first = bar_panel(cohort_rows(summary, cohort), Statistic.RATIO_OF_SUMS)
+    observations = profile_report.observations
+    summary = figure_summaries(profile_report, no_offline_cost(profile_report))[
+        "time_per_iteration"
+    ]
 
     points = panel_points(
-        cohort_observations(observations, cohort), first, MetricId.TIME_PER_ITERATION_S
+        observations, bar_panel(summary, Statistic.RATIO_OF_SUMS), MetricId.TIME_PER_ITERATION_S
     )
 
-    expected = (
-        select(observations, MetricId.TIME_PER_ITERATION_S, Population.OWN)
-        .filter(pl.col("recipe") == recipe_key(GAUSSIAN))
-        .select("method", value="time_per_iteration_s")
+    expected = select(observations, MetricId.TIME_PER_ITERATION_S, Population.OWN).select(
+        "method", value="time_per_iteration_s"
     )
     assert_frame_equal(points, expected)
 

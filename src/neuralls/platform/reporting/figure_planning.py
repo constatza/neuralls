@@ -25,11 +25,7 @@ from neuralls.domain.solver.reporting.report_levels import (
 from neuralls.platform.reporting.benchmark_events import (
     MethodBenchmarkArtifacts,
 )
-from neuralls.platform.reporting.cohort_variants import (
-    cohort_level,
-    cohort_report,
-    cohort_variants,
-)
+from neuralls.platform.reporting.cohort_variants import cohort_level, cohort_variants
 from neuralls.platform.reporting.figure_evidence import (
     FigureInterval,
     NotDrawnByKind,
@@ -96,9 +92,8 @@ def figure_plans(
 ) -> tuple[FigurePlan[GroupFigureMetadata], ...]:
     """Build every figure's scientific context before drawing.
 
-    ``stored`` holds the method run of each method ``presentation`` lists. A variant drawn per
-    cohort is planned once per cohort the report's level gives a figure (``cohort_variants.py``),
-    each with its own stem, card and table.
+    ``stored`` holds the method run of each method ``presentation`` lists. A variant is planned
+    with the cohort and stem suffix its report level gives it (``cohort_variants.py``).
     """
     level = cohort_level(outcome.label)
     reference = reference_among_methods(outcome.observations, outcome.reference_selection)
@@ -112,7 +107,7 @@ def figure_plans(
             stem_suffix=cohort_variant.stem_suffix,
         )
         for recipe, variant in drawn_variants(outcome, reference)
-        for cohort_variant in cohort_variants(recipe.table, level, outcome.recipe_membership)
+        for cohort_variant in cohort_variants(recipe.table, level)
     )
 
 
@@ -120,13 +115,11 @@ def _figure_metadata(
     recipe: GroupFigureRecipe,
     variant: FigureVariant,
     cohort: Cohort,
-    group: GroupReport,
+    outcome: GroupReport,
     compared_to: PreconditionerName | None,
     presentation: GroupPresentation,
     stored: Mapping[PreconditionerName, StoredMethod],
 ) -> GroupFigureMetadata:
-    # The evidence under a cohort's figure comes from the systems it draws, not the whole group.
-    outcome = cohort_report(group, cohort)
     dataset_ids = tuple(outcome.dataset_membership)
     recipes = outcome.recipe_membership
     weights = tuple(count / outcome.n_planned_rhs for count in outcome.recipe_counts)

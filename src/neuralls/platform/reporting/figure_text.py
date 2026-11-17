@@ -9,7 +9,7 @@ ever dropped to fit.
 from __future__ import annotations
 
 import math
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from enum import StrEnum
 from typing import Literal, assert_never
@@ -28,8 +28,8 @@ from neuralls.domain.solver.models.figure_scope import FigureScope, render_figur
 from neuralls.domain.solver.reporting.cohorts import (
     Cohort,
     MixtureCohort,
-    RecipeCohort,
     WholeGroup,
+    mixture_label,
 )
 from neuralls.platform.reporting.figure_evidence import (
     NoSharedSetup,
@@ -37,6 +37,7 @@ from neuralls.platform.reporting.figure_evidence import (
     SetupSharing,
 )
 from neuralls.platform.tracking.run_names import render_training_label
+from neuralls.shared.rhs_recipe import RhsRecipe
 from neuralls.shared.scientific_description.policy import (
     LEGEND_PROFILE,
     LOG_PROFILE,
@@ -316,22 +317,20 @@ MAX_LISTED_RHS_COUNTS = 4
 """Most distinct r_m values listed one by one; more are stated as their range."""
 
 
-MIXTURE_NOTE = "Mixture of recipes: pooled over every right-hand-side recipe of the scope"
-"""What a figure pooled over the recipes of a mixture says about itself."""
+def cohort_note(
+    cohort: Cohort, recipes: Sequence[RhsRecipe], notation: NotationPolicy
+) -> str | None:
+    """The line naming the mixture a pooled figure draws, over ``recipes``; ``None`` for a class.
 
-
-def cohort_note(cohort: Cohort, notation: NotationPolicy) -> str | None:
-    """The line naming the recipe, or the mixture, a cohort figure draws; ``None`` for the rest.
-
-    A figure of the whole group needs none: its scope already names what it draws.
+    A class-level figure needs none: its scope already names its one recipe.
     """
     match cohort:
         case WholeGroup():
             return None
-        case RecipeCohort(recipe=recipe):
-            return f"RHS recipe: {render_recipe(recipe, TITLE_PROFILE, notation)}"
         case MixtureCohort():
-            return MIXTURE_NOTE
+            return mixture_label(
+                render_recipe(recipe, TITLE_PROFILE, notation) for recipe in recipes
+            )
         case unreachable:
             assert_never(unreachable)
 

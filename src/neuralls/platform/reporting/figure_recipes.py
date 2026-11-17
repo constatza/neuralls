@@ -6,16 +6,13 @@ from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from typing import assert_never
 
-from neuralls.domain.solver.models.group_outcomes import (
-    GroupReport,
-    RecipeProfileReport,
-    WorkloadMixtureReport,
-)
+from neuralls.domain.solver.models.group_outcomes import GroupReport
 from neuralls.domain.solver.reporting.metrics import METRICS, MetricId
 from neuralls.domain.solver.reporting.summary import (
     Population,
 )
 from neuralls.platform.reporting import group_drawers
+from neuralls.platform.reporting.cohort_variants import cohort_level, cohort_variants
 from neuralls.platform.reporting.figure_metadata import (
     FailureTreatment,
     FigureKind,
@@ -78,24 +75,17 @@ class NotAHistoryKindError(LookupError):
     """A history figure was asked for by a kind drawn from a group report."""
 
 
-_BOTH: tuple[type[GroupReport], ...] = (RecipeProfileReport, WorkloadMixtureReport)
-_PROFILE: tuple[type[GroupReport], ...] = (RecipeProfileReport,)
-"""Kinds whose figure has no meaning pooled over recipes: a cumulative-cost curve is one
-recipe's per-matrix setup against its per-RHS solve, and a heatmap cell is one matrix."""
-
-
 @dataclass(frozen=True, slots=True)
 class GroupFigureRecipe:
     """Everything fixed about a group figure kind.
 
     ``draw`` is the drawer of every variant, ``table`` the kind of table stored beside each
-    figure, ``applies_to`` the group report types the kind is planned for.
+    figure, which also decides the report levels the kind is drawn at (``cohort_variants.py``).
     """
 
     kind: FigureKind
     variants: tuple[FigureVariant, ...]
     failure_treatment: FailureTreatment
-    applies_to: tuple[type[GroupReport], ...]
     draw: GroupDrawer
     table: TableKind
 
@@ -217,7 +207,6 @@ FIGURE_RECIPES: Mapping[FigureKind, FigureRecipe] = {
                 ),
             ),
             FailureTreatment.NONE,
-            _BOTH,
             group_drawers.workload_bars,
             TableKind.WORKLOAD,
         ),
@@ -245,7 +234,6 @@ FIGURE_RECIPES: Mapping[FigureKind, FigureRecipe] = {
                 ),
             ),
             FailureTreatment.NONE,
-            _BOTH,
             group_drawers.workload_bars,
             TableKind.WORKLOAD,
         ),
@@ -264,7 +252,6 @@ FIGURE_RECIPES: Mapping[FigureKind, FigureRecipe] = {
                 for time in _ONLINE_TIMES
             ),
             FailureTreatment.CENSORED,
-            _BOTH,
             group_drawers.paired_time_scatter,
             TableKind.PAIRED,
         ),
@@ -282,7 +269,6 @@ FIGURE_RECIPES: Mapping[FigureKind, FigureRecipe] = {
                 for time in _ONLINE_TIMES
             ),
             FailureTreatment.OMITTED,
-            _BOTH,
             group_drawers.speed_ratio_cdf,
             TableKind.SPEED_RATIO,
         ),
@@ -300,7 +286,6 @@ FIGURE_RECIPES: Mapping[FigureKind, FigureRecipe] = {
                 for time in _TIMES
             ),
             FailureTreatment.CENSORED,
-            _BOTH,
             group_drawers.performance_profile,
             TableKind.SERIES,
         ),
@@ -317,7 +302,6 @@ FIGURE_RECIPES: Mapping[FigureKind, FigureRecipe] = {
                 ),
             ),
             FailureTreatment.CENSORED,
-            _BOTH,
             group_drawers.ecdf_iterations,
             TableKind.SERIES,
         ),
@@ -335,7 +319,6 @@ FIGURE_RECIPES: Mapping[FigureKind, FigureRecipe] = {
                 for time in _TIMES
             ),
             FailureTreatment.CENSORED,
-            _BOTH,
             group_drawers.ecdf_time,
             TableKind.SERIES,
         ),
@@ -353,7 +336,6 @@ FIGURE_RECIPES: Mapping[FigureKind, FigureRecipe] = {
                 ),
             ),
             FailureTreatment.OMITTED,
-            _PROFILE,
             group_drawers.break_even,
             TableKind.COST_CURVES,
         ),
@@ -371,7 +353,6 @@ FIGURE_RECIPES: Mapping[FigureKind, FigureRecipe] = {
                 ),
             ),
             FailureTreatment.OMITTED,
-            _BOTH,
             group_drawers.convergence_factors,
             TableKind.COHORT_SUMMARY,
         ),
@@ -387,7 +368,6 @@ FIGURE_RECIPES: Mapping[FigureKind, FigureRecipe] = {
                 ),
             ),
             FailureTreatment.OMITTED,
-            _BOTH,
             group_drawers.mean_over_systems_bars,
             TableKind.COHORT_SUMMARY,
         ),
@@ -405,7 +385,6 @@ FIGURE_RECIPES: Mapping[FigureKind, FigureRecipe] = {
                 for population in Population
             ),
             FailureTreatment.OMITTED,
-            _BOTH,
             group_drawers.mean_over_systems_bars,
             TableKind.COHORT_SUMMARY,
         ),
@@ -421,7 +400,6 @@ FIGURE_RECIPES: Mapping[FigureKind, FigureRecipe] = {
                 ),
             ),
             FailureTreatment.OMITTED,
-            _BOTH,
             group_drawers.mean_over_matrices_bars,
             TableKind.COHORT_SUMMARY,
         ),
@@ -437,7 +415,6 @@ FIGURE_RECIPES: Mapping[FigureKind, FigureRecipe] = {
                 ),
             ),
             FailureTreatment.OMITTED,
-            _BOTH,
             group_drawers.time_per_iteration,
             TableKind.COHORT_RATIO_OF_SUMS,
         ),
@@ -445,7 +422,6 @@ FIGURE_RECIPES: Mapping[FigureKind, FigureRecipe] = {
             FigureKind.ITERATION_DISTRIBUTION,
             (_distribution_variant("iteration_distribution", "Iteration", MetricId.ITERATIONS),),
             FailureTreatment.OMITTED,
-            _BOTH,
             group_drawers.distribution,
             TableKind.COHORT_SUMMARY,
         ),
@@ -456,7 +432,6 @@ FIGURE_RECIPES: Mapping[FigureKind, FigureRecipe] = {
                 for time in _TIMES
             ),
             FailureTreatment.OMITTED,
-            _BOTH,
             group_drawers.distribution,
             TableKind.COHORT_SUMMARY,
         ),
@@ -475,9 +450,6 @@ FIGURE_RECIPES: Mapping[FigureKind, FigureRecipe] = {
                 ),
             ),
             FailureTreatment.OMITTED,
-            # A mixture level would pool recipes inside a matrix's cell; the recipe levels below
-            # it already draw every matrix once per recipe.
-            _PROFILE,
             group_drawers.matrix_heatmap,
             TableKind.MATRIX_BREAKDOWN,
         ),
@@ -499,7 +471,6 @@ FIGURE_RECIPES: Mapping[FigureKind, FigureRecipe] = {
                 ),
             ),
             FailureTreatment.NONE,
-            _BOTH,
             group_drawers.full_cost_breakdown,
             TableKind.FULL_COST_BREAKDOWN,
         ),
@@ -577,11 +548,14 @@ def drawn_variants(
 ) -> Iterator[tuple[GroupFigureRecipe, FigureVariant]]:
     """Every group figure ``report`` gets, in registry order, with the recipe it belongs to.
 
-    ``reference`` is the group's reference among its methods (``reference_among_methods``); with
-    none, a figure that compares against it is not drawn, so it is neither planned nor summarized.
+    A kind its report level does not draw (``cohort_variants``: a raw-scale aggregate at a mixture
+    level) is skipped. ``reference`` is the group's reference among its methods
+    (``reference_among_methods``); with none, a figure that compares against it is not drawn, so
+    it is neither planned nor summarized.
     """
+    level = cohort_level(report.label)
     for recipe in group_recipes():
-        if not isinstance(report, recipe.applies_to):
+        if not cohort_variants(recipe.table, level):
             continue
         for variant in recipe.variants:
             if reference is None and compares_to_reference(variant.statistic):

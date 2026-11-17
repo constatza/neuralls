@@ -7,8 +7,8 @@ inside it. The "k/n" annotation above a column and the median tick come from the
 the figure's cohort summary table. Seaborn's box recomputes the quantiles from the systems with
 linear interpolation, which is the interpolation of the table, so the two agree (a test pins it).
 A whisker ends on the most extreme system inside q05 to q95 (matplotlib clips it to a data point), a distribution summary and not a confidence interval. The violin density,
-the beeswarm and the per-matrix mean points have no table counterpart and are not persisted. At a
-mixture level each cohort has its own figure, as for the mean bars (``seaborn_means.py``).
+the beeswarm and the per-matrix mean points have no table counterpart and are not persisted. A
+distribution is drawn at the class level only, as for the mean bars (``seaborn_means.py``).
 
 A heatmap's cells are the rows of its matrix breakdown: seaborn colours them from the pivoted
 breakdown, and each cell's annotation, or the hatching and "0/r solved" of a cell where nothing
@@ -115,7 +115,7 @@ class DistributionPanel:
 
 
 def distribution_panel(summary: pl.DataFrame) -> DistributionPanel:
-    """The panel of the one cohort ``summary`` holds, a recipe's or the pooled mixture's."""
+    """The panel of the one recipe ``summary`` holds."""
     return _panel(single_cohort(summary), summary)
 
 

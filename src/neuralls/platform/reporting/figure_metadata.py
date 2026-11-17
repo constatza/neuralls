@@ -81,8 +81,9 @@ class TableKind(StrEnum):
     method, ``SERIES`` the points of a step curve, ``SPEED_RATIO`` one row of ratio statistics per
     compared method, ``WORKLOAD`` one row of workload sums per method and ``COST_CURVES``
     the cumulative cost of each side of a method/reference pair by RHS count.
-    ``COHORT_SUMMARY`` and ``COHORT_RATIO_OF_SUMS`` hold per-method statistics by cohort: one block
-    per recipe, and at a mixture level the pooled block too (``domain/solver/reporting/cohorts.py``).
+    ``COHORT_SUMMARY`` and ``COHORT_RATIO_OF_SUMS`` hold per-method statistics behind a
+    ``cohort`` column naming the one recipe of the class-level report they are drawn at
+    (``domain/solver/reporting/cohorts.py``).
     ``MATRIX_BREAKDOWN`` holds one row per method and matrix, exactly the cells of a heatmap.
     ``FULL_COST_BREAKDOWN`` holds one row per method: its offline stages beside its online
     workload sums.
@@ -306,9 +307,8 @@ class GroupFigureMetadata(_FigureContext):
     the ``interval`` drawn, the right-hand-side counts the metric divides setup over, how many
     systems each method has in each outcome, how reliable the times are, and how many systems a
     performance profile left out because the best value on them is 0 (``excluded_zero_best``, 0 for
-    every other statistic). ``cohort`` says which
-    recipes' systems the figure draws; the counts, evidence and ``recipes`` of a recipe cohort
-    describe that recipe alone, while ``scope`` stays the report group's.
+    every other statistic). ``cohort`` says whether the figure draws one class or pools a
+    mixture of ``recipes`` (``platform/reporting/cohort_variants.py``).
     """
 
     cohort: Cohort

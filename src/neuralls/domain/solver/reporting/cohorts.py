@@ -1,66 +1,47 @@
-"""Per-method statistics split by RHS recipe, with the pooled rows of a mixture beside them.
+"""Per-method statistics of a class-level report, labelled by the RHS recipe they summarize.
 
-A report level that pools several recipes is a mixture: its pooled numbers hide how the recipes
-differ, so the table keeps one block per recipe and the block pooled over them all, labelled
-``MIXTURE_COHORT``. A *cohort* is the block of rows of one recipe, or that pooled block; the
-``cohort`` column names it with the recipe's lossless key (``shared/rhs_recipe.py``), which never
-equals ``MIXTURE_COHORT``. Every statistic keeps its own schema behind the ``cohort`` column, so
-one table holds exactly what each cohort's figure draws. ``Cohort`` says which block a figure
-draws and ``cohort_rows`` / ``cohort_observations`` select that block of a table and of the
-observations behind it.
+Raw-scale statistics (means, quantiles, ratios of sums) are drawn only at the
+matrix-set-and-RHS-type level, so a table holds the block of its one recipe; the ``cohort``
+column names it with the recipe's lossless key (``shared/rhs_recipe.py``). Every statistic keeps
+its own schema behind the ``cohort`` column. ``Cohort`` says what a figure draws: the whole
+class-level group, or every system of a mixture level pooled with equal weight per pair.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
-from enum import StrEnum
-from typing import assert_never
 
 import polars as pl
 
 from neuralls.domain.solver.reporting.summary import RATIO_OF_SUMS_SCHEMA, SUMMARY_SCHEMA
-from neuralls.shared.rhs_recipe import RhsRecipe, recipe_key
 
 type Schema = Mapping[str, pl.DataType | type[pl.DataType]]
 
 COHORT_COLUMN = "cohort"
-MIXTURE_COHORT = "mixture"
-"""The cohort of the rows pooled over every recipe of a mixture level."""
 
 
 @dataclass(frozen=True, slots=True)
 class WholeGroup:
-    """The figure is not split by cohort: it draws the whole report group, or its only recipe."""
-
-
-@dataclass(frozen=True, slots=True)
-class RecipeCohort:
-    """The figure draws the systems of one recipe of a mixture."""
-
-    recipe: RhsRecipe
+    """The figure draws the whole class-level group: one matrix set and one RHS recipe."""
 
 
 @dataclass(frozen=True, slots=True)
 class MixtureCohort:
-    """The figure draws the systems pooled over every recipe of a mixture."""
+    """The figure draws every system of a mixture level pooled, each pair weighted equally."""
 
 
-type Cohort = WholeGroup | RecipeCohort | MixtureCohort
-"""Which block of a cohort table a figure draws."""
+type Cohort = WholeGroup | MixtureCohort
+"""What a figure draws: one class, or a mixture of classes or matrix sets."""
+
+
+def mixture_label(recipe_names: Iterable[str]) -> str:
+    """How a figure pooled over a mixture names itself: each pair counts once, whatever its class."""
+    return f"equal-weight mixture of {', '.join(recipe_names)}"
 
 
 class NotOneCohortError(ValueError):
     """A figure was given a table holding no cohort, or several, where it draws exactly one."""
-
-
-class CohortRows(StrEnum):
-    """Which cohorts a table holds, decided by whether its report level pools recipes."""
-
-    RECIPES = "recipes"
-    """One block per recipe; a single-recipe level, whose pooled rows would repeat its block."""
-    RECIPES_AND_MIXTURE = "recipes_and_mixture"
-    """One block per recipe, then the block pooled over all of them."""
 
 
 def cohort_schema(schema: Schema) -> dict[str, pl.DataType | type[pl.DataType]]:
@@ -75,7 +56,6 @@ COHORT_RATIO_OF_SUMS_SCHEMA = cohort_schema(RATIO_OF_SUMS_SCHEMA)
 def by_cohort(
     obs: pl.DataFrame,
     statistic: Callable[[pl.DataFrame], pl.DataFrame],
-    rows: CohortRows,
     *,
     schema: Schema,
 ) -> pl.DataFrame:
@@ -87,42 +67,11 @@ def by_cohort(
     """
     recipes = obs["recipe"].unique(maintain_order=True).to_list()
     blocks = [_labelled(statistic(obs.filter(pl.col("recipe") == key)), key) for key in recipes]
-    match rows:
-        case CohortRows.RECIPES:
-            pass
-        case CohortRows.RECIPES_AND_MIXTURE:
-            blocks.append(_labelled(statistic(obs), MIXTURE_COHORT))
-        case unreachable:
-            assert_never(unreachable)
     return pl.concat([pl.DataFrame(schema=cohort_schema(schema)), *blocks], how="vertical")
 
 
 def _labelled(frame: pl.DataFrame, cohort: str) -> pl.DataFrame:
     return frame.select(pl.lit(cohort).alias(COHORT_COLUMN), pl.all())
-
-
-def cohort_rows(table: pl.DataFrame, cohort: Cohort) -> pl.DataFrame:
-    """The rows of the cohort table ``table`` that ``cohort`` draws."""
-    match cohort:
-        case WholeGroup():
-            return table
-        case RecipeCohort(recipe=recipe):
-            return table.filter(pl.col(COHORT_COLUMN) == recipe_key(recipe))
-        case MixtureCohort():
-            return table.filter(pl.col(COHORT_COLUMN) == MIXTURE_COHORT)
-        case unreachable:
-            assert_never(unreachable)
-
-
-def cohort_observations(observations: pl.DataFrame, cohort: Cohort) -> pl.DataFrame:
-    """The observation rows behind ``cohort``: its recipe's systems, or all of them when pooled."""
-    match cohort:
-        case WholeGroup() | MixtureCohort():
-            return observations
-        case RecipeCohort(recipe=recipe):
-            return observations.filter(pl.col("recipe") == recipe_key(recipe))
-        case unreachable:
-            assert_never(unreachable)
 
 
 def single_cohort(table: pl.DataFrame) -> str:

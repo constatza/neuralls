@@ -25,8 +25,8 @@ def cohort_systems(
 ) -> pl.DataFrame:
     """The rows of ``observations`` that define ``metric`` for the population of ``panel``.
 
-    ``observations`` are those of the panel's cohort already (``cohort_observations``), so the
-    recipe is not filtered again here.
+    ``observations`` are those of the class-level group, the one recipe of the panel, so the
+    recipe is not filtered here.
     """
     return select(observations, metric, panel.population)
 

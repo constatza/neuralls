@@ -23,7 +23,6 @@ from neuralls.domain.solver.models.group_outcomes import RecipeProfileReport
 from neuralls.domain.solver.reporting.cohorts import (
     COHORT_RATIO_OF_SUMS_SCHEMA,
     COHORT_SUMMARY_SCHEMA,
-    CohortRows,
     by_cohort,
 )
 from neuralls.domain.solver.reporting.matrix_breakdown import (
@@ -73,13 +72,11 @@ def table_frames(profile_report: RecipeProfileReport) -> dict[str, pl.DataFrame]
         "COHORT_SUMMARY": by_cohort(
             observations,
             lambda frame: summarize(frame, MetricId.SOLVE_S, Population.OWN),
-            CohortRows.RECIPES_AND_MIXTURE,
             schema=SUMMARY_SCHEMA,
         ),
         "COHORT_RATIO_OF_SUMS": by_cohort(
             observations,
             lambda frame: time_per_iteration_summary(frame, Population.OWN),
-            CohortRows.RECIPES,
             schema=RATIO_OF_SUMS_SCHEMA,
         ),
         "MATRIX_BREAKDOWN": matrix_breakdown(observations, MetricId.ITERATIONS),
@@ -155,7 +152,7 @@ def test_a_table_with_the_right_columns_but_other_types_is_rejected(
     [
         pytest.param(recipe.kind, variant.stem, id=variant.stem)
         for recipe in FIGURE_RECIPES.values()
-        if isinstance(recipe, GroupFigureRecipe) and RecipeProfileReport in recipe.applies_to
+        if isinstance(recipe, GroupFigureRecipe)
         for variant in recipe.variants
     ],
 )

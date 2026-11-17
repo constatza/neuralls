@@ -13,7 +13,7 @@ import polars as pl
 import pytest
 from polars.testing import assert_frame_equal
 from tests.figure_support import VARIANT_METRIC, no_offline_cost
-from tests.recipe_support import GAUSSIAN, SINE
+from tests.recipe_support import GAUSSIAN
 
 from neuralls.domain.benchmarking.cost_curves import break_even_curves
 from neuralls.domain.benchmarking.paired import (
@@ -37,8 +37,6 @@ from neuralls.domain.solver.models.group_outcomes import (
 from neuralls.domain.solver.models.group_presentation import GroupPresentation
 from neuralls.domain.solver.reporting.cohorts import (
     COHORT_COLUMN,
-    MIXTURE_COHORT,
-    CohortRows,
     by_cohort,
 )
 from neuralls.domain.solver.reporting.matrix_breakdown import matrix_breakdown
@@ -51,6 +49,7 @@ from neuralls.domain.solver.reporting.summary import (
     time_per_iteration_summary,
 )
 from neuralls.platform.reporting import figure_planning
+from neuralls.platform.reporting.cohort_variants import CohortSplit, cohort_split
 from neuralls.platform.reporting.figure_metadata import (
     GROUP_FIGURE_KINDS,
     TABLE_SCHEMAS,
@@ -90,7 +89,6 @@ def _recipe_summaries(
     return by_cohort(
         report.observations,
         lambda observations: summarize(observations, metric, population),
-        CohortRows.RECIPES,
         schema=SUMMARY_SCHEMA,
     )
 
@@ -98,19 +96,17 @@ def _recipe_summaries(
 type SummaryOf = Callable[[RecipeProfileReport], pl.DataFrame]
 
 
-def _variants_planned_for(
-    report_type: type[RecipeProfileReport | WorkloadMixtureReport],
-) -> list[tuple[FigureKind, FigureVariant]]:
-    return [
-        (recipe.kind, variant)
-        for recipe in FIGURE_RECIPES.values()
-        if isinstance(recipe, GroupFigureRecipe) and report_type in recipe.applies_to
-        for variant in recipe.variants
-    ]
-
-
-_PROFILE_VARIANTS = _variants_planned_for(RecipeProfileReport)
-_MIXTURE_VARIANTS = _variants_planned_for(WorkloadMixtureReport)
+_PROFILE_VARIANTS = [
+    (recipe.kind, variant)
+    for recipe in FIGURE_RECIPES.values()
+    if isinstance(recipe, GroupFigureRecipe)
+    for variant in recipe.variants
+]
+_MIXTURE_VARIANTS = [
+    (kind, variant)
+    for kind, variant in _PROFILE_VARIANTS
+    if cohort_split(group_recipe(kind).table) is CohortSplit.POOLED_AT_MIXTURE
+]
 _PROFILE_STEMS = {variant.stem for _, variant in _PROFILE_VARIANTS}
 _MIXTURE_STEMS = {variant.stem for _, variant in _MIXTURE_VARIANTS}
 
@@ -172,7 +168,6 @@ _EXPECTED_SUMMARY: dict[str, SummaryOf] = {
     "time_per_iteration": lambda report: by_cohort(
         report.observations,
         lambda observations: time_per_iteration_summary(observations, Population.OWN),
-        CohortRows.RECIPES,
         schema=RATIO_OF_SUMS_SCHEMA,
     ),
     "iteration_distribution": lambda report: _recipe_summaries(report, MetricId.ITERATIONS),
@@ -242,20 +237,10 @@ def test_a_variant_summary_is_the_domain_statistic_its_figure_draws(
     assert_frame_equal(summary, _EXPECTED_SUMMARY[stem](profile_report))
 
 
-@pytest.mark.parametrize("stem", ["workload_solve_bars", "workload_online_amortized_bars"])
-def test_a_mixture_report_summarizes_the_workload_totals_of_its_methods(
-    mixture_report: WorkloadMixtureReport, stem: str
-) -> None:
-    summary = figure_summaries(mixture_report, no_offline_cost(mixture_report))[stem]
-
-    assert_frame_equal(summary, build_group_table(mixture_report.summaries))
-
-
-@pytest.mark.parametrize("report_name", ["profile_report", "mixture_report"])
 def test_the_cost_breakdown_stacks_the_offline_cost_of_each_method_on_its_workload_totals(
-    request: pytest.FixtureRequest, report_name: str
+    profile_report: RecipeProfileReport,
 ) -> None:
-    report: RecipeProfileReport | WorkloadMixtureReport = request.getfixturevalue(report_name)
+    report = profile_report
     offline = {
         summary.method: OfflineStages(
             generation=TrainShareOfGeneration(
@@ -327,37 +312,9 @@ def test_a_variant_names_the_metric_it_summarizes(stem: str) -> None:
     assert variants[stem].metric is VARIANT_METRIC[stem]
 
 
-@pytest.mark.parametrize("stem", _MEAN_STEMS)
-def test_a_mixture_mean_table_holds_each_recipes_rows_and_the_pooled_mixture(
-    two_recipe_mixture_report: WorkloadMixtureReport, stem: str
+def test_a_recipe_reports_cohort_table_holds_its_one_recipe(
+    profile_report: RecipeProfileReport,
 ) -> None:
-    table = figure_summaries(two_recipe_mixture_report, no_offline_cost(two_recipe_mixture_report))[
-        stem
-    ]
-
-    assert table[COHORT_COLUMN].unique(maintain_order=True).to_list() == [
-        recipe_key(GAUSSIAN),
-        recipe_key(SINE),
-        MIXTURE_COHORT,
-    ]
-
-
-def test_the_pooled_rows_of_a_mixture_are_the_summary_of_every_recipe_together(
-    two_recipe_mixture_report: WorkloadMixtureReport,
-) -> None:
-    table = figure_summaries(two_recipe_mixture_report, no_offline_cost(two_recipe_mixture_report))[
-        "iteration_means"
-    ]
-
-    pooled = table.filter(pl.col(COHORT_COLUMN) == MIXTURE_COHORT).drop(COHORT_COLUMN)
-
-    assert_frame_equal(
-        pooled,
-        summarize(two_recipe_mixture_report.observations, MetricId.ITERATIONS, Population.OWN),
-    )
-
-
-def test_a_recipe_report_has_no_mixture_rows(profile_report: RecipeProfileReport) -> None:
     table = figure_summaries(profile_report, no_offline_cost(profile_report))["iteration_means"]
 
     assert table[COHORT_COLUMN].unique().to_list() == [recipe_key(GAUSSIAN)]

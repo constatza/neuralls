@@ -52,6 +52,7 @@ from neuralls.domain.solver.models.split_record import DatasetSplitRecord
 from neuralls.domain.solver.models.statistics import IterationStats
 from neuralls.domain.solver.models.system_provenance import SystemProvenance
 from neuralls.domain.solver.models.workload import CompleteWorkloadSummary
+from neuralls.domain.solver.reporting.cohorts import MixtureCohort
 from neuralls.domain.solver.reporting.event_frames import (
     CONVERGENCE_SCHEMA,
     SETUP_EVENT_SCHEMA,
@@ -430,7 +431,7 @@ _POOLED_STEMS = (
 """The profile, paired and speed-ratio figures, pooled over every system of a mixture."""
 
 
-def test_mixture_sink_pools_the_profiles_and_omits_the_recipe_level_figures(
+def test_mixture_sink_draws_only_the_pooled_scale_free_figures(
     group: GroupAggregated,
     presentation: GroupPresentation,
     sink: MLflowReportSink,
@@ -442,14 +443,7 @@ def test_mixture_sink_pools_the_profiles_and_omits_the_recipe_level_figures(
 
     key = _GROUP_FILE_STEM
     run = _scope_run(runs, writer, ReportLevelName.MATRIX_SET)
-    assert _figures(_artifacts(run)) == {
-        f"workload_solve_bars_{key}.png",
-        f"workload_online_bars_{key}.png",
-        f"workload_online_amortized_bars_{key}.png",
-        f"full_cost_breakdown_{key}.png",
-        *(f"{stem}_{key}__mixture.png" for stem in _COHORT_STEMS),
-        *(f"{stem}_{key}__mixture.png" for stem in _POOLED_STEMS),
-    }
+    assert _figures(_artifacts(run)) == {f"{stem}_{key}__mixture.png" for stem in _POOLED_STEMS}
 
 
 def test_mixture_figure_plans_use_literal_population_and_metric_semantics(
@@ -477,25 +471,16 @@ def test_mixture_figure_plans_use_literal_population_and_metric_semantics(
     )
 
     plans = figure_plans(mixture, presentation, "all", {})
-    online = next(plan for plan in plans if plan.stem.startswith("workload_online_amortized"))
-    solve = next(plan for plan in plans if plan.stem.startswith("workload_solve"))
+    online = next(plan for plan in plans if plan.stem.startswith("ecdf_online_amortized"))
 
     assert online.metadata.dataset_ids == ("first", "second")
     assert online.metadata.recipes == (ALPHA, BETA)
     assert online.metadata.recipe_counts == (1, 3)
     assert online.metadata.recipe_weights == (0.25, 0.75)
-    assert online.metadata.metric_definition == (
-        "sum over planned pairs of each pair's share of its matrix setup seconds "
-        "(setup over the matrix's planned RHS) plus its solve-only seconds"
-    )
+    assert online.metadata.cohort == MixtureCohort()
     assert online.metadata.metric is MetricId.ONLINE_AMORTIZED_S
-    assert online.metadata.failure_treatment is FailureTreatment.NONE
+    assert online.metadata.failure_treatment is FailureTreatment.CENSORED
     assert online.metadata.solver_contexts == (context,)
-    assert solve.metadata.metric_definition == (
-        "sum over planned pairs of solve-only seconds, including failures; a pair "
-        "with no solve adds none"
-    )
-    assert solve.metadata.metric is MetricId.SOLVE_S
 
 
 def test_figure_plans_name_solve_and_online_ecdfs_by_metric(

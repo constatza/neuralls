@@ -534,14 +534,12 @@ figure card's `level` (`matrix_set_rhs_type`, `matrix_set`,
 figures `system`).
 
 Classification returns two closed report variants. `RecipeProfileReport` is
-matrix-set-and-RHS-type level and names exactly one RHS type; only it is planned the figures
-that need one homogeneous population (the break-even curve and the matrix heatmap). `WorkloadMixtureReport` is used at the matrix-set and all-matrix-sets levels and
+matrix-set-and-RHS-type level and names exactly one RHS type; only it is planned the raw-scale
+figures (means, sums, distributions, break-even, heatmap, full cost). `WorkloadMixtureReport` is used at the matrix-set and all-matrix-sets levels and
 retains the complete ordered recipe membership as explicit mixture metadata.
 Both variants carry distinct matrix, planned-RHS, attempted-RHS, and
 converged counts for each method, and both carry `observations`, the group's rows of the
-observation view. Workload-total bars are emitted for
-all levels, while mixture reports never imply that heterogeneous recipes form
-one profile population.
+observation view.
 
 `classify_level(planned, setup_events, solve_attempts, level, selection, observations=...)`
 returns `GroupAggregated` when at least one method has a setup event and
@@ -783,20 +781,19 @@ penalty.
 
 Matrix-set-and-RHS-type profiles use one RHS type. Solve-only, online and amortized-online ECDFs and
 Dolan--Moré profiles show their respective absolute budgets and fastest-method
-ratios. Matrix-set and all-matrix-sets outputs are workload mixtures: they emit the workload and
-cost bars, the means, time per iteration, distributions and convergence factors
-one figure per cohort (the pooled `__mixture` figure at the matrix-set level, whose recipe cohorts would repeat the
-matrix-set-and-RHS-type reports; one figure per recipe plus the pooled one at the all-matrix-sets
-level), and the ECDFs, performance profiles, paired scatter and speed-ratio CDF as one
-`__mixture` figure pooled over all the group's systems, labelled a mixture of recipes. A
-matrix-set or all-matrix-sets group of one recipe is no mixture: each of the per-cohort and pooled
-kinds above is one unsuffixed figure of that recipe
-(`platform/reporting/cohort_variants.py::cohort_level`); the kinds it gets are still those of its
-level. The
-break-even curve and the heatmap are recipe-level only.
-Every level also emits a full-cost figure (`full_cost_breakdown`): each method's offline generation and
+ratios. **Raw-scale aggregates exist only at the matrix-set-and-RHS-type level.** A number that
+pools several RHS classes or matrix sets depends on the arbitrary mixing weights (Dolan & Moré
+2002; COCO, Hansen et al.), so the workload and cost bars, the means, time per iteration,
+distributions, convergence factors, break-even curve, heatmap and full cost are drawn only for one
+class on one matrix set. Matrix-set and all-matrix-sets outputs are mixtures, even of one recipe
+(the all-matrix-sets group still pools matrix sets): they emit only the scale-free per-pair views,
+the ECDFs, performance profiles, paired scatter and speed-ratio CDF, each one `__mixture` figure
+pooled over all the group's systems whose card `cohort` is "equal-weight mixture of <recipe
+keys>": each pair counts once, whatever its class
+(`platform/reporting/cohort_variants.py`). Their report runs stay and hold those figures.
+The class level also emits a full-cost figure (`full_cost_breakdown`): each method's offline generation and
 fit, read from the offline block of its stored `summary.toml` and paid once per artifact, stacked on
-the pair setup and solve seconds of that level's workload. A report never recomputes the fit from MLflow, so
+the pair setup and solve seconds of that group's workload. A report never recomputes the fit from MLflow, so
 a session stored without the offline block cannot be reported; `compare` runs such methods again because
 the reuse gate requires the block. A method whose offline stage has no recorded number is drawn without
 that segment and labelled as having an unknown full cost.
