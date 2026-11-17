@@ -200,10 +200,11 @@ class TimedRuns[T]:
         seconds: The policy's statistic over `samples_seconds`.
         samples_seconds: Wall time of every timed execution, in run order —
             kept so the spread behind `seconds` stays visible.
-        peak_memory_bytes: Peak memory of the first *timed* execution, after any
-            warm-ups (a warm-up's own peak is discarded). CPU peak RSS is a
-            process-wide high-water mark with no reset, so later executions would
-            report ~0, and a warm-up may already have set the mark.
+        peak_memory_bytes: The event's peak memory, read by `event_peak_memory`: on
+            CUDA the allocator peak of the first *timed* execution; elsewhere the larger
+            of the warm-up and first timed peaks, since CPU peak RSS is a process-wide
+            high-water mark with no reset that the warm-up (the identical computation)
+            has usually already raised, leaving the first timed delta at ~0.
         agreement: Whether the repeats reproduced the first execution's fingerprint.
     """
 
@@ -284,13 +285,14 @@ def repeat_timed_outcome[T](
     policy: TimingRepeatPolicy,
     *,
     device: torch.device,
-    fingerprint: Callable[[T], int] | None = None,
+    fingerprint: Callable[[T], int | None] | None = None,
 ) -> TimedOutcome[T]:
     """Execute `run` per `policy`, reduce its wall times to one number, and keep a timed failure.
 
     Runs `policy.warmup` untimed executions, then `policy.repeats` timed ones, each
     GPU-synchronised through `track_resource_usage`. A warm-up that completes is discarded:
-    neither its time nor its peak memory reaches the result. An ordinary exception from any
+    its time never reaches the result, and its peak memory only through `event_peak_memory`
+    on a device without a scoped peak. An ordinary exception from any
     execution, a warm-up included, becomes a `FailedTimedRuns` that still carries the
     resource data of the execution that raised.
 
@@ -301,14 +303,18 @@ def repeat_timed_outcome[T](
         fingerprint: Optional summary of each result (e.g. an iteration count), read only
             when there are several timed repeats to compare. A repeat whose summary differs
             from the first makes the result `Diverged` and logs one warning, since a
-            nondeterministic or stateful region makes its samples incomparable.
+            nondeterministic or stateful region makes its samples incomparable. A summary of
+            `None` means the first result has nothing a repeat could differ in, so the
+            repeats are `Unchecked`, not `Agreed`; it must then be `None` for every result.
 
     Returns:
-        The first timed value, the reduced time, every sample, the first timed
-        execution's peak memory and whether the repeats agreed.
+        The first timed value, the reduced time, every sample, the event's peak memory
+        and whether the repeats agreed.
     """
+    warmup_peak = 0
     for _ in range(policy.warmup):
         warmup_value, warmup_usage = _measure_outcome(run, device)
+        warmup_peak = max(warmup_peak, warmup_usage.peak_memory_bytes)
         if isinstance(warmup_value, Exception):
             return FailedTimedRuns(
                 warmup_value,
@@ -318,16 +324,12 @@ def repeat_timed_outcome[T](
             )
 
     first_value, first_usage = _measure_outcome(run, device)
+    peak = event_peak_memory(device, warmup_peak, first_usage.peak_memory_bytes)
     samples = [first_usage.wall_time_seconds]
     if isinstance(first_value, Exception):
-        return FailedTimedRuns(
-            first_value,
-            policy.statistic.reduce(samples),
-            tuple(samples),
-            first_usage.peak_memory_bytes,
-        )
+        return FailedTimedRuns(first_value, policy.statistic.reduce(samples), tuple(samples), peak)
     reference = fingerprint(first_value) if fingerprint is not None and policy.repeats > 1 else None
-    agreement = _initial_agreement(policy, has_fingerprint=fingerprint is not None)
+    agreement = _initial_agreement(policy, has_reference=reference is not None)
     for repeat in range(1, policy.repeats):
         value, usage = _measure_outcome(run, device)
         samples.append(usage.wall_time_seconds)
@@ -336,14 +338,14 @@ def repeat_timed_outcome[T](
                 value,
                 policy.statistic.reduce(samples),
                 tuple(samples),
-                max(first_usage.peak_memory_bytes, usage.peak_memory_bytes),
+                max(peak, usage.peak_memory_bytes),
             )
-        if (
-            fingerprint is not None
-            and reference is not None
-            and isinstance(agreement, Agreed)
-            and (other := fingerprint(value)) != reference
-        ):
+        if fingerprint is None or reference is None or not isinstance(agreement, Agreed):
+            continue
+        other = fingerprint(value)
+        if other is None:
+            raise ValueError("a fingerprint gives a summary for every result of a region or none")
+        if other != reference:
             agreement = Diverged(first=reference, other=other)
             logger.warning(
                 "Timed repeat {} differs from the first ({} != {}); its timing is not comparable.",
@@ -355,16 +357,29 @@ def repeat_timed_outcome[T](
         value=first_value,
         seconds=policy.statistic.reduce(samples),
         samples_seconds=tuple(samples),
-        peak_memory_bytes=first_usage.peak_memory_bytes,
+        peak_memory_bytes=peak,
         agreement=agreement,
     )
 
 
-def _initial_agreement(policy: TimingRepeatPolicy, *, has_fingerprint: bool) -> RepeatAgreement:
+def event_peak_memory(device: torch.device, warmup_peak: int, first_timed_peak: int) -> int:
+    """The peak memory one timed event reports, from its warm-ups' and first timed peaks.
+
+    On CUDA each execution's allocator peak is scoped to it, so the first timed one is the
+    event's. Elsewhere the reading is a process-wide high-water-mark delta: the warm-up, the
+    identical computation, usually raises the mark first and leaves the first timed delta at
+    ~0, so the larger of the two is the event's peak. ``warmup_peak`` is 0 without a warm-up.
+    """
+    if device.type == "cuda":
+        return first_timed_peak
+    return max(warmup_peak, first_timed_peak)
+
+
+def _initial_agreement(policy: TimingRepeatPolicy, *, has_reference: bool) -> RepeatAgreement:
     """What the repeats can say before any is compared: nothing to compare, or no fingerprint."""
     if policy.repeats == 1:
         return SingleRun()
-    return Agreed() if has_fingerprint else Unchecked()
+    return Agreed() if has_reference else Unchecked()
 
 
 def release_device_memory() -> None:

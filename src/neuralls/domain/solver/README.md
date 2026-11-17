@@ -148,6 +148,8 @@ unplanned system raise `ValueError`.
 | `stopping_threshold_rel` | `true_residual.stopping_threshold_rel(rtol, atol, rhs_norm)` from `planned_systems` and `solve_attempts.rhs_norm`; null without a nonzero measured RHS norm |
 | `timing_spread` | `(max - min) / median` of `solve_attempts.samples_s`; 0 for one sample, null without a solve row or for a zero median |
 | `setup_samples_s`, `solve_samples_s` | `setup_events.samples_s` of the system's matrix and `solve_attempts.samples_s`, every timed repeat of each event, which the two-level bootstrap redraws; null without the event |
+| `timing_statistic` | `planned_systems.timing_statistic`, the `TimingStatistic` the row's events were reduced by, which the two-level bootstrap reduces each redraw with |
+| `setup_repeat_status`, `solve_repeat_status` | `repeat_status` of the system's setup event and solve attempt (`single`, `unchecked`, `agreed`, `diverged`); null without the event |
 
 Vocabulary. A **timing repeat** is the same operation timed again to cut noise; its samples are
 reduced to one representative `setup_s` or `solve_s` and are never summed as separate RHS solves.
@@ -204,7 +206,7 @@ $$\bar{x}^{\mathrm{sys},(b)} = \frac{\sum_{i}\sum_{s \in \mathcal{P}_{p,m^{(b)}_
 
 Seeded with `DEFAULT_RANDOM_SEED`; `None` if $K' <$ `MIN_INTERVAL_MATRICES` (5): a percentile bootstrap undercovers below about ten clusters, and two matrices give only three distinct resamples, so a single-matrix or few-matrix case gets descriptive distributions and no interval; a matrix with no system in the population is dropped. Nothing about the solves is recomputed: it resamples stored per-system values, grouped by matrix, because RHS of one matrix share it and the effective sample size is $K$. `benchmarking/uncertainty.py::matrix_cluster_interval` computes it for `ClusterStatistic.MEAN_OVER_SYSTEMS`, `MEAN_OVER_MATRICES` and `MEDIAN`; it is the interval of the metrics that are deterministic per pair (iterations, convergence factor).
 
-**Two-level bootstrap interval** (every metric in seconds: the means of the times, the speed ratio). A time is $x_{p,s} = a_{p,s}\,t^{\mathrm{setup}}_{p,m(s)} + b_{p,s}\,t^{\mathrm{solve}}_{p,s}$, each $t$ the median of its event's $R$ stored timing repeats $	au_{\cdot,j}$ (`setup_samples_s`, `solve_samples_s` of the observation view), with $(a, b)$ = $(0, 1)$ for `solve_s`, $(1, 1)$ for `online_s`, $(1/r_{m(s)}, 1)$ for `online_amortized_s`, $(1, 0)$ for `setup_s` and $(0, 1/k_{p,s})$ for `time_per_iteration_s` (`reporting/timed_values.py::timing_of`). Each resample (a) draws matrices as above, (b) inside each drawn matrix redraws the $R$ repeats of every event with replacement, its setup once for all its RHS, and takes their median, and (c) recomputes the values and then the statistic; a speed ratio redraws both methods' events of the matrix. An event with $R = 1$ has nothing to redraw, and with no spread in any event the interval equals the matrix-cluster one. It covers matrix-to-matrix variability and timing noise; the inner median is the default `TimingStatistic`, so a case reduced by another statistic gets an interval around medians. `benchmarking/uncertainty.py::two_level_interval` computes it from `TimedCluster`s built by `reporting/timed_values.py`.
+**Two-level bootstrap interval** (every metric in seconds: the means of the times, the speed ratio). A time is $x_{p,s} = a_{p,s}\,t^{\mathrm{setup}}_{p,m(s)} + b_{p,s}\,t^{\mathrm{solve}}_{p,s}$, each $t$ the configured `TimingStatistic` of its event's $R$ stored timing repeats $	au_{\cdot,j}$ (`setup_samples_s`, `solve_samples_s` of the observation view), with $(a, b)$ = $(0, 1)$ for `solve_s`, $(1, 1)$ for `online_s`, $(1/r_{m(s)}, 1)$ for `online_amortized_s`, $(1, 0)$ for `setup_s` and $(0, 1/k_{p,s})$ for `time_per_iteration_s` (`reporting/timed_values.py::timing_of`). Each resample (a) draws matrices as above, (b) inside each drawn matrix redraws the $R$ repeats of every event with replacement, its setup once for all its RHS, and reduces them by the event's `TimingStatistic` (the observation view's `timing_statistic`, from the planned system), and (c) recomputes the values and then the statistic; a speed ratio redraws both methods' events of the matrix. An event with $R = 1$ has nothing to redraw, and with no spread in any event the interval equals the matrix-cluster one. It covers matrix-to-matrix variability and timing noise; the inner reduction is the statistic the stored point was reduced by, so the interval is for the same estimator as the point. `benchmarking/uncertainty.py::two_level_interval` computes it from `TimedCluster`s built by `reporting/timed_values.py`.
 
 **Time per iteration** (per system with a real iteration count $k \ge 1$; `UNCONVERGED` runs count because time and iterations are both real and a rate is not censored; `SOLVER_ERROR` and setup failures do not): $\theta_{p,s} = t^{\mathrm{solve}}_{p,s} / k_{p,s}$. It isolates per-iteration cost (preconditioner application, flexible-CG overhead) from numerical effectiveness; fixed per-solve overhead inflates $\theta$ when $k$ is small, which is why a figure's bar is the ratio of sums $\Theta_p$ (`time_per_iteration_summary`, below) and the per-system $\theta_{p,s}$ are drawn only as points.
 
@@ -244,8 +246,10 @@ systems only, so `Population.COMMON` is taken within the recipe), behind a leadi
 holding the recipe's lossless key. It is drawn only at the matrix-set-and-RHS-type level, so a
 stored table holds one block, and `single_cohort` rejects a table holding several. `Cohort`
 (`WholeGroup | MixtureCohort`) says whether a figure draws one class or pools a mixture level's
-systems, and `mixture_label` is how a pooled figure names itself ("equal-weight mixture of …":
-each pair counts once). `COHORT_SUMMARY_SCHEMA` and
+systems, and `mixture_label` is how a pooled figure names what it pools ("equal-weight mixture
+of …" for several recipes, "pooled over k matrix sets" for one recipe over several sets, both
+joined by "; " for several of each; each pair counts once). `pools_a_mixture` is the one rule:
+one recipe over one matrix set is a class, never reported as a mixture. `COHORT_SUMMARY_SCHEMA` and
 `COHORT_RATIO_OF_SUMS_SCHEMA` are `cohort_schema` of `SUMMARY_SCHEMA` and `RATIO_OF_SUMS_SCHEMA`.
 `reporting/matrix_breakdown.py::matrix_breakdown(obs, metric)` keeps each matrix apart: one
 `MATRIX_BREAKDOWN_SCHEMA` row per method and planned matrix (`method`, `metric`, `dataset`,
@@ -259,6 +263,9 @@ failed, which is what the breakdown is meant to show. A per-matrix metric (`SETU
 `residual_consistency(obs)` counts, per method, converged systems whose true residual exceeds
 `RESIDUAL_MISMATCH_FACTOR` times the stopping level and reports the worst ratio; classification
 is never changed by it. `timing_noise(obs)` gives the median `timing_spread` per method and
+`n_diverged`, its events (each matrix setup once, each solve) whose repeat agreement is
+`Diverged` (from the view's `setup_repeat_status` and `solve_repeat_status`; their samples are
+kept in every statistic), and
 `outcome_counts(obs)` the number of planned systems per method in each `Outcome`
 (`OUTCOME_COUNTS_SCHEMA`); figure cards record both. `benchmarking/uncertainty.py::ClusterBootstrap`
 (`kind`, a closed `BootstrapKind`: `matrix_cluster_bootstrap` or `two_level_bootstrap`, chosen per
@@ -373,7 +380,7 @@ failures remain in the denominator and are never assigned a penalty time. An
 planned systems solved within an absolute time budget. A **Dolan--Moré
 performance profile** instead shows the fraction within a factor of the
 fastest method on each system. Both are scale-free per-pair views, so they are also drawn pooled
-over a mixture level, labelled an equal-weight mixture of its recipes; raw-scale aggregates are
+over a mixture level, labelled by what it pools (`mixture_label`); raw-scale aggregates are
 drawn only for one recipe on one matrix set.
 
 Every planned system ends in exactly one **outcome** (`reporting/observations.py::Outcome`).
@@ -615,18 +622,19 @@ the once-per-process `warm_up_device` misses (the LU, SVD and eigensolver kernel
 estimate a setup reaches); the median follows Hoefler & Belli (SC'15), since run times are
 right-skewed and the median is robust to that. Every repetition is stored (`samples_s`), so the
 two-level bootstrap can redraw them. A randomized setup (aSA, BAMG) is built with a seed derived
-per matrix from its configured seed (`composition/comparison/_preconditioner_setup.py::setup_config_for_matrix`):
+per matrix from its configured seed, its matrix set and its matrix id (`composition/comparison/_preconditioner_setup.py::setup_config_for_matrix`):
 the warm-up and every repetition of one matrix use the same seed, and different matrices draw
 different candidates, so seed variability enters the matrix-level interval.
 
 `shared/device.py::repeat_timed_outcome` returns a `RepeatAgreement` with the timing: `SingleRun`
-(one timed execution), `Unchecked` (several, but no fingerprint to compare), `Agreed`, or
+(one timed execution), `Unchecked` (several, but no fingerprint to compare, or one of `None` for a result with nothing a repeat could differ in), `Agreed`, or
 `Diverged(first, other)` (a repeat's fingerprint differed from the first, so its samples are not
 comparable; the first divergence is logged once). `SolveAttempt.repeats` stores it for every solve,
 fingerprinted by the iteration count; a solve that raised is `Unchecked`, a non-finite iterate
 keeps the agreement of its completed repeats. `MatrixSetupEvent.repeats` stores it for every setup,
 fingerprinted by the built preconditioner's class and realized facts (`setup_fingerprint`: level
-count and coarse dimension of a hierarchy); a setup that raised is `Unchecked`.
+count and coarse dimension of a hierarchy); a setup with no realized facts, or that raised, is
+`Unchecked`.
 
 ## Split records
 

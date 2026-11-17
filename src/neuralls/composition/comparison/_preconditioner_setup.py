@@ -44,7 +44,7 @@ from neuralls.platform.storage.training_artifacts import (
     load_array_source_sample,
     load_training_arrays,
 )
-from neuralls.shared.types import MatrixFormat, MatrixId, PreconditionerName
+from neuralls.shared.types import DatasetId, MatrixFormat, MatrixId, PreconditionerName
 from neuralls.shared.workflow_failures import ComparisonMatrixFailureContext, ComparisonMatrixPhase
 
 # Arrays always available from LinearSystem — never need loading from disk.
@@ -201,12 +201,14 @@ def _realized_facts(
 
 
 def setup_config_for_matrix(
-    config: PreconditionerConfig, matrix_id: MatrixId
+    config: PreconditionerConfig, dataset: DatasetId, matrix_id: MatrixId
 ) -> PreconditionerConfig:
     """The config one matrix's setup is built from: a randomized setup draws a seed per matrix.
 
-    A seeded setup (aSA, BAMG) is built with a seed derived from ``config.seed`` and the matrix
-    (``derive_seed`` in the ``SETUP_SEED_STREAM``). Every warm-up and timed repeat of one
+    A seeded setup (aSA, BAMG) is built with a seed derived from ``config.seed``, the matrix set
+    and the matrix (``derive_seed`` in the ``SETUP_SEED_STREAM``). The matrix set enters as the
+    CRC-32 of its id, a key stable across processes, because matrix ids repeat across matrix
+    sets and matrix ``k`` of two sets must not draw the same candidates. Every warm-up and timed repeat of one
     matrix builds from this same config, so its repeats stay identical and their fingerprints
     agree, while different matrices draw different candidates, which puts the seed's
     variability into the matrix-level interval at no extra cost. The method's identity, slug and facts keep the configured seed; only the
@@ -214,7 +216,12 @@ def setup_config_for_matrix(
     """
     match config:
         case AdaptiveSAPreconditionerConfig() | BootstrapAMGPreconditionerConfig():
-            seed = derive_seed(config.seed, matrix_id, stream=SETUP_SEED_STREAM)
+            seed = derive_seed(
+                config.seed,
+                zlib.crc32(dataset.encode("utf-8")),
+                matrix_id,
+                stream=SETUP_SEED_STREAM,
+            )
             return config.model_copy(update={"seed": seed})
         case _:
             return config
@@ -222,19 +229,23 @@ def setup_config_for_matrix(
 
 def setup_fingerprint(
     preconditioner: Preconditioner, method: PreconditionerName, bundle: MatrixWorkload
-) -> int:
+) -> int | None:
     """A cheap deterministic summary of a built preconditioner, to compare timed setup repeats.
 
     It is the class plus the realized facts every supported preconditioner already reports
-    (``describe_realized_preconditioner``: level count and coarse dimension of a hierarchy,
-    nothing for a setup without one), so a repeat that built a different hierarchy than the
-    first makes the setup's repeats ``Diverged``. CRC-32 keeps it stable across processes and
-    within the stored ``Int64`` column.
+    (``describe_realized_preconditioner``: level count and coarse dimension of a hierarchy),
+    so a repeat that built a different hierarchy than the first makes the setup's repeats
+    ``Diverged``. A preconditioner with no realized facts (Identity, Jacobi, ILU, IC(0),
+    neural) has nothing a repeat could differ in, so it gets ``None`` and its repeats are
+    stored ``Unchecked`` rather than claiming an agreement nothing checked. CRC-32 keeps the
+    summary stable across processes and within the stored ``Int64`` column.
 
     Raises:
         RealizedFactCaptureError: If the facts cannot be read, with the method and matrix.
     """
     facts = _realized_facts(preconditioner, method, bundle)
+    if not facts:
+        return None
     return zlib.crc32(repr((type(preconditioner).__qualname__, facts)).encode("utf-8"))
 
 

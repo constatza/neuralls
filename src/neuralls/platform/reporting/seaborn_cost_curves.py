@@ -20,6 +20,7 @@ from neuralls.domain.benchmarking.cost_curves import BreakEvenState, CostSide
 from neuralls.domain.solver.reporting.cohorts import single_cohort
 from neuralls.domain.solver.reporting.metrics import METRICS, MetricId
 from neuralls.domain.solver.reporting.summary import Population, select
+from neuralls.domain.solver.reporting.timed_values import bootstrap_kind_of
 from neuralls.platform.reporting.figure_formats import FigureTarget
 from neuralls.platform.reporting.figure_sizing import (
     POINT_JITTER,
@@ -30,7 +31,7 @@ from neuralls.platform.reporting.figure_style import rotate_x_labels
 from neuralls.platform.reporting.figure_text import draw_legend
 from neuralls.platform.reporting.figure_writer import finish_group_figure
 from neuralls.platform.reporting.group_style import GroupStyle
-from neuralls.platform.reporting.mark_legend import Mark, draw_mark_legend
+from neuralls.platform.reporting.mark_legend import Mark, draw_mark_legend, interval_mark
 from neuralls.platform.reporting.seaborn_figures import plot_frame
 from neuralls.platform.reporting.series_style import method_palette
 from neuralls.shared.types import PreconditionerName
@@ -202,7 +203,7 @@ def plot_convergence_factors(
     """Per-method residual reduction per iteration of the one cohort ``summary`` holds.
 
     One column per method. ``summary`` is the rows of one cohort of the figure's cohort summary
-    table; the mean over systems with its 95% matrix-cluster interval and the median tick of each
+    table; the mean over systems with its bootstrap interval and the median tick of each
     method come from it. Seaborn strips the per-system points, the ``observations`` of the same
     cohort the summary was taken over, which no table stores again. ``None`` without a row.
     """
@@ -273,7 +274,9 @@ def _draw_factor_panel(
     for position, name in enumerate(names):
         # A method that planned no system of this recipe has no row to draw.
         if (row := by_method.get(name)) is not None:
-            marks |= _draw_summary_marks(ax, position, row)
+            marks |= _draw_summary_marks(
+                ax, position, row, interval_mark(bootstrap_kind_of(metric))
+            )
     ax.set_xticks(range(len(names)), [style.legend.label(name) for name in names])
     ax.set_ylim(bottom=0.0)
     ax.set_ylabel(
@@ -283,8 +286,10 @@ def _draw_factor_panel(
     return frozenset(marks)
 
 
-def _draw_summary_marks(ax: Axes, position: int, row: Mapping[str, object]) -> set[Mark]:
-    """Draw the mean with its interval whisker and the median tick of one summary row.
+def _draw_summary_marks(
+    ax: Axes, position: int, row: Mapping[str, object], interval: Mark
+) -> set[Mark]:
+    """Draw the mean with its ``interval`` whisker and the median tick of one summary row.
 
     Returns the marks drawn: none for a row with nothing defined.
     """
@@ -307,7 +312,7 @@ def _draw_summary_marks(ax: Axes, position: int, row: Mapping[str, object]) -> s
                 capsize=4,
                 zorder=3,
             )
-            marks |= {Mark.MEAN_POINT, Mark.CONFIDENCE_INTERVAL}
+            marks |= {Mark.MEAN_POINT, interval}
         case float(mean), None, None:
             # Below MIN_INTERVAL_MATRICES matrices the bootstrap gives no interval, so the mean stands alone.
             ax.scatter(

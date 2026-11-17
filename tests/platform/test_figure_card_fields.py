@@ -415,11 +415,14 @@ def test_a_card_records_the_systems_a_performance_profile_left_out(
 
 
 @pytest.mark.parametrize("stem", _TIME_STEMS)
-def test_a_card_records_the_median_timing_spread_of_each_method_with_timed_solves(
+def test_a_card_records_the_timing_spread_and_diverged_repeats_of_each_timed_method(
     profile_report: RecipeProfileReport, payloads: dict[str, Payload], stem: str
 ) -> None:
     expected = {
-        row["method"]: row["median_timing_spread"]
+        row["method"]: {
+            "median_spread": row["median_timing_spread"],
+            "n_diverged": row["n_diverged"],
+        }
         for row in timing_noise(profile_report.observations).iter_rows(named=True)
         if row["median_timing_spread"] is not None
     }
@@ -427,7 +430,8 @@ def test_a_card_records_the_median_timing_spread_of_each_method_with_timed_solve
     spread = _table(payloads[stem], "timing_spread")
 
     assert spread == expected
-    assert _leaf_types(spread) == {float}
+    assert _leaf_types(spread) == {float, int}
+    assert expected["amg"]["n_diverged"] == 2  # one shared setup of matrix 1, one solve
 
 
 @pytest.mark.parametrize("stem", _UNTIMED_STEMS)

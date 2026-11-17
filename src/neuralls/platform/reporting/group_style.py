@@ -24,7 +24,8 @@ class GroupStyle:
     """How a group's preconditioners are titled and drawn, shared by every plot here.
 
     ``title`` is fixed editorial wording; the subtitle is the typed ``scope`` rendered
-    when a figure is drawn, followed by the mixture of ``recipes`` a pooled figure draws and by what
+    when a figure is drawn, followed by the mixture of ``recipes`` over ``n_matrix_sets`` matrix
+    sets a pooled figure draws and by what
     ``setup_sharing`` (the record the figure's card stores) says about the setup the metric
     divides, and every series is named by ``legend``. ``label_rotation_deg`` is the configured
     rotation of x-axis labels and ``row_limits`` the sample sizes from which
@@ -36,6 +37,7 @@ class GroupStyle:
     scope: FigureScope
     cohort: Cohort
     recipes: tuple[RhsRecipe, ...]
+    n_matrix_sets: int
     setup_sharing: SetupSharing
     notation: NotationPolicy
     legend: Legend
@@ -49,7 +51,7 @@ class GroupStyle:
     def subtitle(self) -> str:
         """The scope under the title, the cohort drawn, and the shared setup the metric divides."""
         notes = (
-            cohort_note(self.cohort, self.recipes, self.notation),
+            cohort_note(self.cohort, self.recipes, self.n_matrix_sets, self.notation),
             setup_sharing_note(self.setup_sharing),
         )
         return "\n".join(

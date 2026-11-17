@@ -33,7 +33,6 @@ from tests.workflows.comparison_support import (
 
 pytestmark = pytest.mark.deferred_io("dataset-fixture-io")
 
-_LEVELS = ("all_matrix_sets", "matrix_set", "matrix_set_rhs_type")
 _N_PLANNED_RHS = 4
 """2 held-out matrices x `rhs_count` 2."""
 
@@ -102,14 +101,16 @@ def test_real_sweep_execution_logs_group_metrics_and_reports(
         assert len(found) == 1
         return found[0]
 
-    # One dataset and one recipe: every report level sees the same four planned,
-    # attempted, and converged RHS, each in the metrics of its own run.
-    for level in _LEVELS:
-        metrics = run_of_level(level).data.metrics
-        assert metrics["n_planned_rhs/identity"] == _N_PLANNED_RHS
-        assert metrics["n_attempted_rhs/identity"] == _N_PLANNED_RHS
-        assert metrics["n_converged/identity"] == _N_PLANNED_RHS
-        assert metrics["success_rate/identity"] == 1
+    # One dataset and one recipe: the mixture levels would pool exactly the class-level
+    # group's systems, so only the class level is reported, with its counts; the matrix-set
+    # run is only the parent the class run nests under.
+    metrics = run_of_level("matrix_set_rhs_type").data.metrics
+    assert metrics["n_planned_rhs/identity"] == _N_PLANNED_RHS
+    assert metrics["n_attempted_rhs/identity"] == _N_PLANNED_RHS
+    assert metrics["n_converged/identity"] == _N_PLANNED_RHS
+    assert metrics["success_rate/identity"] == 1
+    matrix_set_run = run_of_level("matrix_set")
+    assert matrix_set_run.data.metrics == {}
     assert (
         len(
             client.search_runs(
@@ -154,10 +155,10 @@ def test_real_sweep_execution_logs_group_metrics_and_reports(
             )
         }
 
-    def pooled_figures(stem: str, suffix: str = "") -> set[str]:
+    def pooled_figures(stem: str) -> set[str]:
         """The profile figures of the group; the case has no reference to pair against."""
         return {
-            f"{kind}_{stem}{suffix}.png"
+            f"{kind}_{stem}.png"
             for kind in (
                 *(f"performance_profile_{time}" for time in times),
                 "ecdf_iterations",
@@ -178,8 +179,6 @@ def test_real_sweep_execution_logs_group_metrics_and_reports(
         }
 
     recipe_stem = "Comparison_matrix_set_Test_problem_Ones_Solutions_N_4_-_Dataset_RHS"
-    dataset_stem = "Comparison_matrix_set_Test_problem_Ones_Solutions_N_4"
-    all_stem = "All_comparison_matrix_sets"
     assert artifact_names(run_of_level("matrix_set_rhs_type").info.run_id) == with_cards(
         {
             *workload_figures(recipe_stem),
@@ -188,8 +187,5 @@ def test_real_sweep_execution_logs_group_metrics_and_reports(
             *cohort_figures(recipe_stem),
         }
     )
-    # A mixture level, even of one recipe, draws only the pooled scale-free figures.
-    assert artifact_names(run_of_level("matrix_set").info.run_id) == with_cards(
-        pooled_figures(dataset_stem, "__mixture")
-    )
-    assert artifact_names(report.report_run_id) == with_cards(pooled_figures(all_stem, "__mixture"))
+    assert artifact_names(matrix_set_run.info.run_id) == set()
+    assert artifact_names(report.report_run_id) == set()

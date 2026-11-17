@@ -51,6 +51,7 @@ class GroupStyler:
             scope=plan.metadata.scope,
             cohort=plan.metadata.cohort,
             recipes=plan.metadata.recipes,
+            n_matrix_sets=len(plan.metadata.dataset_ids),
             setup_sharing=plan.metadata.setup_sharing,
             notation=self.notation,
             legend=method_legend(

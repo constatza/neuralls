@@ -318,18 +318,20 @@ MAX_LISTED_RHS_COUNTS = 4
 
 
 def cohort_note(
-    cohort: Cohort, recipes: Sequence[RhsRecipe], notation: NotationPolicy
+    cohort: Cohort, recipes: Sequence[RhsRecipe], n_matrix_sets: int, notation: NotationPolicy
 ) -> str | None:
-    """The line naming the mixture a pooled figure draws, over ``recipes``; ``None`` for a class.
+    """The line naming the mixture a pooled figure draws; ``None`` for a class.
 
-    A class-level figure needs none: its scope already names its one recipe.
+    The mixture is of ``recipes`` over ``n_matrix_sets`` matrix sets (``mixture_label``). A
+    class-level figure needs none: its scope already names its one recipe.
     """
     match cohort:
         case WholeGroup():
             return None
         case MixtureCohort():
             return mixture_label(
-                render_recipe(recipe, TITLE_PROFILE, notation) for recipe in recipes
+                [render_recipe(recipe, TITLE_PROFILE, notation) for recipe in recipes],
+                n_matrix_sets,
             )
         case unreachable:
             assert_never(unreachable)

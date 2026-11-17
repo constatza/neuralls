@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 
 import pytest
@@ -24,17 +24,30 @@ from neuralls.domain.solver.models import (
     SystemTag,
 )
 from neuralls.domain.solver.models.cost import NO_OFFLINE_COST
-from neuralls.domain.solver.models.figure_scope import AllDatasetsScope, DatasetScope, RecipeScope
+from neuralls.domain.solver.models.figure_scope import (
+    AllDatasetsScope,
+    DatasetScope,
+    FigureScope,
+    RecipeScope,
+)
 from neuralls.domain.solver.models.group_outcomes import GroupAggregated, GroupSkippedAllCacheHit
 from neuralls.domain.solver.models.group_presentation import GroupPresentation, SolverTimingContext
-from neuralls.domain.solver.models.labels import MatrixSetRhsTypeLabel, render_group_id
+from neuralls.domain.solver.models.labels import (
+    AllMatrixSetsLabel,
+    GroupLabel,
+    MatrixSetLabel,
+    MatrixSetRhsTypeLabel,
+    render_group_id,
+)
 from neuralls.domain.solver.models.plot_style import PreconditionerPlotStyle
+from neuralls.domain.solver.reporting.cohorts import mixture_label
 from neuralls.platform.config.models.coarsening import AggregationCoarseningConfig
 from neuralls.platform.config.models.preconditioner import (
     AMGPreconditionerConfig,
     PreconditionerType,
 )
 from neuralls.platform.reporting.figure_text import method_legend
+from neuralls.shared.rhs_recipe import RhsRecipe, recipe_key
 from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.system_scaling import GershgorinScaling, RhsScaling
 from neuralls.shared.types import (
@@ -49,7 +62,7 @@ from tests.fakes.split_store import InMemorySplitStore
 from tests.measurement_support import NO_REFERENCE, NO_RESIDUAL, SINGLE_RUN
 from tests.observation_support import observations_of_workloads
 from tests.presentation_support import NO_DATASET_READS, PreparedMethodFactory
-from tests.recipe_support import GAUSSIAN
+from tests.recipe_support import GAUSSIAN, SINE
 
 type CapturedLog = Callable[[str], list[str]]
 
@@ -57,10 +70,11 @@ type CapturedLog = Callable[[str], list[str]]
 @dataclass(slots=True)
 class RecordingSink:
     outcomes: list[GroupAggregated] = field(default_factory=list)
+    presentations: list[GroupPresentation] = field(default_factory=list)
 
     def report(self, outcome: GroupAggregated, *, presentation: GroupPresentation) -> None:
-        del presentation
         self.outcomes.append(outcome)
+        self.presentations.append(presentation)
 
 
 def test_group_reporting_reduces_completed_workload_events(
@@ -121,7 +135,7 @@ def test_group_reporting_reduces_completed_workload_events(
         notation=NotationPolicy.default(),
     )
 
-    assert [outcome.n_planned_rhs for outcome in sink.outcomes] == [1, 1, 1]
+    assert [outcome.n_planned_rhs for outcome in sink.outcomes] == [1]
     assert all(
         outcome.observations.select("method", "dataset").row(0) == ("jacobi", "ds")
         for outcome in sink.outcomes
@@ -182,19 +196,17 @@ def test_group_reporting_propagates_method_plot_styles(
     assert sink.presentations[0].plot_styles[str(method)] == style
 
 
-def test_mixture_presentations_keep_only_the_short_scope(
+@pytest.fixture
+def identity_workload(
     prepared_method: PreparedMethodFactory,
-    group_datasets: dict[DatasetId, DatasetPresentation],
-) -> None:
-    method = PreconditionerName("identity")
-    tag = SystemTag(DatasetId("ds"), GAUSSIAN, MatrixId(1), 0, SystemId("scope"))
-    event_id = SetupEventId("identity:ds:1")
-    workload = CompletedMethodWorkload(
-        method=method,
-        planned=(tag,),
-        setup_events=(
-            MatrixSetupEvent(
-                event_id,
+) -> Callable[[Sequence[SystemTag]], CompletedMethodWorkload]:
+    """An identity workload that set up every matrix of ``tags`` and solved every system."""
+
+    def build(tags: Sequence[SystemTag]) -> CompletedMethodWorkload:
+        method = PreconditionerName("identity")
+        events = {
+            (tag.dataset, tag.matrix_id): MatrixSetupEvent(
+                SetupEventId(f"identity:{tag.dataset}:{int(tag.matrix_id)}"),
                 tag.dataset,
                 tag.matrix_id,
                 method,
@@ -202,57 +214,146 @@ def test_mixture_presentations_keep_only_the_short_scope(
                 (0.0,),
                 MeasuredPeakMemory(1),
                 SetupCompleted(),
+            )
+            for tag in tags
+        }
+        return CompletedMethodWorkload(
+            method=method,
+            planned=tuple(tags),
+            setup_events=tuple(events.values()),
+            solve_attempts=tuple(
+                SolveAttempt(
+                    events[(tag.dataset, tag.matrix_id)].event_id,
+                    tag.system_id,
+                    tag.dataset,
+                    tag.recipe,
+                    tag.matrix_id,
+                    tag.rhs_ordinal,
+                    method,
+                    1.0,
+                    (1.0,),
+                    MeasuredPeakMemory(1),
+                    SolveConverged(1, 1e-8),
+                    NO_RESIDUAL,
+                    NO_REFERENCE,
+                    SINGLE_RUN,
+                )
+                for tag in tags
             ),
+            diagnostics=(),
+            offline_cost=NO_OFFLINE_COST,
+            workload_peak_memory=MeasuredPeakMemory(1),
+            config_digest="sha256:" + "2" * 64,
+            method_config={"name": "identity"},
+            data_evidence=NoFitDataEvidence(),
+            presentation=ExecutedMethod(prepared_method("identity"), ()),
+        )
+
+    return build
+
+
+@pytest.fixture
+def two_matrix_sets(
+    dataset_presentation: DatasetPresentation,
+) -> dict[DatasetId, DatasetPresentation]:
+    """The presentations of matrix sets ``ds`` and ``ds2``."""
+    return {DatasetId("ds"): dataset_presentation, DatasetId("ds2"): dataset_presentation}
+
+
+_DS, _DS2 = DatasetId("ds"), DatasetId("ds2")
+
+
+def _short_scope(label: GroupLabel, datasets: dict[DatasetId, DatasetPresentation]) -> FigureScope:
+    """The scope a group is presented with: a mixture keeps only its matrix set, or none."""
+    match label:
+        case MatrixSetRhsTypeLabel(dataset=dataset, recipe=recipe):
+            return RecipeScope(datasets[dataset], recipe)
+        case MatrixSetLabel(dataset=dataset):
+            return DatasetScope(datasets[dataset])
+        case AllMatrixSetsLabel():
+            return AllDatasetsScope()
+
+
+_MIX = f"equal-weight mixture of {recipe_key(GAUSSIAN)}, {recipe_key(SINE)}"
+
+
+@pytest.mark.parametrize(
+    ("recipes", "datasets", "labels", "mixture_labels"),
+    [
+        ((GAUSSIAN,), (_DS,), [MatrixSetRhsTypeLabel(_DS, GAUSSIAN)], []),
+        (
+            (GAUSSIAN, SINE),
+            (_DS,),
+            [
+                MatrixSetRhsTypeLabel(_DS, GAUSSIAN),
+                MatrixSetRhsTypeLabel(_DS, SINE),
+                MatrixSetLabel(_DS, (GAUSSIAN, SINE)),
+            ],
+            [_MIX],
         ),
-        solve_attempts=(
-            SolveAttempt(
-                event_id,
-                tag.system_id,
-                tag.dataset,
-                tag.recipe,
-                tag.matrix_id,
-                tag.rhs_ordinal,
-                method,
-                1.0,
-                (1.0,),
-                MeasuredPeakMemory(1),
-                SolveConverged(1, 1e-8),
-                NO_RESIDUAL,
-                NO_REFERENCE,
-                SINGLE_RUN,
-            ),
+        (
+            (GAUSSIAN,),
+            (_DS, _DS2),
+            [
+                MatrixSetRhsTypeLabel(_DS, GAUSSIAN),
+                MatrixSetRhsTypeLabel(_DS2, GAUSSIAN),
+                AllMatrixSetsLabel((GAUSSIAN,)),
+            ],
+            ["pooled over 2 matrix sets"],
         ),
-        diagnostics=(),
-        offline_cost=NO_OFFLINE_COST,
-        workload_peak_memory=MeasuredPeakMemory(1),
-        config_digest="sha256:" + "2" * 64,
-        method_config={"name": "identity"},
-        data_evidence=NoFitDataEvidence(),
-        presentation=ExecutedMethod(prepared_method("identity"), ()),
+        (
+            (GAUSSIAN, SINE),
+            (_DS, _DS2),
+            [
+                MatrixSetRhsTypeLabel(_DS, GAUSSIAN),
+                MatrixSetRhsTypeLabel(_DS, SINE),
+                MatrixSetRhsTypeLabel(_DS2, GAUSSIAN),
+                MatrixSetRhsTypeLabel(_DS2, SINE),
+                MatrixSetLabel(_DS, (GAUSSIAN, SINE)),
+                MatrixSetLabel(_DS2, (GAUSSIAN, SINE)),
+                AllMatrixSetsLabel((GAUSSIAN, SINE)),
+            ],
+            [_MIX, _MIX, f"{_MIX}; pooled over 2 matrix sets"],
+        ),
+    ],
+    ids=["one class", "two recipes", "two matrix sets", "two of both"],
+)
+def test_a_mixture_group_is_reported_only_when_it_pools_more_than_a_narrower_group(
+    identity_workload: Callable[[Sequence[SystemTag]], CompletedMethodWorkload],
+    two_matrix_sets: dict[DatasetId, DatasetPresentation],
+    recipes: tuple[RhsRecipe, ...],
+    datasets: tuple[DatasetId, ...],
+    labels: list[GroupLabel],
+    mixture_labels: list[str],
+) -> None:
+    tags = tuple(
+        SystemTag(dataset, recipe, MatrixId(1), ordinal, SystemId(f"{dataset}-{ordinal}"))
+        for dataset in datasets
+        for ordinal, recipe in enumerate(recipes)
     )
+    workload = identity_workload(tags)
+    sink = RecordingSink()
 
-    class PresentationSink:
-        def __init__(self) -> None:
-            self.presentations: list[GroupPresentation] = []
-
-        def report(self, outcome: GroupAggregated, *, presentation: GroupPresentation) -> None:
-            del outcome
-            self.presentations.append(presentation)
-
-    sink = PresentationSink()
     report_all_levels(
         (workload,),
         sink,
         observations=observations_of_workloads((workload,)),
-        datasets=group_datasets,
+        datasets=two_matrix_sets,
         notation=NotationPolicy.default(),
     )
 
+    assert [outcome.label for outcome in sink.outcomes] == labels
     assert [presentation.scope for presentation in sink.presentations] == [
-        RecipeScope(group_datasets[DatasetId("ds")], GAUSSIAN),
-        DatasetScope(group_datasets[DatasetId("ds")]),
-        AllDatasetsScope(),
+        _short_scope(label, two_matrix_sets) for label in labels
     ]
+    assert [
+        mixture_label(
+            [recipe_key(recipe) for recipe in outcome.recipe_membership],
+            len(outcome.dataset_membership),
+        )
+        for outcome in sink.outcomes
+        if not isinstance(outcome.label, MatrixSetRhsTypeLabel)
+    ] == mixture_labels
 
 
 def test_group_reporting_propagates_actual_solver_timing_context(
@@ -306,11 +407,7 @@ def test_group_reporting_propagates_actual_solver_timing_context(
         contexts_by_system={tag.system_id: context},
     )
 
-    assert [presentation.solver_contexts for presentation in sink.presentations] == [
-        (context,),
-        (context,),
-        (context,),
-    ]
+    assert [presentation.solver_contexts for presentation in sink.presentations] == [(context,)]
 
 
 def test_group_reporting_keeps_aggregation_configuration_in_method_labels(

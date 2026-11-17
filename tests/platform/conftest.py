@@ -272,12 +272,20 @@ AMG_TIMING_SPREAD = 0.25
 
 @pytest.fixture(scope="module")
 def report_observations() -> pl.DataFrame:
-    """The unbalanced three-method workload; ``amg`` solves carry a spread of repeated timings."""
+    """The unbalanced three-method workload; ``amg`` solves carry a spread of repeated timings.
+
+    The ``amg`` setup of matrix 1 and its solve of ``m1-0`` had diverging repeats.
+    """
     frames = {method: events.frames() for method, events in unbalanced_events().items()}
+    amg = pl.col("method") == "amg"
     return observations_of_methods(frames).with_columns(
-        timing_spread=pl.when(pl.col("method") == "amg")
-        .then(AMG_TIMING_SPREAD)
-        .otherwise(pl.col("timing_spread"))
+        timing_spread=pl.when(amg).then(AMG_TIMING_SPREAD).otherwise(pl.col("timing_spread")),
+        setup_repeat_status=pl.when(amg & (pl.col("matrix_id") == 1))
+        .then(pl.lit("diverged"))
+        .otherwise(pl.col("setup_repeat_status")),
+        solve_repeat_status=pl.when(amg & (pl.col("system_id") == "m1-0"))
+        .then(pl.lit("diverged"))
+        .otherwise(pl.col("solve_repeat_status")),
     )
 
 

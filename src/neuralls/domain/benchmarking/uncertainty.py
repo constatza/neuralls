@@ -4,7 +4,8 @@ Two bootstraps share one resampling core. The matrix-cluster bootstrap redraws w
 with every sibling value, which is all the uncertainty an iteration count has: it is
 deterministic per pair. A time also carries timing noise, so the two-level bootstrap redraws the
 matrices and then, inside every drawn matrix, the timing repeats of each event (a setup, a
-solve) that its values were reduced from, recomputing each event's median before the statistic.
+solve) that its values were reduced from, reducing them again by the event's own
+``TimingStatistic`` before the statistic, so the interval is for the estimator the point is.
 """
 
 from __future__ import annotations
@@ -18,6 +19,7 @@ import numpy as np
 
 from neuralls.domain.solver.models.statistics import Interval
 from neuralls.shared.constants import BOOTSTRAP_RESAMPLES, CONFIDENCE_LEVEL
+from neuralls.shared.timing import TimingStatistic
 from neuralls.shared.types import MatrixId
 
 type MatrixCluster = MatrixId | tuple[str | None, MatrixId]
@@ -50,6 +52,17 @@ class BootstrapKind(StrEnum):
                 return "matrix-cluster bootstrap (matrices)"
             case BootstrapKind.TWO_LEVEL:
                 return "two-level bootstrap (matrices, timing repeats)"
+            case unreachable:
+                assert_never(unreachable)
+
+    @property
+    def interval_name(self) -> str:
+        """The short name of an interval of this bootstrap, as a figure legend names it."""
+        match self:
+            case BootstrapKind.MATRIX_CLUSTER:
+                return "matrix-cluster interval"
+            case BootstrapKind.TWO_LEVEL:
+                return "two-level interval"
             case unreachable:
                 assert_never(unreachable)
 
@@ -97,23 +110,36 @@ def cluster_bootstrap(matrices: int, kind: BootstrapKind) -> TooFewMatrices | Cl
     return ClusterBootstrap(kind=kind, matrices=matrices)
 
 
+@dataclass(frozen=True, slots=True)
+class TimedEvent:
+    """One timed event (a setup, a solve): its stored repeats and the statistic reducing them.
+
+    Attributes:
+        samples: The stored wall times of the event's timing repeats.
+        statistic: The reduction the event's stored time was computed with.
+    """
+
+    samples: tuple[float, ...]
+    statistic: TimingStatistic
+
+    def __post_init__(self) -> None:
+        """Require at least one repeat."""
+        if not self.samples:
+            raise ValueError("every timed event needs at least one timing repeat")
+
+
 @dataclass(frozen=True, slots=True, eq=False)
 class TimedCluster:
     """One matrix's values as a function of the timing repeats of the events behind them.
 
     Attributes:
-        events: The stored timing repeats of every event the values read (a setup, a solve).
+        events: Every event the values read (a setup, a solve).
         values_of: Maps an ``(n, len(events))`` array of event times to the ``(n, rows)``
             values those times give, one row per value of the matrix.
     """
 
-    events: tuple[tuple[float, ...], ...]
+    events: tuple[TimedEvent, ...]
     values_of: Callable[[np.ndarray], np.ndarray]
-
-    def __post_init__(self) -> None:
-        """Require at least one repeat per event."""
-        if any(not samples for samples in self.events):
-            raise ValueError("every timed event needs at least one timing repeat")
 
 
 type _Draw = Callable[[int, np.random.Generator], np.ndarray]
@@ -156,8 +182,9 @@ def two_level_interval(
     """Percentile interval of ``statistic`` resampling matrices, then each event's timing repeats.
 
     Every resample (a) draws matrices with replacement, (b) within each drawn matrix redraws the
-    stored repeats of every event with replacement and takes their median, and (c) recomputes
-    the matrix's values from those medians and then ``statistic``. An event timed once has
+    stored repeats of every event with replacement and reduces them by the event's
+    ``TimingStatistic``, and (c) recomputes the matrix's values from those times and then
+    ``statistic``. An event timed once has
     nothing to redraw, and with no spread in any event's repeats the interval is the
     matrix-cluster one. ``None`` below ``MIN_INTERVAL_MATRICES`` matrices.
     """
@@ -175,10 +202,10 @@ def _fixed(values: np.ndarray) -> _Draw:
 
 def _timed(cluster: TimedCluster) -> _Draw:
     """A matrix whose values are recomputed from a fresh redraw of its events' repeats."""
-    events = tuple(np.asarray(samples, dtype=np.float64) for samples in cluster.events)
+    events = cluster.events
 
     def draw(n: int, rng: np.random.Generator) -> np.ndarray:
-        values = cluster.values_of(_event_medians(events, n, rng))
+        values = cluster.values_of(_event_times(events, n, rng))
         if values.ndim != 2 or values.shape[0] != n or values.shape[1] == 0:
             raise ValueError("a timed cluster must give at least one value per draw")
         return values
@@ -186,22 +213,28 @@ def _timed(cluster: TimedCluster) -> _Draw:
     return draw
 
 
-def _event_medians(events: tuple[np.ndarray, ...], n: int, rng: np.random.Generator) -> np.ndarray:
-    """``n`` medians of each event's repeats redrawn with replacement, as an ``(n, events)`` array.
+def _event_times(events: tuple[TimedEvent, ...], n: int, rng: np.random.Generator) -> np.ndarray:
+    """``n`` reductions of each event's repeats redrawn with replacement, as ``(n, events)``.
 
-    Events with the same repeat count are redrawn together; one timed once keeps its time.
+    Each redraw is reduced by its event's statistic. Events with the same repeat count and
+    statistic are redrawn together; one timed once keeps its time.
     """
-    medians = np.empty((n, len(events)))
-    for size in sorted({event.size for event in events}):
-        columns = [index for index, event in enumerate(events) if event.size == size]
-        stacked = np.stack([events[index] for index in columns])
+    times = np.empty((n, len(events)))
+    batches = {(len(event.samples), event.statistic) for event in events}
+    for size, statistic in sorted(batches):
+        columns = [
+            index
+            for index, event in enumerate(events)
+            if (len(event.samples), event.statistic) == (size, statistic)
+        ]
+        stacked = np.array([events[index].samples for index in columns], dtype=np.float64)
         if size == 1:
-            medians[:, columns] = stacked[:, 0]
+            times[:, columns] = stacked[:, 0]
             continue
         picks = rng.integers(0, size, size=(n, len(columns), size))
         rows = np.arange(len(columns))[:, None]
-        medians[:, columns] = np.median(stacked[rows, picks], axis=2)
-    return medians
+        times[:, columns] = statistic.reduce_along(stacked[rows, picks], axis=2)
+    return times
 
 
 def _percentile_interval(

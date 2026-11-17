@@ -13,12 +13,15 @@ from neuralls.domain.benchmarking.uncertainty import (
     ClusterBootstrap,
     ClusterStatistic,
     TimedCluster,
+    TimedEvent,
     TooFewMatrices,
     cluster_bootstrap,
     matrix_cluster_interval,
     two_level_interval,
 )
+from neuralls.domain.solver.models.statistics import Interval
 from neuralls.shared.constants import BOOTSTRAP_RESAMPLES, CONFIDENCE_LEVEL
+from neuralls.shared.timing import TimingStatistic
 from neuralls.shared.types import MatrixId
 
 SEED = 187
@@ -176,27 +179,46 @@ def test_an_interval_record_outside_its_range_is_rejected(build: Callable[[], ob
         build()
 
 
-def _timed(values: tuple[float, ...], spread: float) -> TimedCluster:
+def _timed(values: tuple[float, ...], spread: float, timing: TimingStatistic) -> TimedCluster:
     """One matrix whose values are each one solve timed three times around its value."""
-    events = tuple((value * (1.0 - spread), value, value * (1.0 + spread)) for value in values)
+    events = tuple(
+        TimedEvent((value * (1.0 - spread), value, value * (1.0 + spread)), timing)
+        for value in values
+    )
     return TimedCluster(events, lambda times: times)
 
 
-@pytest.mark.parametrize("statistic", list(ClusterStatistic))
-@pytest.mark.parametrize("spread", [0.0, 0.5], ids=["no repeat spread", "repeat spread"])
-def test_the_two_level_interval_adds_the_timing_repeats_to_the_matrix_one(
-    statistic: ClusterStatistic, spread: float
-) -> None:
-    one_level = matrix_cluster_interval(UNBALANCED, statistic, seed=SEED)
-    two_level = two_level_interval(
-        {matrix: _timed(values, spread) for matrix, values in UNBALANCED.items()},
+def _two_level(spread: float, timing: TimingStatistic, statistic: ClusterStatistic) -> Interval:
+    interval = two_level_interval(
+        {matrix: _timed(values, spread, timing) for matrix, values in UNBALANCED.items()},
         statistic,
         seed=SEED,
     )
+    assert interval is not None
+    return interval
+
+
+@pytest.mark.parametrize("timing", list(TimingStatistic))
+@pytest.mark.parametrize("statistic", list(ClusterStatistic))
+@pytest.mark.parametrize("spread", [0.0, 0.5], ids=["no repeat spread", "repeat spread"])
+def test_the_two_level_interval_adds_the_timing_repeats_to_the_matrix_one(
+    timing: TimingStatistic, statistic: ClusterStatistic, spread: float
+) -> None:
+    """The repeats are reduced by the events' own statistic, so the interval is of that point."""
+    reduced = {
+        matrix: tuple(
+            timing.reduce((value * (1.0 - spread), value, value * (1.0 + spread)))
+            for value in values
+        )
+        for matrix, values in UNBALANCED.items()
+    }
+    one_level = matrix_cluster_interval(reduced, statistic, seed=SEED)
+    two_level = _two_level(spread, timing, statistic)
 
     assert one_level is not None
-    assert two_level is not None
     if spread == 0.0:
         assert (two_level.low, two_level.high) == pytest.approx((one_level.low, one_level.high))
-    else:
-        assert two_level.high - two_level.low > one_level.high - one_level.low
+        return
+    assert two_level.high - two_level.low > one_level.high - one_level.low
+    median_reduced = _two_level(spread, TimingStatistic.MEDIAN, statistic)
+    assert (two_level == median_reduced) is (timing is TimingStatistic.MEDIAN)

@@ -1,7 +1,8 @@
 """Bars of per-method means and of time per iteration, drawn at the class level only.
 
 Every summary mark is read from the figure's summary frame, the table stored beside it: the bar
-is the frame's statistic column, the whisker its matrix-cluster interval columns and the "k/n"
+is the frame's statistic column, the whisker its interval columns (a two-level bootstrap for a
+time, a matrix-cluster one otherwise, ``timed_values.bootstrap_kind_of``) and the "k/n"
 annotation its ``n_defined`` and ``n_planned``. Seaborn draws the bars with ``errorbar=None``
 because its own error bars resample rows independently, which is wrong when the RHS of one matrix
 share it. Only the per-system points of time per iteration, which have no table counterpart, are
@@ -25,6 +26,7 @@ from matplotlib.axes import Axes
 from neuralls.domain.solver.reporting.cohorts import single_cohort
 from neuralls.domain.solver.reporting.metrics import METRICS, MetricId
 from neuralls.domain.solver.reporting.summary import Population
+from neuralls.domain.solver.reporting.timed_values import bootstrap_kind_of
 from neuralls.platform.reporting.cohort_points import panel_points
 from neuralls.platform.reporting.figure_annotations import (
     ColumnAnnotation,
@@ -37,7 +39,12 @@ from neuralls.platform.reporting.figure_sizing import POINT_JITTER, bar_columns_
 from neuralls.platform.reporting.figure_style import rotate_x_labels
 from neuralls.platform.reporting.figure_writer import finish_group_figure
 from neuralls.platform.reporting.group_style import GroupStyle
-from neuralls.platform.reporting.mark_legend import SYSTEM_POINT_STYLE, Mark, draw_mark_legend
+from neuralls.platform.reporting.mark_legend import (
+    SYSTEM_POINT_STYLE,
+    Mark,
+    draw_mark_legend,
+    interval_mark,
+)
 from neuralls.platform.reporting.seaborn_figures import plot_frame
 from neuralls.platform.reporting.series_style import MethodPalette, method_palette
 from neuralls.shared.types import PreconditionerName
@@ -57,7 +64,7 @@ _NO_POINTS = pl.DataFrame(schema={"method": pl.String, "value": pl.Float64})
 
 @dataclass(frozen=True, slots=True)
 class Whisker:
-    """The matrix-cluster bootstrap interval of a bar's statistic."""
+    """The bootstrap interval of a bar's statistic, of the kind its metric is resampled by."""
 
     low: float
     high: float
@@ -169,7 +176,7 @@ def plot_mean_bars(
     style: GroupStyle,
     target: FigureTarget,
 ) -> FigureTarget | None:
-    """Bars of each method's mean of ``metric`` with matrix-cluster whiskers and "k/n" counts.
+    """Bars of each method's mean of ``metric`` with bootstrap whiskers and "k/n" counts.
 
     ``summary`` is the rows of one cohort of the figure's cohort summary table; ``None`` when it
     has none.
@@ -302,7 +309,10 @@ def _draw_panel(
     return frozenset(
         mark
         for mark, drawn in (
-            (Mark.CONFIDENCE_INTERVAL, any(_has_whisker(bar) for bar in panel.bars)),
+            (
+                interval_mark(bootstrap_kind_of(metric)),
+                any(_has_whisker(bar) for bar in panel.bars),
+            ),
             (Mark.SYSTEM_POINTS, points.height > 0),
         )
         if drawn

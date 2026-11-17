@@ -40,7 +40,7 @@ from neuralls.domain.solver.models import (
 )
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
 from neuralls.domain.solver.models.config import SolverParams
-from neuralls.domain.solver.models.figure_scope import AllDatasetsScope, DatasetScope, RecipeScope
+from neuralls.domain.solver.models.figure_scope import DatasetScope, RecipeScope
 from neuralls.domain.solver.models.group_outcomes import GroupAggregated
 from neuralls.domain.solver.models.group_presentation import GroupPresentation
 from neuralls.platform.config.models.preconditioner import (
@@ -403,7 +403,6 @@ def test_each_group_states_only_facts_invariant_over_its_own_systems(
         (RecipeScope(dataset, ALPHA), [2]),
         (RecipeScope(dataset, BETA), [3]),
         (DatasetScope(dataset), []),
-        (AllDatasetsScope(), []),
     ]
 
 
@@ -447,7 +446,7 @@ def test_group_lists_only_methods_with_systems_in_that_group(
     methods_by_scope = {group.scope: set(group.methods) for group in sink.presentations}
     assert methods_by_scope[RecipeScope(dataset, ALPHA)] == {"jacobi_a"}
     assert methods_by_scope[RecipeScope(dataset, BETA)] == {"jacobi_b"}
-    assert methods_by_scope[AllDatasetsScope()] == {"jacobi_a", "jacobi_b"}
+    assert methods_by_scope[DatasetScope(dataset)] == {"jacobi_a", "jacobi_b"}
 
 
 def test_partial_setup_failure_keeps_only_the_successful_matrix_systems(

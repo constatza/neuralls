@@ -37,6 +37,7 @@ from neuralls.domain.solver.reporting.cohorts import (
     MixtureCohort,
     WholeGroup,
     mixture_label,
+    pools_a_mixture,
 )
 from neuralls.domain.solver.reporting.metrics import MetricId
 from neuralls.domain.solver.reporting.observations import Outcome
@@ -485,26 +486,34 @@ def _typed[T: (int, float)](table: Mapping[str, Any], key: str, kind: type[T]) -
     return value
 
 
-def _encode_cohort(cohort: Cohort, recipes: tuple[RhsRecipe, ...]) -> dict[str, Any]:
-    """A figure pooled over a mixture names itself by its recipes' keys; a class figure needs none."""
+def _encode_cohort(
+    cohort: Cohort, recipes: tuple[RhsRecipe, ...], dataset_ids: tuple[DatasetId, ...]
+) -> dict[str, Any]:
+    """A pooled figure names its mixture by its recipes' keys and matrix sets; a class needs none."""
     match cohort:
         case WholeGroup():
             return {}
         case MixtureCohort():
-            return {"cohort": _mixture_label(recipes)}
+            return {"cohort": _mixture_label(recipes, dataset_ids)}
         case unreachable:
             assert_never(unreachable)
 
 
-def _mixture_label(recipes: tuple[RhsRecipe, ...]) -> str:
-    return mixture_label(recipe_key(recipe) for recipe in recipes)
+def _mixture_label(recipes: tuple[RhsRecipe, ...], dataset_ids: tuple[DatasetId, ...]) -> str:
+    return mixture_label([recipe_key(recipe) for recipe in recipes], len(dataset_ids))
 
 
-def _decode_cohort(payload: Mapping[str, Any], recipes: tuple[RhsRecipe, ...]) -> Cohort:
+def _decode_cohort(
+    payload: Mapping[str, Any],
+    recipes: tuple[RhsRecipe, ...],
+    dataset_ids: tuple[DatasetId, ...],
+) -> Cohort:
     match payload.get("cohort"):
         case None:
             return WholeGroup()
-        case str(label) if label == _mixture_label(recipes):
+        case str(label) if pools_a_mixture(len(recipes), len(dataset_ids)) and label == (
+            _mixture_label(recipes, dataset_ids)
+        ):
             return MixtureCohort()
         case other:
             raise InvalidFigureCardError(
@@ -534,7 +543,13 @@ def _encode_timing(timing: FigureTimingEvidence) -> dict[str, Any]:
         case NoTimingEvidence():
             return {}
         case TimingEvidence(spreads=spreads, repeats=repeats):
-            table = {str(spread.method): spread.median_spread for spread in spreads}
+            table = {
+                str(spread.method): {
+                    "median_spread": spread.median_spread,
+                    "n_diverged": spread.n_diverged,
+                }
+                for spread in spreads
+            }
             match repeats:
                 case TimingRepeats.REPEATED:
                     return {"timing_spread": table}
@@ -555,7 +570,9 @@ def _decode_timing(payload: Mapping[str, Any]) -> FigureTimingEvidence:
             )
         return NoTimingEvidence()
     spreads = tuple(
-        MethodTimingSpread(PreconditionerName(method), float(spread))
+        MethodTimingSpread(
+            PreconditionerName(method), float(spread["median_spread"]), int(spread["n_diverged"])
+        )
         for method, spread in payload["timing_spread"].items()
     )
     repeats = TimingRepeats.SINGLE if "timing_warning" in payload else TimingRepeats.REPEATED
@@ -566,7 +583,7 @@ def _group_payload(metadata: GroupFigureMetadata) -> dict[str, Any]:
     """The fields only a group figure records: what it summarizes and the evidence under it."""
     return {
         "failure_treatment": metadata.failure_treatment.value,
-        **_encode_cohort(metadata.cohort, metadata.recipes),
+        **_encode_cohort(metadata.cohort, metadata.recipes, metadata.dataset_ids),
         "metric": metadata.metric.value,
         "population": metadata.population.value,
         "statistic": metadata.statistic.value,
@@ -714,7 +731,7 @@ def _decode_group_metadata(kind: FigureKind, payload: Mapping[str, Any]) -> Grou
     common = _common_fields(kind, payload)
     return GroupFigureMetadata(
         **common,
-        cohort=_decode_cohort(payload, common["recipes"]),
+        cohort=_decode_cohort(payload, common["recipes"], common["dataset_ids"]),
         interval=_decode_interval(payload["interval"]),
         setup_sharing=_decode_setup_sharing(payload),
         outcome_counts=tuple(

@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import statistics
 from collections.abc import Sequence
 from enum import StrEnum
 from typing import Annotated
 
+import numpy as np
 from pydantic import ConfigDict, Field
 from pydantic.dataclasses import dataclass
 
@@ -23,13 +23,17 @@ class TimingStatistic(StrEnum):
 
     def reduce(self, samples: Sequence[float]) -> float:
         """Collapse non-empty `samples` to one value."""
+        return float(self.reduce_along(np.asarray(samples, dtype=np.float64), axis=0))
+
+    def reduce_along(self, samples: np.ndarray, axis: int) -> np.ndarray:
+        """Collapse `samples` along `axis`, the same reduction `reduce` applies to one event."""
         match self:
             case TimingStatistic.MEDIAN:
-                return statistics.median(samples)
+                return np.median(samples, axis=axis)
             case TimingStatistic.MEAN:
-                return statistics.fmean(samples)
+                return np.mean(samples, axis=axis)
             case TimingStatistic.MIN:
-                return min(samples)
+                return np.min(samples, axis=axis)
 
 
 @dataclass(frozen=True, slots=True, config=ConfigDict(extra="forbid"))

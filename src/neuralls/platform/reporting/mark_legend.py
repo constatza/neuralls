@@ -18,7 +18,9 @@ from matplotlib.patches import Patch, Rectangle
 from matplotlib.path import Path
 from matplotlib.typing import ColorType
 
+from neuralls.domain.benchmarking.uncertainty import BootstrapKind
 from neuralls.platform.reporting.figure_text import LEGEND_ANCHOR, LEGEND_FONT_SIZE
+from neuralls.shared.constants import CONFIDENCE_LEVEL
 
 _INK: ColorType = "black"
 _BAR_FACE: ColorType = "0.7"
@@ -47,7 +49,8 @@ class Mark(Enum):
 
     MEAN_BAR = auto()
     RATIO_BAR = auto()
-    CONFIDENCE_INTERVAL = auto()
+    MATRIX_CLUSTER_INTERVAL = auto()
+    TWO_LEVEL_INTERVAL = auto()
     IQR = auto()
     MEDIAN = auto()
     MEDIAN_POINT = auto()
@@ -65,8 +68,10 @@ class Mark(Enum):
                 return "mean"
             case Mark.RATIO_BAR:
                 return "ratio of sums"
-            case Mark.CONFIDENCE_INTERVAL:
-                return "95% matrix-cluster interval"
+            case Mark.MATRIX_CLUSTER_INTERVAL:
+                return _interval_text(BootstrapKind.MATRIX_CLUSTER)
+            case Mark.TWO_LEVEL_INTERVAL:
+                return _interval_text(BootstrapKind.TWO_LEVEL)
             case Mark.IQR:
                 return "IQR (q25-q75)"
             case Mark.MEDIAN | Mark.MEDIAN_POINT:
@@ -81,6 +86,21 @@ class Mark(Enum):
                 return "matrix means"
             case unreachable:
                 assert_never(unreachable)
+
+
+def interval_mark(kind: BootstrapKind) -> Mark:
+    """The mark of an interval whisker drawn from a ``kind`` bootstrap."""
+    match kind:
+        case BootstrapKind.MATRIX_CLUSTER:
+            return Mark.MATRIX_CLUSTER_INTERVAL
+        case BootstrapKind.TWO_LEVEL:
+            return Mark.TWO_LEVEL_INTERVAL
+        case unreachable:
+            assert_never(unreachable)
+
+
+def _interval_text(kind: BootstrapKind) -> str:
+    return f"{CONFIDENCE_LEVEL:.0%} {kind.interval_name}"
 
 
 def _proxy(mark: Mark) -> Line2D | Patch:
@@ -127,7 +147,7 @@ def _proxy(mark: Mark) -> Line2D | Patch:
                 color=_INK,
                 label=label,
             )
-        case Mark.CONFIDENCE_INTERVAL:
+        case Mark.MATRIX_CLUSTER_INTERVAL | Mark.TWO_LEVEL_INTERVAL:
             return Line2D(
                 [],
                 [],

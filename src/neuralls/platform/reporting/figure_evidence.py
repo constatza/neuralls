@@ -137,10 +137,20 @@ class MethodOutcomeCounts:
 
 @dataclass(frozen=True, slots=True)
 class MethodTimingSpread:
-    """The median over a method's timed systems of ``(max - min) / median`` of their repeats."""
+    """How noisy and how reproducible a method's timing repeats were.
+
+    Attributes:
+        method: The method.
+        median_spread: The median over its timed systems of ``(max - min) / median`` of
+            their repeats.
+        n_diverged: Its timed events (each matrix setup once, each solve) whose repeats gave
+            different fingerprints. Their samples stay in every statistic; the count is the
+            warning that some samples are not comparable.
+    """
 
     method: PreconditionerName
     median_spread: float
+    n_diverged: int
 
 
 class TimingRepeats(StrEnum):
@@ -281,7 +291,9 @@ def timing_evidence_of(
     if not _is_time(metric):
         return NoTimingEvidence()
     spreads = tuple(
-        MethodTimingSpread(PreconditionerName(row["method"]), row["median_timing_spread"])
+        MethodTimingSpread(
+            PreconditionerName(row["method"]), row["median_timing_spread"], row["n_diverged"]
+        )
         for row in timing_noise(observations).iter_rows(named=True)
         if row["median_timing_spread"] is not None
     )

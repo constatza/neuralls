@@ -363,7 +363,7 @@ def _execute_on_device(
         return _setup_failed(
             run, bundle, event_id, error=exc, dataset_text=dataset_text, timing=_SetupTiming()
         )
-    setup_config = setup_config_for_matrix(method.config, bundle.matrix_id)
+    setup_config = setup_config_for_matrix(method.config, bundle.dataset, bundle.matrix_id)
     timed_setup = repeat_timed_outcome(
         lambda: _build_scheduled_and_bind(run.service, matrix, setup_config, staged_inputs),
         run.params.timing,

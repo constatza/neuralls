@@ -449,17 +449,10 @@ def test_comparison_logs_artifacts_to_mlflow_with_sqlite(
         filter_string=f"tags.mlflow.parentRunId = '{cohort_id}' and tags.report_level = 'system'",
     )
     assert len(system_runs) == 2
-    root_names = group_artifacts(report_id)
-    assert "figure_manifest.toml" not in root_names
-    assert {
-        "ecdf_iterations_All_comparison_matrix_sets__mixture.png",
-        "performance_profile_solve_All_comparison_matrix_sets__mixture.png",
-    } <= set(root_names)
-    assert not any(name.startswith("workload_") for name in root_names)
-    assert {
-        "ecdf_iterations_Comparison_matrix_set_Test_problem_Ones_Solutions_N_1__mixture.png",
-        "performance_profile_solve_Comparison_matrix_set_Test_problem_Ones_Solutions_N_1__mixture.png",
-    } <= set(group_artifacts(matrix_set_id))
+    # One matrix set and one recipe: the mixture levels pool exactly the class-level group's
+    # systems, so they are not reported and their runs hold no group figure.
+    assert group_artifacts(report_id) == []
+    assert group_artifacts(matrix_set_id) == []
     recipe_stem = "Comparison_matrix_set_Test_problem_Ones_Solutions_N_1_-_Gaussian"
     assert {
         f"workload_solve_bars_{recipe_stem}.png",

@@ -26,6 +26,7 @@ from neuralls.domain.benchmarking.uncertainty import (
     two_level_interval,
 )
 from neuralls.domain.solver.models.statistics import Interval
+from neuralls.domain.solver.reporting.event_frames import DIVERGED_REPEAT_STATUS
 from neuralls.domain.solver.reporting.metrics import METRICS, MetricId, MetricSpec, ObservationUnit
 from neuralls.domain.solver.reporting.observations import Outcome
 from neuralls.domain.solver.reporting.timed_values import (
@@ -90,6 +91,7 @@ TIMING_NOISE_SCHEMA: dict[str, pl.DataType | type[pl.DataType]] = {
     "method": pl.String,
     "median_timing_spread": pl.Float64,
     "n_systems": pl.Int64,
+    "n_diverged": pl.Int64,
 }
 
 OUTCOME_COUNTS_SCHEMA: dict[str, pl.DataType | type[pl.DataType]] = {
@@ -339,17 +341,21 @@ def outcome_counts(obs: pl.DataFrame) -> pl.DataFrame:
 
 
 def timing_noise(obs: pl.DataFrame) -> pl.DataFrame:
-    """Per method, the median relative spread of timing repeats over systems with a solve row."""
-    per_method = (
-        obs.filter(pl.col("solve_s").is_not_null())
-        .group_by("method")
-        .agg(
-            median_timing_spread=pl.col("timing_spread").median(),
-            n_systems=pl.len(),
-        )
+    """Per method, the median relative spread of timing repeats over systems with a solve row.
+
+    ``n_diverged`` counts the method's timed events (each matrix setup once, each solve) whose
+    repeats gave different fingerprints; their samples are kept, so the count is the warning.
+    """
+    solved = pl.col("solve_s").is_not_null()
+    diverged = pl.lit(DIVERGED_REPEAT_STATUS)
+    per_method = obs.group_by("method").agg(
+        median_timing_spread=pl.col("timing_spread").filter(solved).median(),
+        n_systems=solved.sum(),
+        n_diverged=(pl.col("solve_repeat_status") == diverged).sum()
+        + pl.struct(_MATRIX_KEYS).filter(pl.col("setup_repeat_status") == diverged).n_unique(),
     )
     return (
-        _per_method(obs, per_method, ["n_systems"])
+        _per_method(obs, per_method, ["n_systems", "n_diverged"])
         .select(list(TIMING_NOISE_SCHEMA))
         .cast(pl.Schema(TIMING_NOISE_SCHEMA))
     )

@@ -203,13 +203,17 @@ class OpenReport:
         *,
         presentation: GroupPresentation,
     ) -> None:
-        """Log explicit counts and the supported failure-aware plots into the group's run."""
+        """Log explicit counts and the supported failure-aware plots into the group's run.
+
+        Counts, success rate and iteration statistics are logged only for a class (one matrix
+        set and RHS type): pooled over a mixture they would depend on its arbitrary weights.
+        """
         group_id = outcome.group_id
         scope = scope_of_label(outcome.label)
         run_id = self._run_of(scope)
         with tempfile.TemporaryDirectory() as tmp:
-            metrics = convergence_metrics(outcome.convergence)
             if isinstance(outcome, RecipeProfileReport):
+                metrics = convergence_metrics(outcome.convergence)
                 reference = reference_among_methods(
                     outcome.observations, outcome.reference_selection
                 )
@@ -217,7 +221,7 @@ class OpenReport:
                     metrics |= comparison_metrics(
                         speed_ratio_summary(outcome.observations, reference, REFERENCE_METRIC)
                     )
-            self.writer.log_metrics(run_id, metrics)
+                self.writer.log_metrics(run_id, metrics)
             file_key = self.slugs.slug(
                 f"group:{group_id}", scope_label(presentation.scope, self.notation)
             )

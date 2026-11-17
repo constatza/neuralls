@@ -137,6 +137,10 @@ def report_all_levels(
     is the filter of it to the group's systems. ``datasets`` presents each dataset a group names; a group on a dataset without an
     entry raises before anything is reported for it. ``notation`` is the case's symbol
     policy, used for the text of a skipped group.
+
+    Levels are reported from the narrowest up, and a group whose systems are exactly those of a
+    group already reported is skipped without a run: a matrix set with one recipe is its
+    class-level group again, and all matrix sets over one matrix set is that set's group again.
     """
     selected = reference_selection if reference_selection is not None else NoReferenceConfigured()
     planned_by_id = {tag.system_id: tag for workload in workloads for tag in workload.planned}
@@ -147,6 +151,7 @@ def report_all_levels(
     plot_styles = {
         name: style for workload in workloads for name, style in workload.plot_styles.items()
     }
+    reported: set[frozenset[SystemId]] = set()
     for level in REPORT_LEVELS:
         for classified in classify_level(
             planned,
@@ -158,7 +163,12 @@ def report_all_levels(
             planned_by_method=planned_by_method,
         ):
             match classified:
+                case GroupAggregated() as aggregated if (
+                    frozenset(aggregated.system_ids) in reported
+                ):
+                    continue
                 case GroupAggregated() as aggregated:
+                    reported.add(frozenset(aggregated.system_ids))
                     solver_contexts = tuple(
                         dict.fromkeys(
                             contexts_by_system[system_id]

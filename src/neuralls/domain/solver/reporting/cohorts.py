@@ -9,7 +9,7 @@ class-level group, or every system of a mixture level pooled with equal weight p
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 
 import polars as pl
@@ -35,9 +35,30 @@ type Cohort = WholeGroup | MixtureCohort
 """What a figure draws: one class, or a mixture of classes or matrix sets."""
 
 
-def mixture_label(recipe_names: Iterable[str]) -> str:
-    """How a figure pooled over a mixture names itself: each pair counts once, whatever its class."""
-    return f"equal-weight mixture of {', '.join(recipe_names)}"
+def pools_a_mixture(n_recipes: int, n_matrix_sets: int) -> bool:
+    """Whether systems of ``n_recipes`` recipes over ``n_matrix_sets`` matrix sets are a mixture.
+
+    One recipe over one matrix set is a class: its systems are exactly a class-level group's.
+    """
+    return n_recipes >= 2 or n_matrix_sets >= 2
+
+
+def mixture_label(recipe_names: Sequence[str], n_matrix_sets: int) -> str:
+    """How a figure pooled over a mixture names what it pools; each pair counts once.
+
+    Several recipes are an equal-weight mixture of them; one recipe over several matrix sets is
+    pooled over those sets; several of both says both.
+
+    Raises:
+        ValueError: One recipe over one matrix set, which is a class, not a mixture.
+    """
+    if not pools_a_mixture(len(recipe_names), n_matrix_sets):
+        raise ValueError("one recipe over one matrix set is a class, not a mixture")
+    parts = (
+        f"equal-weight mixture of {', '.join(recipe_names)}" if len(recipe_names) >= 2 else None,
+        f"pooled over {n_matrix_sets} matrix sets" if n_matrix_sets >= 2 else None,
+    )
+    return "; ".join(part for part in parts if part is not None)
 
 
 class NotOneCohortError(ValueError):

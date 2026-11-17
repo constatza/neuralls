@@ -24,6 +24,7 @@ from torchalg.preconditioners.implementations.amg import (
 )
 from torchalg.preconditioners.implementations.pod import PODCoarseningStrategy
 
+from neuralls.composition.comparison._preconditioner_setup import setup_fingerprint
 from neuralls.composition.preconditioners.descriptions import (
     MissingArchitectureNameError,
     describe_configured_preconditioner,
@@ -60,6 +61,8 @@ from neuralls.shared.scientific_description.policy import (
     RenderTarget,
 )
 from neuralls.shared.scientific_description.render import render
+from neuralls.shared.types import PreconditionerName
+from tests.composition.workload_support import matrix_bundle
 
 PLAIN = NotationPolicy.default(RenderTarget.PLAIN)
 PROFILE = RenderProfile(name="description", include_context=True)
@@ -259,6 +262,16 @@ def tridiag_spd_matrix() -> torch.Tensor:
 
 
 @pytest.fixture
+def identity() -> Identity:
+    return Identity()
+
+
+@pytest.fixture
+def jacobi(tridiag_spd_matrix: torch.Tensor) -> JacobiPreconditioner:
+    return JacobiPreconditioner().setup(tridiag_spd_matrix)
+
+
+@pytest.fixture
 def aggregation_amg(tridiag_spd_matrix: torch.Tensor) -> AMGPreconditioner:
     cycle = VCycle(smoother=JacobiSmoother(omega=0.67), n_pre=2, n_post=2)
     return AMGPreconditioner(
@@ -311,6 +324,21 @@ def test_parameterless_and_scheduled_preconditioners_unwrap_correctly(
     assert describe_realized_preconditioner(scheduled) == describe_realized_preconditioner(
         aggregation_amg
     )
+
+
+@pytest.mark.parametrize(
+    ("built", "checked"),
+    [("identity", False), ("jacobi", False), ("pod_amg", False), ("aggregation_amg", True)],
+)
+def test_only_a_setup_with_realized_facts_gets_a_fingerprint(
+    request: pytest.FixtureRequest, built: str, checked: bool
+) -> None:
+    """With no realized facts a repeat could differ in, the repeats are left unchecked."""
+    preconditioner: Preconditioner = request.getfixturevalue(built)
+
+    fingerprint = setup_fingerprint(preconditioner, PreconditionerName(built), matrix_bundle(1))
+
+    assert (fingerprint is not None) is checked
 
 
 def test_realized_bootstrap_matches_its_hierarchy() -> None:

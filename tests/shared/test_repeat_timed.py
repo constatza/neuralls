@@ -16,6 +16,7 @@ from neuralls.shared.device import (
     Agreed,
     Diverged,
     FailedTimedRuns,
+    ResourceUsage,
     SingleRun,
     TimedRuns,
     Unchecked,
@@ -151,6 +152,21 @@ def test_repeats_without_a_fingerprint_are_unchecked_not_agreed(
     assert timed.agreement == Unchecked()
 
 
+def test_repeats_whose_result_has_no_fingerprint_are_unchecked_not_agreed(
+    clock: Callable[[list[float]], None],
+) -> None:
+    clock([1.0, 1.0])
+
+    timed = timed_runs(
+        lambda: 7,
+        TimingRepeatPolicy(repeats=2, warmup=0),
+        device=CPU,
+        fingerprint=lambda value: None,
+    )
+
+    assert timed.agreement == Unchecked()
+
+
 def test_a_raising_region_is_a_failed_outcome(clock: Callable[[list[float]], None]) -> None:
     clock([1.0])
 
@@ -162,6 +178,27 @@ def test_a_raising_region_is_a_failed_outcome(clock: Callable[[list[float]], Non
     assert isinstance(outcome, FailedTimedRuns)
     assert isinstance(outcome.error, RuntimeError)
     assert outcome.seconds == pytest.approx(1.0)
+
+
+@pytest.mark.parametrize(
+    ("device", "expected"),
+    [(CPU, 800), (torch.device("cuda"), 0)],
+    ids=["process high-water mark", "scoped allocator peak"],
+)
+def test_the_event_peak_keeps_the_warmup_peak_only_without_a_scoped_peak(
+    monkeypatch: pytest.MonkeyPatch, device: torch.device, expected: int
+) -> None:
+    """A warm-up that raised the high-water mark leaves the first timed delta at 0."""
+    peaks = iter((800, 0, 500))
+    monkeypatch.setattr(
+        device_module,
+        "_measure_outcome",
+        lambda run, device: (run(), ResourceUsage(1.0, next(peaks))),
+    )
+
+    timed = timed_runs(lambda: None, TimingRepeatPolicy(repeats=2, warmup=1), device=device)
+
+    assert timed.peak_memory_bytes == expected
 
 
 @pytest.mark.parametrize("kwargs", [{"repeats": 0}, {"repeats": 11}, {"warmup": -1}])

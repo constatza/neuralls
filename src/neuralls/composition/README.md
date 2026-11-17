@@ -678,11 +678,14 @@ one event.
 Each matrix's setup is timed by `repeat_timed_outcome` with a fingerprint
 (`_preconditioner_setup.setup_fingerprint`: the built preconditioner's class and realized
 facts), so setup repeats that built different hierarchies are stored `Diverged` as solves
-are; a failure reading those facts raises `RealizedFactCaptureError` like the capture after
+are; a preconditioner with no realized facts (Identity, Jacobi, ILU, IC(0), neural, POD-coarsened
+AMG) has nothing a repeat could differ in, so its fingerprint is `None` and its repeats are stored
+`Unchecked`, not `Agreed`; a failure reading those facts raises `RealizedFactCaptureError` like the capture after
 setup. A randomized setup (aSA, BAMG) is built from `setup_config_for_matrix`, its seed
-`plan.derive_seed(config.seed, matrix_id, stream=SETUP_SEED_STREAM)` (a stream apart from
-the RHS seeds): one seed for the warm-up and every repeat of a matrix, a different one per
-matrix; the method's identity, slug and facts keep the
+`plan.derive_seed(config.seed, crc32(dataset), matrix_id, stream=SETUP_SEED_STREAM)` (a stream
+apart from the RHS seeds; the matrix set enters as the CRC-32 of its id because matrix ids repeat
+across matrix sets): one seed for the warm-up and every repeat of a matrix, a different one per
+matrix of every matrix set; the method's identity, slug and facts keep the
 configured seed, and figure cards state the derivation (`setup_seed`).
 
 The method-owned checkpoint store spans its matrices, so loaded weights are
@@ -692,7 +695,9 @@ the next method starts. `WorkloadMemoryObserver` combines operation peaks over
 that lifetime without resetting CUDA peak counters around an already-timed
 setup or solve. CPU `ru_maxrss` is process-wide and monotonic, so a method's CPU
 peak is documented and reported as a lower bound when an earlier workload set a
-higher process high-water mark. On CUDA the observed value is PyTorch's allocator
+higher process high-water mark. For the same reason one event's CPU peak is the larger of its
+warm-up's and its first timed execution's (`shared/device.py::event_peak_memory`): the warm-up,
+the identical computation, raises the mark first, leaving the timed delta at about 0. On CUDA the observed value is PyTorch's allocator
 peak, not total device memory.
 
 One check runs before anything executes:
@@ -785,12 +790,18 @@ ratios. **Raw-scale aggregates exist only at the matrix-set-and-RHS-type level.*
 pools several RHS classes or matrix sets depends on the arbitrary mixing weights (Dolan & Moré
 2002; COCO, Hansen et al.), so the workload and cost bars, the means, time per iteration,
 distributions, convergence factors, break-even curve, offline break-even, heatmap and full cost are
-drawn only for one class on one matrix set. Matrix-set and all-matrix-sets outputs are mixtures, even of one recipe
-(the all-matrix-sets group still pools matrix sets): they emit only the scale-free per-pair views,
-the ECDFs, performance profiles, paired scatter and speed-ratio CDF, each one `__mixture` figure
-pooled over all the group's systems whose card `cohort` is "equal-weight mixture of <recipe
-keys>": each pair counts once, whatever its class
-(`platform/reporting/cohort_variants.py`). Their report runs stay and hold those figures.
+drawn only for one class on one matrix set. `report_all_levels` reports the levels narrowest first
+and skips, without a report, a group whose systems are exactly those of a group already reported:
+a matrix set with one recipe is its class-level group again, and all matrix sets over one matrix
+set is that set's group again (its run, if any, is only the parent a narrower run nests under).
+A reported matrix-set or all-matrix-sets group therefore pools several recipes or several matrix
+sets: it emits only the scale-free per-pair views, the ECDFs, performance profiles, paired scatter
+and speed-ratio CDF, each one `__mixture` figure pooled over all the group's systems whose card
+`cohort` names what it pools (`domain/solver/reporting/cohorts.py::mixture_label`: "equal-weight
+mixture of <recipe keys>" for several recipes, "pooled over <k> matrix sets" for one recipe over
+several sets, both joined by "; " for several of each): each pair counts once, whatever its class
+(`platform/reporting/cohort_variants.py`). Run counts, success rate and iteration statistics are
+logged as metrics only on class-level runs, since pooled they depend on the mixture's weights.
 The class level also emits a full-cost figure (`full_cost_breakdown`): each method's offline generation and
 fit, read from the offline block of its stored `summary.toml` and paid once per artifact, stacked on
 the pair setup and solve seconds of that group's workload. A report never recomputes the fit from MLflow, so

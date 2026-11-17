@@ -7,7 +7,8 @@ divides the solve by the iterations). Its interval is the two-level bootstrap, w
 both events' stored timing repeats. Every other metric is deterministic per pair and keeps the
 matrix-cluster bootstrap.
 
-The observation view carries each row's repeats as ``setup_samples_s`` and ``solve_samples_s``.
+The observation view carries each row's repeats as ``setup_samples_s`` and ``solve_samples_s``,
+and the statistic that reduced them as ``timing_statistic``.
 """
 
 from __future__ import annotations
@@ -19,12 +20,19 @@ from typing import assert_never
 import numpy as np
 import polars as pl
 
-from neuralls.domain.benchmarking.uncertainty import BootstrapKind, MatrixCluster, TimedCluster
+from neuralls.domain.benchmarking.uncertainty import (
+    BootstrapKind,
+    MatrixCluster,
+    TimedCluster,
+    TimedEvent,
+)
 from neuralls.domain.solver.reporting.metrics import MetricId
+from neuralls.shared.timing import TimingStatistic
 from neuralls.shared.types import MatrixId
 
 SETUP_SAMPLES = "setup_samples_s"
 SOLVE_SAMPLES = "solve_samples_s"
+TIMING_STATISTIC = "timing_statistic"
 _SETUP_WEIGHT = "setup_weight"
 _SOLVE_WEIGHT = "solve_weight"
 _MATRIX_KEYS = ["dataset", "matrix_id"]
@@ -78,7 +86,7 @@ def bootstrap_kind_of(metric: MetricId) -> BootstrapKind:
             assert_never(unreachable)
 
 
-TIMING_COLUMNS = (SETUP_SAMPLES, SOLVE_SAMPLES, _SETUP_WEIGHT, _SOLVE_WEIGHT)
+TIMING_COLUMNS = (SETUP_SAMPLES, SOLVE_SAMPLES, TIMING_STATISTIC, _SETUP_WEIGHT, _SOLVE_WEIGHT)
 """The columns ``with_timing_weights`` leaves on a row for its events to be redrawn."""
 
 
@@ -99,7 +107,7 @@ def timed_clusters(rows: pl.DataFrame, timing: TimedMetric) -> dict[MatrixCluste
     clusters: dict[MatrixCluster, TimedCluster] = {}
     weighted = with_timing_weights(rows, timing)
     for (dataset, matrix_id), group in weighted.group_by(_MATRIX_KEYS, maintain_order=True):
-        events: list[tuple[float, ...]] = []
+        events: list[TimedEvent] = []
         dense = _dense(_side_weights(group.to_dicts(), events), len(events))
         clusters[(_dataset(dataset), MatrixId(_matrix(matrix_id)))] = TimedCluster(
             tuple(events), lambda times, dense=dense: times @ dense.T
@@ -137,7 +145,7 @@ def _timed_pair_clusters(
     clusters: dict[MatrixCluster, TimedCluster] = {}
     for (dataset, matrix_id), group in pairs.group_by(_MATRIX_KEYS, maintain_order=True):
         rows = group.to_dicts()
-        events: list[tuple[float, ...]] = []
+        events: list[TimedEvent] = []
         method = _side_weights(rows, events)
         reference = _side_weights(rows, events, suffix=REFERENCE_SUFFIX)
         left, right = _dense(reference, len(events)), _dense(method, len(events))
@@ -149,7 +157,7 @@ def _timed_pair_clusters(
 
 
 def _side_weights(
-    rows: Sequence[Mapping[str, object]], events: list[tuple[float, ...]], *, suffix: str = ""
+    rows: Sequence[Mapping[str, object]], events: list[TimedEvent], *, suffix: str = ""
 ) -> list[dict[int, float]]:
     """Each row's weight per event of one side; the side's events are appended to ``events``.
 
@@ -161,14 +169,17 @@ def _side_weights(
         row_weights: dict[int, float] = {}
         setup_weight = _weight(row[f"{_SETUP_WEIGHT}{suffix}"])
         solve_weight = _weight(row[f"{_SOLVE_WEIGHT}{suffix}"])
+        statistic = TimingStatistic(str(row[f"{TIMING_STATISTIC}{suffix}"]))
         if setup_weight != 0.0:
             if setup_index is None:
                 setup_index = len(events)
-                events.append(_samples(row[f"{SETUP_SAMPLES}{suffix}"], "setup"))
+                events.append(
+                    TimedEvent(_samples(row[f"{SETUP_SAMPLES}{suffix}"], "setup"), statistic)
+                )
             row_weights[setup_index] = setup_weight
         if solve_weight != 0.0:
             row_weights[len(events)] = solve_weight
-            events.append(_samples(row[f"{SOLVE_SAMPLES}{suffix}"], "solve"))
+            events.append(TimedEvent(_samples(row[f"{SOLVE_SAMPLES}{suffix}"], "solve"), statistic))
         weights.append(row_weights)
     return weights
 

@@ -444,6 +444,7 @@ def test_mixture_sink_draws_only_the_pooled_scale_free_figures(
     key = _GROUP_FILE_STEM
     run = _scope_run(runs, writer, ReportLevelName.MATRIX_SET)
     assert _figures(_artifacts(run)) == {f"{stem}_{key}__mixture.png" for stem in _POOLED_STEMS}
+    assert run.metrics == {}  # pooled counts and iteration statistics are logged per class
 
 
 def test_mixture_figure_plans_use_literal_population_and_metric_semantics(

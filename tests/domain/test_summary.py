@@ -328,7 +328,7 @@ def test_timing_noise_is_the_median_spread_over_systems_with_a_solve_row(
 
     assert dict(result.schema) == TIMING_NOISE_SCHEMA
     assert result.rows(named=True) == [
-        {"method": AMG, "median_timing_spread": 0.0, "n_systems": 6},
-        {"method": BROKEN, "median_timing_spread": None, "n_systems": 0},
-        {"method": JACOBI, "median_timing_spread": 0.0, "n_systems": 9},
+        {"method": AMG, "median_timing_spread": 0.0, "n_systems": 6, "n_diverged": 0},
+        {"method": BROKEN, "median_timing_spread": None, "n_systems": 0, "n_diverged": 0},
+        {"method": JACOBI, "median_timing_spread": 0.0, "n_systems": 9, "n_diverged": 0},
     ]

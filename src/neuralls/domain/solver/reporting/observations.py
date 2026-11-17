@@ -135,12 +135,17 @@ OBSERVATION_SCHEMA: dict[str, pl.DataType | type[pl.DataType]] = {
     "timing_spread": pl.Float64,
     "setup_samples_s": pl.List(pl.Float64),
     "solve_samples_s": pl.List(pl.Float64),
+    "timing_statistic": pl.String,
+    "setup_repeat_status": pl.String,
+    "solve_repeat_status": pl.String,
 }
 """One row per planned system of a method; ``outcome`` holds ``Outcome`` values.
 
 ``setup_samples_s`` and ``solve_samples_s`` are the stored timing repeats of the row's matrix
 setup and of its solve (null without the event), which the two-level bootstrap of a time
-redraws."""
+redraws and reduces again by ``timing_statistic``, the planned system's ``TimingStatistic``.
+``setup_repeat_status`` and ``solve_repeat_status`` are the stored repeat agreement of the two
+events (null without the event)."""
 
 _OBSERVATION_SORT_KEYS = ("method", "dataset", "matrix_id", "rhs_ordinal", "recipe", "system_id")
 _MATRIX_KEYS = ["dataset", "matrix_id"]
@@ -194,9 +199,9 @@ def observations(
             a solve row contradicts its planned system or its setup event.
     """
     _validate_frames(method, planned_systems, setup_events, solve_attempts, convergence)
-    planned = planned_systems.select("system_id", *_SYSTEM_IDENTITY, "rtol", "atol").with_columns(
-        planned_rhs=pl.len().over(_MATRIX_KEYS).cast(pl.Int64)
-    )
+    planned = planned_systems.select(
+        "system_id", *_SYSTEM_IDENTITY, "rtol", "atol", "timing_statistic"
+    ).with_columns(planned_rhs=pl.len().over(_MATRIX_KEYS).cast(pl.Int64))
     solves = solve_attempts.select(
         "system_id",
         "solve_s",
@@ -205,9 +210,14 @@ def observations(
         "rhs_norm",
         solve_outcome=solve_outcome_expr(),
         solve_samples_s=pl.col("samples_s"),
+        solve_repeat_status=pl.col("repeat_status"),
     )
     setups = setup_events.select(
-        *_MATRIX_KEYS, "setup_s", "setup_status", setup_samples_s=pl.col("samples_s")
+        *_MATRIX_KEYS,
+        "setup_s",
+        "setup_status",
+        setup_samples_s=pl.col("samples_s"),
+        setup_repeat_status=pl.col("repeat_status"),
     )
     factors = convergence_factors(convergence).select("system_id", "convergence_factor")
     joined = (

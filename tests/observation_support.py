@@ -328,6 +328,9 @@ def synthetic_observations(rows: Sequence[SyntheticRow]) -> pl.DataFrame:
                 "online_amortized_s": _online(row),
                 "setup_samples_s": _setup_samples(row),
                 "solve_samples_s": None if row.seconds is None else [row.seconds],
+                "timing_statistic": "median",
+                "setup_repeat_status": None,
+                "solve_repeat_status": None,
             }
             for row in rows
         ],

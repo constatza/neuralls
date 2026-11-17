@@ -9,9 +9,11 @@ optimization software with performance profiles*; Hansen et al., the COCO platfo
   group, with no stem suffix;
 - the matrix-set and all-matrix-sets levels are mixtures and get only the scale-free per-pair
   views (ECDFs, performance profiles, paired scatter, speed-ratio CDF), each one figure pooled over
-  every system of the group, whose card names it an equal-weight mixture of its recipes: every
-  pair counts once, so a class weighs what its pair count does. Their raw-scale figures are not
-  drawn: the class-level reports already draw them per class.
+  every system of the group, whose card names what it pools (``cohorts.mixture_label``: an
+  equal-weight mixture of its recipes, pooled over its matrix sets, or both): every pair counts
+  once, so a class weighs what its pair count does. Their raw-scale figures are not drawn: the
+  class-level reports already draw them per class. A mixture group whose systems are exactly a
+  narrower group's is not reported at all (``report_all_levels``).
 """
 
 from __future__ import annotations
@@ -45,9 +47,9 @@ class CohortLevel(StrEnum):
 def cohort_level(label: GroupLabel) -> CohortLevel:
     """The cohort level of the report group named by ``label``.
 
-    A matrix-set or all-matrix-sets group is a mixture even when it pools one recipe: the
-    all-matrix-sets group still pools matrix sets, and a one-recipe matrix-set group repeats its
-    class-level report, so neither gets a raw-scale aggregate.
+    A reported matrix-set or all-matrix-sets group is a mixture: it pools several recipes or
+    several matrix sets, since a group with exactly a narrower group's systems is never reported
+    (``report_all_levels``). So neither gets a raw-scale aggregate.
     """
     match label:
         case MatrixSetRhsTypeLabel():

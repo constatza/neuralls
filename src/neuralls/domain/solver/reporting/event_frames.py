@@ -50,6 +50,9 @@ from neuralls.shared.types import (
     SystemId,
 )
 
+DIVERGED_REPEAT_STATUS = "diverged"
+"""The stored ``repeat_status`` of an event whose timing repeats gave different fingerprints."""
+
 SETUP_EVENT_SCHEMA: dict[str, pl.DataType | type[pl.DataType]] = {
     "setup_event_id": pl.String,
     "dataset": pl.String,
@@ -722,7 +725,7 @@ def _repeat_fields(repeats: RepeatAgreement) -> tuple[str, int | None, int | Non
         case Agreed():
             return "agreed", None, None
         case Diverged(first=first, other=other):
-            return "diverged", first, other
+            return DIVERGED_REPEAT_STATUS, first, other
         case unreachable:
             assert_never(unreachable)
 
