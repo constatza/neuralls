@@ -428,7 +428,7 @@ class AdaptiveSAPreconditionerConfig(BasePreconditionerConfig):
     search picking a *worse* theta than just naming one directly (its
     classical-AMG target-dim=10 search landed on a fully degenerate
     ``c=0``, while fixed ``theta=0.05`` alone gives ``c=23`` on the same
-    504x504 matrix, see ``docs/plan.md``) — so pick ``theta`` directly
+    504x504 matrix) — so pick ``theta`` directly
     instead, and keep it close to ``0`` (this repo's default is ``0.05``,
     the same value used at every tier; do not raise it to grow the coarse
     space — see ``num_candidates`` below).

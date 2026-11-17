@@ -575,8 +575,7 @@ def test_factory_creates_adaptive_sa_preconditioner_with_explicit_num_candidates
     """Factory forwards `num_candidates`/`theta` unchanged to `AdaptiveSAPreconditioner`.
 
     No target-dimension search (removed — an end-to-end run showed the
-    search picking a worse theta than just naming one directly, see
-    `docs/plan.md`); this just confirms config fields reach the built
+    search picking a worse theta than just naming one directly); this just confirms config fields reach the built
     object unchanged.
     """
     config = AdaptiveSAPreconditionerConfig(max_coarse=1, num_candidates=3, theta=0.1)

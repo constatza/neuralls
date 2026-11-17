@@ -104,7 +104,7 @@ def test_anchor_keeps_an_absolute_path(ctx: ConfigContext, value: str, expected:
             "${GRAPH_CG_RAW_DIR}/matrix.mtx",
             (
                 "Stale placeholder '${GRAPH_CG_RAW_DIR}' in config. "
-                "Rename GRAPH_CG_* → NEURALLS_* (see docs/env-reference.md)."
+                "Rename GRAPH_CG_* → NEURALLS_* (NEURALLS_RAW_DIR, NEURALLS_PROCESSED_DIR, NEURALLS_OUTPUT_DIR)."
             ),
         ),
         (

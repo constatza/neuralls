@@ -90,7 +90,7 @@ def substitute_placeholders(value: str, ctx: ConfigContext) -> str:
     if m := _GRAPH_CG_RE.search(value):
         raise ValueError(
             f"Stale placeholder '{m.group()}' in config. "
-            "Rename GRAPH_CG_* → NEURALLS_* (see docs/env-reference.md)."
+            "Rename GRAPH_CG_* → NEURALLS_* (NEURALLS_RAW_DIR, NEURALLS_PROCESSED_DIR, NEURALLS_OUTPUT_DIR)."
         )
 
     def _sub(m: re.Match[str]) -> str:

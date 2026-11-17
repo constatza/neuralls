@@ -79,7 +79,7 @@ class TargetDimCoarseningConfig(BaseModel):
 
     `theta` is a strength-of-connection threshold; the coarse dimension it
     produces is emergent, not chosen, and (confirmed against real stiffness
-    matrices, see `docs/plan.md`) a step function of `theta` rather than a
+    matrices) a step function of `theta` rather than a
     smooth or monotonic one. This gives AMG-aggregation the same "set the
     coarse dimension directly" ergonomics `PODCoarseningConfig.rank` already
     has, via an adaptive `theta` search for the closest realized match

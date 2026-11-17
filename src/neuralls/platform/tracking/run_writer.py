@@ -10,6 +10,7 @@ fluent API out of ``src/``.
 
 from __future__ import annotations
 
+import tempfile
 import time
 from collections.abc import Generator, Mapping
 from contextlib import contextmanager
@@ -124,8 +125,17 @@ class MlflowRunWriter:
         self.client.log_artifact(run_id, str(local_path), artifact_path=directory)
 
     def log_text(self, run_id: str, text: str, artifact_file: str) -> None:
-        """Store ``text`` as an artifact file of the run."""
-        self.client.log_text(run_id, text, artifact_file)
+        """Store ``text`` as an artifact file of the run, with LF line endings.
+
+        ``MlflowClient.log_text`` writes in text mode, so on Windows it stores CRLF and the
+        artifact's bytes differ from the same payload logged as bytes on any other platform.
+        """
+        artifact = Path(artifact_file)
+        with tempfile.TemporaryDirectory() as staging:
+            path = Path(staging) / artifact.name
+            path.write_text(text, encoding="utf-8", newline="\n")
+            parent = artifact.parent.as_posix()
+            self.client.log_artifact(run_id, str(path), None if parent == "." else parent)
 
     def log_dict(self, run_id: str, data: Mapping[str, object], artifact_file: str) -> None:
         """Store ``data`` as a JSON artifact file of the run."""

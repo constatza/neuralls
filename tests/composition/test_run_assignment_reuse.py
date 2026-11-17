@@ -130,7 +130,7 @@ def test_run_assignment_fails_cleanly_when_dataset_was_never_generated(
     """
     absent = MagicMock(spec=Path)
     absent.exists.return_value = False
-    absent.__str__.return_value = "workspace/data/never-generated/missing"
+    absent.__str__.return_value = str(Path("workspace/data/never-generated/missing"))
     with (
         patch.object(training_batch, "load_data_config") as load_data_config,
         patch.object(training_batch, "resolve_dataset_identity") as resolve_dataset_identity,
@@ -155,8 +155,8 @@ def test_run_assignment_fails_cleanly_when_dataset_was_never_generated(
 
     assert isinstance(result, AssignmentFailed)
     assert result.error == (
-        "Required data files not found in workspace/data/never-generated:\n"
-        + "\n".join(["  - workspace/data/never-generated/missing"] * 3)
+        f"Required data files not found in {Path('workspace/data/never-generated')}:\n"
+        + "\n".join([f"  - {absent}"] * 3)
     )
     prepare_training_settings.assert_not_called()
 

@@ -1,4 +1,4 @@
-"""Tests for generation strategy descriptions (``docs/plan.md`` Phase 5)."""
+"""Tests for generation strategy descriptions."""
 
 from __future__ import annotations
 
