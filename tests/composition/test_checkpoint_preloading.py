@@ -25,7 +25,6 @@ from neuralls.composition.preconditioners.builders import _BuildDeps, _create_pr
 from neuralls.composition.preconditioners.checkpoint_store import (
     CheckpointLoaders,
     CheckpointStore,
-    PodBasisKey,
     PredictorKey,
 )
 from neuralls.composition.preconditioners.factory import create_preconditioner
@@ -33,9 +32,7 @@ from neuralls.composition.preconditioners.preloading import preload_checkpoints
 from neuralls.domain.presentation.provenance import DatasetPresentation
 from neuralls.domain.solver.models.config import SolverParams
 from neuralls.platform.config.models.checkpoint_refs import NeuralCheckpointRef
-from neuralls.platform.config.models.coarsening import PODCoarseningConfig
 from neuralls.platform.config.models.preconditioner import (
-    AMGPreconditionerConfig,
     NeuralAMGPreconditionerConfig,
     NeuralPreconditionerConfig,
     NeuralTransferConfig,
@@ -52,9 +49,6 @@ from tests.loaders_support import CPU, cpu_loaders
 from tests.presentation_support import PreparedMethodFactory
 
 CHECKPOINT_DIR = Path("virtual/checkpoints")
-
-
-POD_RANK = 2
 
 
 class FakePredictor(ExtraInputPredictorPort):
@@ -211,35 +205,6 @@ def test_preload_is_a_no_op_for_configs_without_checkpoints(
     )
 
     assert adapter.created == []
-
-
-def test_a_fitted_pod_basis_is_read_once_and_shared_by_every_matrix(
-    checkpoint: Path, monkeypatch: pytest.MonkeyPatch, loaders: CheckpointLoaders
-) -> None:
-    reads: list[Path] = []
-
-    def fake_read(path: Path) -> torch.nn.Module:
-        reads.append(path)
-        return torch.nn.Linear(1, 1)
-
-    monkeypatch.setattr(preloading, "load_fitted_pod_model", fake_read)
-    cfg = AMGPreconditionerConfig(
-        type=PreconditionerType.AMG,
-        coarsening=PODCoarseningConfig(
-            checkpoint_path=checkpoint, rank=POD_RANK, dataset_dir=checkpoint.parent
-        ),
-    )
-    store = CheckpointStore()
-    matrices = [torch.eye(n, dtype=torch.float64) for n in (3, 4, 5)]
-
-    for matrix in matrices:
-        preload_checkpoints(cfg, matrix, store, loaders)
-
-    key = PodBasisKey(checkpoint, torch.float64, torch.device("cpu"))
-    assert reads == [checkpoint]
-    basis = store.pod_basis(key)
-    assert isinstance(basis, torch.nn.Linear)
-    assert basis.weight.dtype is torch.float64
 
 
 def test_every_checkpoint_ref_kind_has_a_preloader() -> None:

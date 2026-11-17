@@ -40,7 +40,7 @@ class NoFitData:
 
 @dataclass(frozen=True, slots=True)
 class InlineFit:
-    """A POD basis fitted from snapshots during each matrix setup.
+    """A POD basis fitted from snapshots once inside the comparison, before the timed setups.
 
     Carries the coarsening it fits, so the dataset and the snapshot cut that decide the
     rows it reads are never re-derived from the method config.
@@ -164,34 +164,28 @@ def resolve_method_data_origin(
 ) -> MethodDataOrigin:
     """Resolve method fit data from checkpoint identity and current dataset content.
 
-    A POD checkpoint's configured snapshot directory must match any recorded
-    training digest. For other checkpoints, the training data config locates
-    the dataset; a nearby runtime parameter directory is never evidence. A
-    checkpoint is verified only while its dataset's pinned split is the one its
-    run recorded, since the split decides which rows it was fit on: a POD fit
-    job reads the train fold, a neural training job the train and validation folds.
+    A POD method has no checkpoint: it is fitted inside the comparison from its dataset.
+    For a checkpoint, the training data config locates the dataset; a nearby runtime
+    parameter directory is never evidence. A checkpoint is verified only while its
+    dataset's pinned split is the one its run recorded, since the split decides which
+    rows it was fit on: a neural training job reads the train and validation folds.
     """
-    pod = (
-        cfg.coarsening
-        if isinstance(cfg, AMGPreconditionerConfig)
-        and isinstance(cfg.coarsening, PODCoarseningConfig)
-        else None
-    )
+    match cfg:
+        case AMGPreconditionerConfig(coarsening=PODCoarseningConfig() as pod):
+            return InlineFit(pod)
+        case _:
+            pass
     refs = (
         tuple(ref for _, ref in cfg.checkpoint_refs())
         if isinstance(cfg, CheckpointRefBearing)
         else ()
     )
     if not refs:
-        return InlineFit(pod) if pod is not None else NoFitData()
+        return NoFitData()
 
-    pod_dir = Path(pod.dataset_dir) if pod is not None else None
-    folds = FitFolds.TRAIN if pod is not None else FitFolds.TRAIN_AND_VALIDATION
     checks = [
         _verify_checkpoint_data(
             ref,
-            pod_dir=pod_dir,
-            folds=folds,
             run_tags=run_tags,
             training_dataset_dir=training_dataset_dir,
             dataset_digest=dataset_digest,
@@ -220,8 +214,6 @@ class _Unverified:
 def _verify_checkpoint_data(
     ref: NeuralCheckpointRef,
     *,
-    pod_dir: Path | None,
-    folds: FitFolds,
     run_tags: Callable[[str], Mapping[str, str]],
     training_dataset_dir: Callable[[Path], Path],
     dataset_digest: Callable[[Path], Digest],
@@ -244,7 +236,7 @@ def _verify_checkpoint_data(
     recorded = _recorded_digest(tags, "dataset")
     if recorded is None:
         return _Unverified("training run has no dataset identity")
-    directory = _training_directory(ref, pod_dir, training_dataset_dir)
+    directory = _training_directory(ref, training_dataset_dir)
     if isinstance(directory, _Unverified):
         return directory
     try:
@@ -263,17 +255,14 @@ def _verify_checkpoint_data(
         return _Unverified("training dataset has no pinned split")
     if not split.digest.startswith(recorded_split):
         return _Unverified("training split differs from the pinned split")
-    return VerifiedTrainingDataset(directory, current, split, folds)
+    return VerifiedTrainingDataset(directory, current, split, FitFolds.TRAIN_AND_VALIDATION)
 
 
 def _training_directory(
     ref: NeuralCheckpointRef,
-    pod_dir: Path | None,
     training_dataset_dir: Callable[[Path], Path],
 ) -> Path | _Unverified:
-    """The POD snapshot directory, else the dataset the training data config names."""
-    if pod_dir is not None:
-        return pod_dir
+    """The dataset the checkpoint's training data config names."""
     if ref.data_config_path is None:
         return _Unverified("training dataset path is unavailable")
     try:

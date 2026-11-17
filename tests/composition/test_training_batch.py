@@ -1,7 +1,7 @@
 """Regression tests for run_assignment_sweep's dlkit LifecycleHooks wiring.
 
 Covers two things the sweep must get right for every multirun child,
-regardless of job kind (`train`/`search`/`fit` alike — dlkit hardcodes
+regardless of job kind (`train`/`search` alike — dlkit hardcodes
 `duration_seconds=0.0` for every executor, so nothing here can rely on dlkit
 having measured its own duration):
 
@@ -24,7 +24,7 @@ from unittest.mock import MagicMock, patch
 from dlkit.common import ChildFailure, ChildPlannedEvent, ChildSuccess, LifecycleHooks
 from dlkit.common.results import EvaluationResult
 
-from neuralls.application.models import AssignmentFailed
+from neuralls.application.models import AssignmentFailed, AssignmentSweepResult
 from neuralls.composition.assignments.training import PreparedTraining
 from neuralls.composition.assignments.training_batch import (
     _child_result,
@@ -158,6 +158,28 @@ def test_sweep_registers_child_timing_tracker_as_lifecycle_hooks(
     assert hooks.on_child_failed == tracker.on_finished
 
 
+def test_a_case_of_pod_assignments_only_trains_nothing(
+    neuralls_settings: NeurallsSettings,
+) -> None:
+    """`load_assignment_batch` leaves POD recipes out, so no sweep or session opens."""
+    with ExitStack() as stack:
+        stack.enter_context(
+            patch(
+                "neuralls.composition.assignments.training_batch.load_assignment_batch",
+                return_value=MagicMock(assignments=[], output_root=Path("out")),
+            )
+        )
+        run_multirun_spec = stack.enter_context(
+            patch("neuralls.composition.assignments.training_batch.run_multirun_spec")
+        )
+        result = run_assignment_sweep(
+            CaseConfigPath.resolve(Path("workspace/case.toml")), neuralls_settings
+        )
+
+    assert result == AssignmentSweepResult(results=[], tracking_uri=None, parent_run_id=None)
+    run_multirun_spec.assert_not_called()
+
+
 class TestChildTimingTracker:
     """Unit tests for `_ChildTimingTracker`, independent of the sweep wiring."""
 
@@ -191,30 +213,27 @@ class TestChildTimingTracker:
         return mocks
 
     def test_on_finished_logs_duration_and_memory_for_a_planned_success(self) -> None:
-        """Fit-kind and train-kind children are handled identically — the tracker
-        only ever looks at `child_id`/`run_id`, never a job-kind label.
-        """
+        """The tracker only ever looks at `child_id`/`run_id`, never a job-kind label."""
         usage = ResourceUsage(wall_time_seconds=1.5, peak_memory_bytes=2048)
-        for kind in ("fit", "train"):
-            tracker = self._tracker()
-            with ExitStack() as stack:
-                mocks = self._patched(stack, usage=usage)
-                tracker.on_planned(ChildPlannedEvent(
-                    child_id=f"{kind}-child", label=kind, run_name="r", tags={}, params={}, metadata={},
-                ))  # fmt: skip
-                outcome = MagicMock(spec=ChildSuccess)
-                outcome.child_id = f"{kind}-child"
-                outcome.run_id = "run-123"
-                tracker.on_finished(outcome)
+        tracker = self._tracker()
+        with ExitStack() as stack:
+            mocks = self._patched(stack, usage=usage)
+            tracker.on_planned(ChildPlannedEvent(
+                child_id="train-child", label="train", run_name="r", tags={}, params={}, metadata={},
+            ))  # fmt: skip
+            outcome = MagicMock(spec=ChildSuccess)
+            outcome.child_id = "train-child"
+            outcome.run_id = "run-123"
+            tracker.on_finished(outcome)
 
-            mocks["end"].assert_called_once()
-            mocks["log_metric"].assert_any_call(
-                "run-123", TRAINING_CHILD_DURATION_METRIC_KEY, 1.5, "tracking-uri"
-            )
-            mocks["log_metric"].assert_any_call(
-                "run-123", TRAINING_CHILD_PEAK_MEMORY_METRIC_KEY, 2048, "tracking-uri"
-            )
-            mocks["release"].assert_called_once()
+        mocks["end"].assert_called_once()
+        mocks["log_metric"].assert_any_call(
+            "run-123", TRAINING_CHILD_DURATION_METRIC_KEY, 1.5, "tracking-uri"
+        )
+        mocks["log_metric"].assert_any_call(
+            "run-123", TRAINING_CHILD_PEAK_MEMORY_METRIC_KEY, 2048, "tracking-uri"
+        )
+        mocks["release"].assert_called_once()
 
     def test_on_finished_skips_logging_without_a_matching_planned_entry(self) -> None:
         """No `on_child_planned` was ever seen for this child_id — logging is a

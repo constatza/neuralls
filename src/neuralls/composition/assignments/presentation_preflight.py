@@ -66,13 +66,13 @@ def describe_method(
 ) -> ConfiguredMethodPresentation:
     """Describe a comparison method using only validated fit or training data.
 
-    A fit is qualified by the rows it read: an inline POD fit the train fold of the split
-    pinned now (cut to its ``n_snapshots``), a verified checkpoint the folds its job read of
-    the split its run recorded. Each row is one snapshot vector, so for a POD basis these
+    A fit is qualified by the rows it read: a POD fit inside the comparison the train fold of
+    the split pinned now (cut to its ``n_snapshots``), a verified checkpoint the folds its job
+    read of the split its run recorded. Each row is one snapshot vector, so for a POD basis these
     are the columns of its snapshot matrix.
 
     Raises:
-        StageInputsStale: An inline fit's dataset has no pinned split.
+        StageInputsStale: A POD fit's dataset has no pinned split.
     """
     method = describe_configured_preconditioner(cfg)
     match origin:

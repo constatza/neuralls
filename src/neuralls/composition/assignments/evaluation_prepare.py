@@ -16,10 +16,10 @@ from neuralls.composition.assignments._dataset_assembly import (
     _load_and_prepare_data,
     resolve_dataset_format,
 )
-from neuralls.composition.assignments._job_types import AnyJobConfig
+from neuralls.composition.assignments._job_types import DlkitJobConfig
 from neuralls.composition.assignments._registry_lookup import _resolve_config_paths
 from neuralls.composition.assignments.assembler import AssignmentIdentity, load_assignment
-from neuralls.composition.assignments.job_loader import load_experiment_job
+from neuralls.composition.assignments.job_loader import load_dlkit_job
 from neuralls.composition.assignments.runtime_dataset_contract import (
     default_training_dataset_contract,
 )
@@ -95,14 +95,14 @@ class EvaluationPreparationBatch:
 
 
 def _with_eval_runtime_dataset(
-    settings: AnyJobConfig,
+    settings: DlkitJobConfig,
     *,
     split_file: Path,
     checkpoint_path: Path,
     features: list[DataEntry],
     targets: list[DataEntry],
     dataset_format: str,
-) -> AnyJobConfig:
+) -> DlkitJobConfig:
     contract = default_training_dataset_contract()
     settings = patch_runtime_dataset(
         settings,
@@ -258,7 +258,7 @@ def _materialize_inference_settings(
             job_registry_id=assignment.job_id,
         ),
     )
-    job_settings = load_experiment_job(context.config_paths.staged_job_config_path, settings)
+    job_settings = load_dlkit_job(context.config_paths.staged_job_config_path, settings)
     contract = default_training_dataset_contract()
     arrays, features, targets = _load_and_prepare_data(job_settings, runnable.workspace, contract)
     eval_settings = _with_eval_runtime_dataset(
@@ -273,7 +273,7 @@ def _materialize_inference_settings(
     return _as_inference_job(eval_settings)
 
 
-def _as_inference_job(settings: AnyJobConfig) -> InferenceJobConfig:
+def _as_inference_job(settings: DlkitJobConfig) -> InferenceJobConfig:
     return InferenceJobConfig(
         run=settings.run,
         experiment=settings.experiment,

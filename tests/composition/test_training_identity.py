@@ -53,7 +53,7 @@ def test_comments_and_experiment_labels_do_not_invalidate(write_job: JobWriter) 
 
 
 def test_a_hyperparameter_change_invalidates(write_job: JobWriter) -> None:
-    assert _key(write_job(rank=100)) != _key(write_job(rank=10))
+    assert _key(write_job(num_layers=3)) != _key(write_job(num_layers=2))
 
 
 def test_an_edit_to_the_referenced_data_profile_invalidates(write_job: JobWriter) -> None:

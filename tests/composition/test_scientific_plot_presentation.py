@@ -88,11 +88,7 @@ def acceptance_configs() -> tuple[PreconditionerConfig, ...]:
         AdaptiveSAPreconditionerConfig(num_candidates=3),
         AdaptiveSAPreconditionerConfig(num_candidates=7),
         BootstrapAMGPreconditionerConfig(),
-        *(
-            pod_spec(directory, rank, assignment=f"fit-{index}-{rank}")
-            for index, directory in enumerate(FIT_DIRS)
-            for rank in (10, 100)
-        ),
+        *(pod_spec(directory, rank) for directory in FIT_DIRS for rank in (10, 100)),
     )
 
 

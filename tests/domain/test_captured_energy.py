@@ -55,13 +55,15 @@ def test_row_scaled_fraction_is_that_of_the_scaled_snapshots(
     assert captured_energy_fraction(snapshots, basis, row_scales) == pytest.approx(expected)
 
 
+@pytest.mark.parametrize("layout", [torch.strided, torch.sparse_csr], ids=["dense", "csr"])
 def test_weighted_fraction_is_measured_in_the_weight_norm(
-    snapshots: torch.Tensor, weight: torch.Tensor
+    snapshots: torch.Tensor, weight: torch.Tensor, layout: torch.layout
 ) -> None:
-    basis = compute_pod_basis(snapshots, RANK, inner_product=weight)
+    stored = weight if layout is torch.strided else weight.to_sparse_csr()
+    basis = compute_pod_basis(snapshots, RANK, inner_product=stored)
 
     expected = _kept_share(torch.linalg.svdvals(snapshots @ torch.linalg.cholesky(weight)))
-    assert captured_energy_fraction(snapshots, basis, weight=weight) == pytest.approx(expected)
+    assert captured_energy_fraction(snapshots, basis, weight=stored) == pytest.approx(expected)
 
 
 def test_a_full_basis_captures_all_the_energy(snapshots: torch.Tensor) -> None:

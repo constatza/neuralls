@@ -55,8 +55,6 @@ FIT_SWEEPS = 3
 POD_RANKS = (10, 100)
 FIT_DIR_NAMES = ("gaussian-cg-fit", "filtered-probe-fit")
 """Directory basenames of the POD fit datasets; they must never reach visible text."""
-ASSIGNMENT_IDS = ("fit-gaussian", "fit-probes")
-"""Training-assignment ids of the POD methods; they must never reach visible text."""
 UNDERSCORE_BLOB = re.compile(r"[A-Za-z0-9]+_[A-Za-z0-9]+")
 """An identifier-shaped token: letters and digits joined by an underscore."""
 
@@ -123,11 +121,7 @@ def configs(fit_dirs: tuple[Path, Path]) -> tuple[PreconditionerConfig, ...]:
         AdaptiveSAPreconditionerConfig(num_candidates=3),
         AdaptiveSAPreconditionerConfig(num_candidates=7),
         BootstrapAMGPreconditionerConfig(),
-        *(
-            pod_spec(directory, rank, assignment=assignment)
-            for directory, assignment in zip(fit_dirs, ASSIGNMENT_IDS, strict=True)
-            for rank in POD_RANKS
-        ),
+        *(pod_spec(directory, rank) for directory in fit_dirs for rank in POD_RANKS),
     )
 
 
@@ -166,7 +160,6 @@ def _forbidden(text: str, *, blobs: bool = True) -> list[str]:
             "[",
             "]",
             *FIT_DIR_NAMES,
-            *ASSIGNMENT_IDS,
         )
         if fragment in text
     ]

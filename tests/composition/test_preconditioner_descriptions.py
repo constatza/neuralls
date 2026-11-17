@@ -23,6 +23,7 @@ from torchalg.preconditioners.implementations.amg import (
     VCycle,
 )
 from torchalg.preconditioners.implementations.pod import PODCoarseningStrategy
+from torchalg.utils.pod_basis import compute_pod_basis
 
 from neuralls.composition.comparison._preconditioner_setup import setup_fingerprint
 from neuralls.composition.preconditioners.descriptions import (
@@ -98,12 +99,10 @@ POD_DATASET_DIR = Path("pod-fit-dataset")
         ),
         pytest.param(
             AMGPreconditionerConfig(
-                coarsening=PODCoarseningConfig(
-                    dataset_dir=POD_DATASET_DIR, rank=10, assignment="fit-a"
-                )
+                coarsening=PODCoarseningConfig(dataset_dir=POD_DATASET_DIR, rank=10)
             ),
             "POD (c=10)",
-            id="pod-rank-without-dataset-or-identity",
+            id="pod-rank-without-dataset",
         ),
         pytest.param(
             StandardPreconditionerConfig(type=PreconditionerType.IDENTITY),
@@ -284,8 +283,7 @@ def pod_amg(tridiag_spd_matrix: torch.Tensor) -> AMGPreconditioner:
     generator = torch.Generator().manual_seed(0)
     ensemble = torch.randn(2, 5, generator=generator, dtype=torch.float64)
     coeffs = torch.randn(6, 2, generator=generator, dtype=torch.float64)
-    coarsening = PODCoarseningStrategy(rank=2)
-    coarsening.fit(coeffs @ ensemble)
+    coarsening = PODCoarseningStrategy(compute_pod_basis(coeffs @ ensemble, 2))
     cycle = VCycle(smoother=JacobiSmoother(omega=0.67), n_pre=2, n_post=2)
     return AMGPreconditioner(tridiag_spd_matrix, coarsening=coarsening, cycle=cycle, n_levels=2)
 

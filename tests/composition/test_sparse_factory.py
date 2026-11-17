@@ -21,6 +21,7 @@ from torchalg.preconditioners.implementations import (
 )
 from torchalg.preconditioners.ports import ExtraInputPredictorPort, PredictorAdapter
 from torchalg.sparse.preconditioners.jacobi import JacobiPreconditioner as SparseJacobi
+from torchalg.utils.pod_basis import compute_pod_basis
 
 from neuralls.composition.preconditioners.builders import _lookup_builder
 from neuralls.composition.preconditioners.factory import create_preconditioner
@@ -37,7 +38,6 @@ from neuralls.shared.types import MatrixFormat
 from tests.loaders_support import cpu_loaders
 
 RELATIVE_REMAINING_BOUND = 0.5
-POD_RANK = 8
 POD_RELATIVE_REMAINING_BOUND = 0.5
 """Largest allowed ratio ||A z - r|| / ||r|| after one CSR AMG application."""
 
@@ -104,10 +104,10 @@ def mock_checkpoint() -> Path:
 
 
 @pytest.fixture
-def pod_fit_arrays(laplacian_csr: csr_array) -> tuple[np.ndarray, np.ndarray]:
-    """In-memory POD snapshots sized for the CSR operator."""
+def pod_basis(laplacian_csr: csr_array) -> torch.Tensor:
+    """A two-mode POD basis of seeded snapshots sized for the CSR operator."""
     snapshots = np.random.default_rng(0).standard_normal((4, laplacian_csr.shape[0]))
-    return snapshots, snapshots
+    return compute_pod_basis(torch.as_tensor(snapshots), 2)
 
 
 @pytest.fixture
@@ -116,19 +116,17 @@ def pod_residual(laplacian_csr: csr_array) -> torch.Tensor:
     return torch.ones(laplacian_csr.shape[0], dtype=torch.float64)
 
 
-def test_sparse_pod_amg_prepares_a_coarse_solver(
-    laplacian_csr: csr_array,
-    pod_fit_arrays: tuple[np.ndarray, np.ndarray],
-    pod_residual: torch.Tensor,
+def test_sparse_pod_amg_is_built_from_the_fitted_basis(
+    laplacian_csr: csr_array, pod_basis: torch.Tensor, pod_residual: torch.Tensor
 ) -> None:
-    """Sparse POD AMG builds and applies its prepared coarse solve."""
+    """A CSR POD AMG forms its transfer from the method's basis and applies its coarse solve."""
     matrix = _to_torch_operator(laplacian_csr)
     config = AMGPreconditionerConfig(
         coarsening=PODCoarseningConfig(dataset_dir=Path("pod-fit"), rank=2)
     )
 
     precond = create_preconditioner(
-        matrix, config, matrix_format=MatrixFormat.CSR, staged_fit_data=pod_fit_arrays
+        matrix, config, matrix_format=MatrixFormat.CSR, pod_basis=pod_basis
     )
 
     assert precond.apply(pod_residual).shape == pod_residual.shape
@@ -209,27 +207,3 @@ def test_prepare_model_input_returns_float64_batched_tensor() -> None:
 
     assert tensor.dtype == torch.float64
     assert tuple(tensor.shape) == (1, 6)
-
-
-def test_dense_fitted_checkpoint_is_rejected_for_a_csr_matrix(
-    laplacian_csr: csr_array, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A checkpoint that rebuilds as the dense POD class cannot back a sparse hierarchy."""
-    from torchalg.preconditioners.implementations.pod import PODCoarseningStrategy
-    from torchalg.sparse.preconditioners.pod.coarsening import (
-        PODCoarseningStrategy as SparsePODCoarseningStrategy,
-    )
-
-    from neuralls.composition.preconditioners import coarsening
-
-    dense_fitted = PODCoarseningStrategy(rank=POD_RANK)
-    monkeypatch.setattr(coarsening.torch, "load", lambda *_args, **_kwargs: {})
-    monkeypatch.setattr(coarsening, "build_model_from_checkpoint", lambda _raw: dense_fitted)
-    checkpoint = Path("pod.ckpt")
-
-    with pytest.raises(TypeError):
-        coarsening._load_fitted_pod_coarsening(
-            checkpoint,
-            _to_torch_operator(laplacian_csr),
-            SparsePODCoarseningStrategy,
-        )

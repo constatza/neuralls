@@ -45,6 +45,7 @@ WHOLE_GENERATION = Known(GENERATION_SECONDS, 1024, CostProvenance.HISTORICAL)
 CUBE_SHARE = TrainShare(0.9, FitFolds.TRAIN)
 TRAINING_SECONDS = 90.5
 START_MS = 10_000
+MEASURED_FIT = Known(0.75, 2048, CostProvenance.MEASURED)
 
 
 @pytest.fixture
@@ -142,16 +143,19 @@ def _finished_run(store: FakeMlflowClient, seconds: float = TRAINING_SECONDS) ->
 
 def test_no_fit_data_has_no_offline_cost(runs: MlflowClient) -> None:
     assert resolve_offline_cost(
-        NoFitData(), runs=runs, splits=InMemorySplitStore()
+        NoFitData(), runs=runs, splits=InMemorySplitStore(), measured_fit=NotApplicable()
     ) == OfflineStages(NotApplicable(), NotApplicable())
 
 
-def test_inline_fit_charges_its_train_folds_share_of_generation(
+def test_inline_fit_charges_its_train_share_of_generation_and_its_measured_fit(
     dataset_dir: Path, runs: MlflowClient, splits: InMemorySplitStore
 ) -> None:
     assert resolve_offline_cost(
-        InlineFit(PODCoarseningConfig(dataset_dir=dataset_dir)), runs=runs, splits=splits
-    ) == (OfflineStages(TrainShareOfGeneration(WHOLE_GENERATION, CUBE_SHARE), NotApplicable()))
+        InlineFit(PODCoarseningConfig(dataset_dir=dataset_dir)),
+        runs=runs,
+        splits=splits,
+        measured_fit=MEASURED_FIT,
+    ) == (OfflineStages(TrainShareOfGeneration(WHOLE_GENERATION, CUBE_SHARE), MEASURED_FIT))
 
 
 def test_missing_manifest_duration_is_unavailable(unstamped_dataset: Path) -> None:
@@ -171,7 +175,9 @@ def test_verified_checkpoint_charges_attested_dataset(
 ) -> None:
     run_id = _finished_run(fake_store)
     origin = CheckpointBased((_ref(run_id),), _verified(dataset_dir))
-    assert resolve_offline_cost(origin, runs=runs, splits=splits) == OfflineStages(
+    assert resolve_offline_cost(
+        origin, runs=runs, splits=splits, measured_fit=NotApplicable()
+    ) == OfflineStages(
         TrainShareOfGeneration(WHOLE_GENERATION, CUBE_SHARE),
         Known(TRAINING_SECONDS, None, CostProvenance.HISTORICAL),
     )
@@ -191,7 +197,7 @@ def test_verified_checkpoint_charges_attested_dataset(
         pytest.param((200, 0, 0), FitFolds.TRAIN, 1.0, GENERATION_SECONDS, id="pod-all-train"),
     ],
 )
-def test_a_checkpoint_is_charged_the_share_of_generation_in_the_folds_it_read(
+def test_a_fit_is_charged_the_share_of_generation_in_the_folds_it_read(
     dataset_dir: Path,
     folds: tuple[int, int, int],
     fit: FitFolds,
@@ -233,7 +239,9 @@ def test_unverified_checkpoint_never_charges_nearby_dataset(
 ) -> None:
     run_id = _finished_run(fake_store)
     origin = CheckpointBased((_ref(run_id),), TrainingDataUnavailable("no dataset identity"))
-    assert resolve_offline_cost(origin, runs=runs, splits=splits) == OfflineStages(
+    assert resolve_offline_cost(
+        origin, runs=runs, splits=splits, measured_fit=NotApplicable()
+    ) == OfflineStages(
         Unavailable("no dataset identity"),
         Known(TRAINING_SECONDS, None, CostProvenance.HISTORICAL),
     )
@@ -244,7 +252,9 @@ def test_multiple_checkpoints_deduplicate_dataset_and_training_run(
 ) -> None:
     run_id = _finished_run(fake_store)
     origin = CheckpointBased((_ref(run_id), _ref(run_id)), _verified(dataset_dir))
-    assert resolve_offline_cost(origin, runs=runs, splits=splits) == OfflineStages(
+    assert resolve_offline_cost(
+        origin, runs=runs, splits=splits, measured_fit=NotApplicable()
+    ) == OfflineStages(
         TrainShareOfGeneration(WHOLE_GENERATION, CUBE_SHARE),
         Known(TRAINING_SECONDS, None, CostProvenance.HISTORICAL),
     )
@@ -258,18 +268,20 @@ def test_distinct_training_runs_add_their_wall_times(
     origin = CheckpointBased(
         (_ref(first), _ref(second)), TrainingDataUnavailable("different datasets")
     )
-    assert resolve_fit_cost(origin, runs=runs) == Known(
+    assert resolve_fit_cost(origin, runs=runs, measured_fit=NotApplicable()) == Known(
         TRAINING_SECONDS + 30.0, None, CostProvenance.HISTORICAL
     )
 
 
 def test_explicit_checkpoint_has_unknown_training_cost(runs: MlflowClient) -> None:
     origin = CheckpointBased((_ref(None),), TrainingDataUnavailable("no training run"))
-    assert resolve_fit_cost(origin, runs=runs) == Unavailable(
+    assert resolve_fit_cost(origin, runs=runs, measured_fit=NotApplicable()) == Unavailable(
         "1 of 1 checkpoints have no recorded training run"
     )
 
 
 def test_missing_training_run_is_unavailable(runs: MlflowClient) -> None:
     origin = CheckpointBased((_ref("gone"),), TrainingDataUnavailable("no dataset identity"))
-    assert isinstance(resolve_fit_cost(origin, runs=runs), Unavailable)
+    assert isinstance(
+        resolve_fit_cost(origin, runs=runs, measured_fit=NotApplicable()), Unavailable
+    )

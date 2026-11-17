@@ -151,9 +151,9 @@ A stage's seconds are null unless its status is ``known``, so a stage that does 
 that is unavailable both carry no number and are told apart by the status. A known
 ``generation_s`` is ``generation_share`` of the dataset's whole ``dataset_generation_s``: the share
 of its rows in the ``generation_folds`` the fit read of the pinned split, ``train`` for a POD fit
-(a fit job or inline) and ``train_and_validation`` for a neural training job. ``fit_origin`` is
-``none``, ``inline`` (fit during setup, so its time is in ``workload_setup_s``) or ``job`` (fit
-ahead of time, its time is ``fit_s``). ``full_s`` is the sum of the known offline seconds,
+(fit inside the comparison) and ``train_and_validation`` for a neural training job. ``fit_origin``
+is ``none``, ``inline`` (fit once inside the comparison before the timed setups, its measured time
+is ``fit_s``) or ``job`` (fit ahead of time, its recorded time is ``fit_s``). ``full_s`` is the sum of the known offline seconds,
 ``workload_setup_s`` and ``workload_solve_s``, and is null when the status is
 ``offline_unavailable``: an unknown stage is never read as zero.
 """

@@ -212,10 +212,15 @@ def captured_energy_fraction(
     With ``X`` the (row-scaled) snapshots, one per row, and ``W`` the inner-product weight
     (the identity when ``None``), a ``W``-orthonormal basis ``Φ`` captures
     ``‖X W Φ‖²_F / tr(X W Xᵀ)``: the sum of the kept squared singular values over their
-    total. Computed from the fitted basis, so it needs no access to the SVD.
+    total. Computed from the fitted basis, so it needs no access to the SVD. ``W`` is
+    symmetric, so ``X W`` is formed as ``(W Xᵀ)ᵀ``, which also serves a sparse CSR ``W``.
     """
     snapshots = snapshots.to(basis)
     scaled = snapshots if row_scales is None else snapshots * row_scales.to(basis).unsqueeze(-1)
-    weighted = scaled if weight is None else scaled @ weight.to(basis)
+    weighted = (
+        scaled
+        if weight is None
+        else (weight.to(dtype=basis.dtype, device=basis.device) @ scaled.mT).mT
+    )
     total = (weighted * scaled).sum()
     return float((weighted @ basis).square().sum() / total)

@@ -58,7 +58,7 @@ def test_a_full_cost_with_an_unavailable_stage_names_the_stages_and_states_no_nu
     ("fit_origin", "expected"),
     [
         ("job", "102.5 s\nfit job"),
-        ("inline", "102.5 s\nfit inline, counted in setup"),
+        ("inline", "102.5 s\nfit in comparison, measured"),
         ("none", "102.5 s"),
     ],
 )

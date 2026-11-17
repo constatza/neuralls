@@ -12,7 +12,7 @@ from neuralls.composition.assignments.assembler import (
     load_assignment,
     load_validated_case_config,
 )
-from neuralls.platform.config.dlkit_bridge import load_job_config
+from neuralls.composition.assignments.job_loader import load_dlkit_job
 from neuralls.platform.config.registry import list_assignment_bindings
 from neuralls.platform.config.settings import NeurallsSettings
 
@@ -139,7 +139,7 @@ def test_structured_linear_model_configs_load(
         checkpoint_name=config_name.removesuffix(".toml"),
     )
 
-    settings = load_job_config(model_path, neuralls_settings)
+    settings = load_dlkit_job(model_path, neuralls_settings)
     assert settings.model.name == model_name
 
 

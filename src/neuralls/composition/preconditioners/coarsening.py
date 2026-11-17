@@ -1,32 +1,27 @@
 """Coarsening-strategy construction for AMG preconditioners.
 
 Builds the `CoarseningStrategy` an AMG preconditioner's hierarchy is built from:
-target-dimension search, POD (fit inline or reconstructed from a checkpoint),
-neural POD (fit on a neural model's predictions), or aggregation.
+target-dimension search, POD (from the basis its method fitted before the timed
+setups), neural POD (fit on a neural model's predictions), or aggregation.
 """
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 import numpy as np
 import torch
-from dlkit.engine.inference.model_builder import build_model_from_checkpoint
 from torchalg.preconditioners.implementations.amg import (
     AggregationCoarsening,
     TargetDimensionCoarsening,
 )
 from torchalg.preconditioners.implementations.pod import PODCoarseningStrategy
-from torchalg.sparse.preconditioners.pod.coarsening import (
-    PODCoarseningStrategy as SparsePODCoarseningStrategy,
-)
+from torchalg.utils.pod_basis import compute_pod_basis
 
 from neuralls.application.inference.prediction import collect_predictions, stack_predictions
 from neuralls.composition.preconditioners.checkpoint_store import (
     NO_PRELOADED,
     CheckpointLoaders,
-    PodBasisKey,
     PreloadedCheckpoints,
     preloaded_inference_factory,
     require_loaders,
@@ -38,71 +33,24 @@ from neuralls.platform.config.models.coarsening import (
     TargetDimCoarseningConfig,
 )
 from neuralls.platform.config.models.preconditioner import AMGPreconditionerConfig
-from neuralls.shared.types import InnerProductKind
 
 if TYPE_CHECKING:
     from torchalg.preconditioners.implementations.amg.protocols import CoarseningStrategy
 
 
-type PODStrategy = PODCoarseningStrategy | SparsePODCoarseningStrategy
-
 PREDICTION_BATCH_SIZE = 256
 """Rows per predictor call when collecting POD snapshots from a neural model."""
 
 
-def load_fitted_pod_model(checkpoint_path: Path) -> torch.nn.Module:
-    """Read a fitted POD checkpoint and rebuild its module (disk I/O, no placement).
+class MissingPODBasisError(ValueError):
+    """A POD build was asked for without the basis its method fits before the timed setups."""
 
-    Loads the raw checkpoint dict and rebuilds the module via dlkit's generic,
-    trainer-agnostic checkpoint reconstruction (`build_model_from_checkpoint`) —
-    the bare `nn.Module`, not the `CheckpointPredictor` inference wrapper
-    `dlkit.load_model` returns: a coarsening strategy is invoked directly
-    (`build_transfer(A)`) once at AMG setup, not through `PredictorPort`'s
-    per-iteration `apply()`.
-    """
-    raw_checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
-    return build_model_from_checkpoint(raw_checkpoint)
-
-
-def _load_fitted_pod_coarsening(
-    checkpoint_path: Path,
-    matrix: torch.Tensor,
-    pod_cls: type[PODStrategy],
-    preloaded: PreloadedCheckpoints = NO_PRELOADED,
-) -> PODStrategy:
-    """Reconstruct a fitted POD coarsening strategy from its checkpoint.
-
-    The basis is matrix-independent, so when ``preloaded`` already holds the
-    module for this ``(path, dtype, device)`` it is reused as is (read and moved
-    once, outside the timed build, and shared by every matrix of the dataset);
-    otherwise it is read and moved here, inside the build.
-
-    Args:
-        checkpoint_path: Local path to the fitted `.ckpt` file, already
-            resolved/downloaded by
-            `composition/assignments/model_resolution.py`.
-        matrix: System matrix; used only to match dtype/device.
-        pod_cls: Strategy class the checkpoint must reconstruct: the dense
-            class for a dense matrix, the sparse class for a CSR matrix.
-        preloaded: Checkpoints loaded ahead of the build.
-
-    Returns:
-        A `pod_cls` instance with its `_basis` buffer already loaded from the
-        checkpoint (no `.fit()` call needed).
-
-    Raises:
-        TypeError: If the reconstructed model is not a `pod_cls`, e.g. a
-            checkpoint fitted for the dense class used with a CSR matrix.
-    """
-    model = preloaded.pod_basis(PodBasisKey(checkpoint_path, matrix.dtype, matrix.device))
-    if model is None:
-        model = load_fitted_pod_model(checkpoint_path).to(dtype=matrix.dtype, device=matrix.device)
-    if not isinstance(model, pod_cls):
-        raise TypeError(
-            f"Checkpoint at {checkpoint_path} reconstructed a {type(model).__name__}, "
-            f"expected {pod_cls.__name__}."
+    def __init__(self, cfg: PODCoarseningConfig) -> None:
+        self.dataset_dir = cfg.dataset_dir
+        super().__init__(
+            f"No fitted POD basis for dataset_dir={cfg.dataset_dir!r}; the comparison fits it "
+            "once per method (composition/comparison/_method_fit.py) before the timed setups"
         )
-    return model
 
 
 def _target_dim_coarsening(cfg: TargetDimCoarseningConfig) -> CoarseningStrategy:
@@ -118,54 +66,25 @@ def _target_dim_coarsening(cfg: TargetDimCoarseningConfig) -> CoarseningStrategy
 
 
 def _pod_coarsening(
-    cfg: PODCoarseningConfig,
-    matrix: torch.Tensor,
-    pod_cls: type[PODStrategy],
-    preloaded: PreloadedCheckpoints,
-    staged_fit_data: tuple[np.ndarray, ...] | None = None,
-) -> PODStrategy:
-    """POD basis: reconstructed from a fitted checkpoint, or fit inline from snapshots.
+    cfg: PODCoarseningConfig, matrix: torch.Tensor, pod_basis: torch.Tensor | None
+) -> PODCoarseningStrategy:
+    """POD coarsening from the basis its method fitted once, before the timed setups.
 
-    Snapshots are solution vectors, which are dense by nature; only the matrix A is
-    sparse, and `build_transfer(A)` never densifies it.
+    Only the transfer and coarse matrix are built here, so the timed setup never pays for
+    the fit. The basis is dense; `build_transfer(A)` never densifies a CSR A.
     """
-    ckpt = cfg.active_checkpoint_path
-    if ckpt is not None:
-        # Fitted ahead of time by a `FitJobConfig` assignment (kind dispatch in
-        # composition/assignments/comparison_batch.py); the basis is loaded, not refit.
-        return _load_fitted_pod_coarsening(ckpt, matrix, pod_cls, preloaded)
-    if cfg.inner_product is InnerProductKind.ENERGY:
-        # The inline fit is Euclidean; fitting it would mislabel the method as energy.
-        raise ValueError(
-            f"Energy POD for dataset_dir={cfg.dataset_dir!r} has no fitted checkpoint; "
-            "set model_ref or checkpoint_path to the energy fit job's checkpoint"
-        )
-
-    match staged_fit_data:
-        case (_, solutions):
-            pass
-        case None:
-            raise ValueError(
-                f"POD fit data for dataset_dir={cfg.dataset_dir!r} was not staged; "
-                "PreconditionerService.preload stages it before the build is timed"
-            )
-        case _:
-            raise ValueError("POD fit data must contain parameter and solution arrays")
-    solutions = solutions[: cfg.inline_fit_rows(len(solutions))]
-    snapshots = torch.as_tensor(solutions, dtype=matrix.dtype, device=matrix.device)
-    coarsening = pod_cls(rank=cfg.rank)
-    coarsening.fit(snapshots)
-    return coarsening
+    if pod_basis is None:
+        raise MissingPODBasisError(cfg)
+    return PODCoarseningStrategy(pod_basis.to(dtype=matrix.dtype, device=matrix.device))
 
 
 def _neural_pod_coarsening(
     cfg: NeuralPODCoarseningConfig,
     matrix: torch.Tensor,
     loaders: CheckpointLoaders | None,
-    pod_cls: type[PODStrategy],
     preloaded: PreloadedCheckpoints,
     staged_fit_data: tuple[np.ndarray, ...] | None = None,
-) -> PODStrategy:
+) -> PODCoarseningStrategy:
     """POD basis fit on a neural model's predictions over the parameter samples."""
     ckpt = cfg.active_checkpoint_path
     if ckpt is None:
@@ -198,9 +117,8 @@ def _neural_pod_coarsening(
     predicted = stack_predictions(raw_predictions)
     if cfg.n_snapshots != -1:
         predicted = predicted[: cfg.n_snapshots]
-    coarsening = pod_cls(rank=cfg.rank)
-    coarsening.fit(torch.as_tensor(predicted, dtype=matrix.dtype, device=matrix.device))
-    return coarsening
+    snapshots = torch.as_tensor(predicted, dtype=matrix.dtype, device=matrix.device)
+    return PODCoarseningStrategy(compute_pod_basis(snapshots, cfg.rank))
 
 
 def _build_amg_coarsening(
@@ -211,6 +129,7 @@ def _build_amg_coarsening(
     sparse: bool = False,
     preloaded: PreloadedCheckpoints = NO_PRELOADED,
     staged_fit_data: tuple[np.ndarray, ...] | None = None,
+    pod_basis: torch.Tensor | None = None,
 ) -> CoarseningStrategy:
     """Build the coarsening strategy selected by an AMG config's ``coarsening`` field.
 
@@ -219,10 +138,12 @@ def _build_amg_coarsening(
         config: AMG preconditioner configuration.
         loaders: Checkpoint loaders and their device, needed only by neural POD
             coarsening.
-        sparse: True when A is CSR. POD then uses torchalg's sparse strategy, so
-            the transfer operator is built from A without densifying it.
+        sparse: True when A is CSR; target-dimension and aggregation coarsening
+            are then rejected. POD serves both layouts and never densifies A.
         preloaded: Checkpoints loaded ahead of the build (see `checkpoint_store`);
             the default loads inside the build.
+        staged_fit_data: Parameter arrays a neural POD predicts its snapshots from.
+        pod_basis: The basis a POD method fitted before its timed setups.
 
     Returns:
         A ready-to-use coarsening strategy (already fit, if applicable).
@@ -231,20 +152,18 @@ def _build_amg_coarsening(
         TypeError: For a coarsening with no counterpart on the requested storage:
             target-dimension and aggregation coarsening are dense-only here.
     """
-    pod_cls: type[PODStrategy] = SparsePODCoarseningStrategy if sparse else PODCoarseningStrategy
     match config.coarsening:
         case TargetDimCoarseningConfig() as target_dim:
             if sparse:
                 raise TypeError("Sparse AMG has no target-dimension coarsening.")
             return _target_dim_coarsening(target_dim)
         case PODCoarseningConfig() as pod:
-            return _pod_coarsening(pod, matrix, pod_cls, preloaded, staged_fit_data)
+            return _pod_coarsening(pod, matrix, pod_basis)
         case NeuralPODCoarseningConfig() as neural_pod:
             return _neural_pod_coarsening(
                 neural_pod,
                 matrix,
                 loaders,
-                pod_cls,
                 preloaded,
                 staged_fit_data,
             )

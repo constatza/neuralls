@@ -46,9 +46,6 @@ from torchalg.sparse.preconditioners.ilu import ILUPreconditioner as SparseILUPr
 from torchalg.sparse.preconditioners.jacobi import (
     JacobiPreconditioner as SparseJacobiPreconditioner,
 )
-from torchalg.sparse.preconditioners.pod.coarsening import (
-    PODCoarseningStrategy as SparsePODCoarseningStrategy,
-)
 
 from neuralls.platform.config.models.preconditioner import (
     ConcretePreconditionerConfig,
@@ -71,7 +68,6 @@ __all__ = [
 ]
 
 type Facts = tuple[ScientificFact, ...]
-type PODStrategy = PODCoarseningStrategy | SparsePODCoarseningStrategy
 
 
 def describe_configured_preconditioner(cfg: ConcretePreconditionerConfig) -> ScientificDescription:
@@ -124,9 +120,8 @@ def _coarsening_facts(coarsening: CoarseningStrategy, precond: AMGPreconditioner
     raise UnsupportedRealizedPreconditionerError(type(coarsening))
 
 
-@_coarsening_facts.register(PODCoarseningStrategy)
-@_coarsening_facts.register(SparsePODCoarseningStrategy)
-def _(coarsening: PODStrategy, precond: AMGPreconditioner) -> Facts:
+@_coarsening_facts.register
+def _(coarsening: PODCoarseningStrategy, precond: AMGPreconditioner) -> Facts:
     # The configured rank is the coarse dimension (rank is a mode count, never a fraction).
     return ()
 

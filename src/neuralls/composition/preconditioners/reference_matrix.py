@@ -15,12 +15,7 @@ from scipy.sparse import csr_array
 
 from neuralls.composition.generation.ports import SplitStore
 from neuralls.composition.generation.split_pinning import pinned_train_rows
-from neuralls.platform.storage.dataset_readers import (
-    load_matrix_sample_index,
-    load_matrix_sparse_sample,
-    matrix_row,
-    resolve_dataset_artifacts,
-)
+from neuralls.composition.preconditioners.ports import FitDataLoader
 
 
 def train_matrix_rows(matrix_sample_index: np.ndarray, train_rows: Sequence[int]) -> dict[int, int]:
@@ -39,36 +34,35 @@ def train_matrix_rows(matrix_sample_index: np.ndarray, train_rows: Sequence[int]
     return dict(sorted(first_rows.items()))
 
 
-def mean_train_matrix(dataset_dir: Path, split_store: SplitStore) -> np.ndarray:
-    """Dense mean of the distinct scaled matrices bound to the dataset's train fold.
+def mean_train_matrix(
+    dataset_dir: Path, split_store: SplitStore, fit_data: FitDataLoader
+) -> csr_array:
+    """Sparse mean of the distinct scaled matrices bound to the dataset's train fold.
 
     The stored matrices are already divided by their scale factors, so this is ``Ā``
     in the scaled space the snapshots were generated in. Matrices with different
-    sparsity patterns are summed over the union pattern.
+    sparsity patterns are summed over the union pattern. It stays CSR, because the
+    energy fit only multiplies by it.
 
     Args:
         dataset_dir: Generated dataset directory with a pinned split.
         split_store: Where the dataset's split is pinned.
+        fit_data: Where the dataset's matrices are read from.
 
     Returns:
-        The ``(n, n)`` mean matrix.
+        The ``(n, n)`` float64 mean matrix, in CSR.
 
     Raises:
         StageInputsStale: If the dataset has no pinned split.
         ValueError: If the train fold is empty.
     """
     rows = train_matrix_rows(
-        load_matrix_sample_index(dataset_dir), pinned_train_rows(dataset_dir, split_store)
+        fit_data.matrix_sample_index(dataset_dir), pinned_train_rows(dataset_dir, split_store)
     )
-    artifact = resolve_dataset_artifacts(dataset_dir).matrix
-
-    def load(matrix_id: int, row: int) -> csr_array:
-        physical = matrix_row(artifact, row_index=row, matrix_id=matrix_id)
-        return load_matrix_sparse_sample(dataset_dir, physical)
-
     # Running sum: one matrix in memory at a time, however many the train fold binds.
     bindings = iter(rows.items())
-    total = load(*next(bindings))
+    matrix_id, row = next(bindings)
+    total = csr_array(fit_data.scaled_matrix(dataset_dir, row, matrix_id), dtype=np.float64)
     for matrix_id, row in bindings:
-        total = total + load(matrix_id, row)
-    return np.asarray(total.toarray(), dtype=np.float64) / len(rows)
+        total = total + fit_data.scaled_matrix(dataset_dir, row, matrix_id)
+    return csr_array(total / len(rows))

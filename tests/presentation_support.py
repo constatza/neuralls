@@ -26,10 +26,10 @@ type PreparedMethodFactory = Callable[[str], PreparedMethodPresentation]
 """The `prepared_method` fixture: the validated presentation of one method id."""
 
 
-def pod_spec(dataset_dir: Path, rank: int, assignment: str = "fit-job") -> AMGPreconditionerConfig:
-    """A POD method fitted on ``dataset_dir`` by fit assignment ``assignment``."""
+def pod_spec(dataset_dir: Path, rank: int) -> AMGPreconditionerConfig:
+    """A POD method of ``rank`` modes fitted on ``dataset_dir``."""
     return AMGPreconditionerConfig(
-        coarsening=PODCoarseningConfig(dataset_dir=dataset_dir, rank=rank, assignment=assignment)
+        coarsening=PODCoarseningConfig(dataset_dir=dataset_dir, rank=rank)
     )
 
 

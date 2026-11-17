@@ -74,7 +74,7 @@ from neuralls.domain.solver.models.benchmark_events import (
 )
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
 from neuralls.domain.solver.models.config import ComparisonData, ComparisonGeneral, SolverParams
-from neuralls.domain.solver.models.cost import NO_OFFLINE_COST, Known, Unavailable
+from neuralls.domain.solver.models.cost import NO_OFFLINE_COST, Known, NotApplicable, Unavailable
 from neuralls.domain.solver.models.provenance import (
     HeldOutMatrix,
     MatrixProvenance,
@@ -178,30 +178,9 @@ def _write_train_job_config(path: Path) -> None:
     )
 
 
-def _write_fit_job_config(path: Path, *, rank: int = 10) -> None:
-    """Write a minimal, fully-loadable `run.type = "fit"` (POD) job config."""
-    path.write_text(
-        "\n".join(
-            [
-                "[run]",
-                'type = "fit"',
-                "",
-                "[model]",
-                'name = "PODCoarseningStrategy"',
-                'module_path = "torchalg.preconditioners.implementations.pod"',
-                f"rank = {rank}",
-                "",
-                "[data]",
-                'name = "FlexibleDataset"',
-                "batch_size = 4",
-                "",
-                "[data.module]",
-                'name = "ArrayDataModule"',
-                'module_path = "dlkit.engine.adapters.lightning.datamodules"',
-            ]
-        ),
-        encoding="utf-8",
-    )
+def _write_pod_recipe(path: Path, *, rank: int = 10) -> None:
+    """Write a `run.type = "pod"` recipe job."""
+    path.write_text(f'[run]\ntype = "pod"\n\n[pod]\nrank = {rank}\n', encoding="utf-8")
 
 
 def _case_config_with_assignment(
@@ -638,13 +617,13 @@ def test_neural_specs_from_assignments_skips_claimed_ids(tmp_path: Path) -> None
     assert specs == []
 
 
-def test_neural_specs_from_assignments_dispatches_fit_kind_to_pod_stub(
+def test_neural_specs_from_assignments_dispatches_a_pod_recipe_to_a_pod_method(
     tmp_path: Path,
 ) -> None:
-    """A `run.type = "fit"` assignment yields an unresolved AMG/POD stub, not neural."""
+    """A `run.type = "pod"` assignment yields a POD method on its dataset, with no checkpoint."""
     cfg, config_dir, settings = _case_config_with_assignment(
         tmp_path,
-        job_writer=lambda path: _write_fit_job_config(path, rank=25),
+        job_writer=lambda path: _write_pod_recipe(path, rank=25),
         assignment_id="pod_cg1",
         dataset_id="solutions-cg1",
         job_id="pod_cg-0",
@@ -667,15 +646,14 @@ def test_neural_specs_from_assignments_dispatches_fit_kind_to_pod_stub(
         settings=settings,
     )
 
-    assert len(specs) == 1
-    spec = specs[0]
-    assert isinstance(spec, AMGPreconditionerConfig)
-    assert spec.name == "amg_levels2_pre2_post2_smootheromegaauto_pod_rank25_n-1_assignment_pod_cg1"
-    assert isinstance(spec.coarsening, PODCoarseningConfig)
-    assert spec.coarsening.assignment == "pod_cg1"
-    assert spec.coarsening.rank == 25
-    assert spec.coarsening.dataset_dir == settings.processed_dir / "solutions-cg1"
-    assert spec.coarsening.model_ref == TrainedAssignmentRefConfig(assignment_id="pod_cg1")
+    assert specs == [
+        AMGPreconditionerConfig(
+            type=PreconditionerType.AMG,
+            coarsening=PODCoarseningConfig(
+                dataset_dir=settings.processed_dir / "solutions-cg1", rank=25
+            ),
+        )
+    ]
     tracking.client.assert_not_called()
 
 
@@ -1032,6 +1010,7 @@ def test_preparation_keeps_checkpoint_when_training_data_config_is_unavailable(
             origin,
             runs=tracking.client.return_value,
             splits=InMemorySplitStore(),
+            measured_fit=NotApplicable(),
             run_costs=prepared.training_run_costs,
         )
         assert offline.generation == Unavailable(

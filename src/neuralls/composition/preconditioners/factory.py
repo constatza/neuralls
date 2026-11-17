@@ -45,6 +45,7 @@ def create_preconditioner(
     matrix_format: MatrixFormat = MatrixFormat.DENSE,
     preloaded: PreloadedCheckpoints = NO_PRELOADED,
     staged_fit_data: tuple[np.ndarray, ...] | None = None,
+    pod_basis: torch.Tensor | None = None,
 ) -> Preconditioner:
     """Create a preconditioner from configuration for a matrix in the given format.
 
@@ -60,6 +61,9 @@ def create_preconditioner(
         preloaded: Checkpoints loaded ahead of the build (see `checkpoint_store`),
             so the build does not pay for reading them. The default loads every
             checkpoint inside the build.
+        staged_fit_data: Parameter arrays a neural POD predicts its snapshots from,
+            read before the build.
+        pod_basis: The basis a POD method fitted once, before its timed setups.
 
     Returns:
         Preconditioner instance
@@ -74,6 +78,7 @@ def create_preconditioner(
         matrix_format,
         preloaded,
         staged_fit_data,
+        pod_basis,
     )
     return preconditioner
 
@@ -85,6 +90,7 @@ def create_preconditioner_with_coarsening(
     matrix_format: MatrixFormat = MatrixFormat.DENSE,
     preloaded: PreloadedCheckpoints = NO_PRELOADED,
     staged_fit_data: tuple[np.ndarray, ...] | None = None,
+    pod_basis: torch.Tensor | None = None,
 ) -> tuple[Preconditioner, CoarseningStrategy | None]:
     """Create a preconditioner, also returning its coarsening strategy when it has one.
 
@@ -103,6 +109,8 @@ def create_preconditioner_with_coarsening(
         loaders: Checkpoint loaders; see `create_preconditioner`.
         matrix_format: Storage format of `matrix`. Defaults to dense.
         preloaded: Checkpoints loaded ahead of the build; see `create_preconditioner`.
+        staged_fit_data: Neural POD parameter arrays; see `create_preconditioner`.
+        pod_basis: A POD method's fitted basis; see `create_preconditioner`.
 
     Returns:
         The preconditioner, and its coarsening strategy if the dense AMG path
@@ -116,6 +124,7 @@ def create_preconditioner_with_coarsening(
         loaders=loaders,
         preloaded=preloaded,
         staged_fit_data=staged_fit_data,
+        pod_basis=pod_basis,
     )
     operator, resolved_format = _resolve_format_input(matrix, config.type, matrix_format)
     builder = _lookup_builder(config.type, resolved_format)

@@ -6,14 +6,15 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
 
-import numpy as np
 import pytest
 import torch
 
-from neuralls.composition.preconditioners.coarsening import _build_amg_coarsening
+from neuralls.composition.preconditioners.coarsening import (
+    MissingPODBasisError,
+    _build_amg_coarsening,
+)
 from neuralls.platform.config.models.coarsening import PODCoarseningConfig
 from neuralls.platform.config.models.preconditioner import AMGPreconditionerConfig
-from neuralls.shared.types import InnerProductKind
 
 _MATRIX_SIZE = 4
 
@@ -31,27 +32,17 @@ def test_unknown_coarsening_config_is_rejected(identity_matrix: torch.Tensor) ->
         _build_amg_coarsening(identity_matrix, config)
 
 
-@pytest.fixture
-def energy_pod_without_checkpoint() -> AMGPreconditionerConfig:
-    """An energy POD naming an assignment but no checkpoint it could load."""
-    return AMGPreconditionerConfig(
-        coarsening=PODCoarseningConfig(
-            dataset_dir=Path("pod-fit"),
-            rank=2,
-            assignment="energy_fit",
-            inner_product=InnerProductKind.ENERGY,
-        )
-    )
-
-
-def test_an_energy_pod_without_a_checkpoint_is_not_fit_inline(
-    identity_matrix: torch.Tensor, energy_pod_without_checkpoint: AMGPreconditionerConfig
+@pytest.mark.parametrize("sparse", [False, True], ids=["dense", "csr"])
+def test_a_pod_build_without_its_fitted_basis_is_rejected(
+    identity_matrix: torch.Tensor, sparse: bool
 ) -> None:
-    """The inline fit is Euclidean, so it must not stand in for an energy basis."""
-    snapshots = np.eye(_MATRIX_SIZE)
-    with pytest.raises(ValueError):
-        _build_amg_coarsening(
-            identity_matrix,
-            energy_pod_without_checkpoint,
-            staged_fit_data=(snapshots, snapshots),
-        )
+    """The basis is fitted once per method before the timed setups, never inside one."""
+    config = AMGPreconditionerConfig(
+        coarsening=PODCoarseningConfig(dataset_dir=Path("pod-fit"), rank=2)
+    )
+    matrix = identity_matrix.to_sparse_csr() if sparse else identity_matrix
+
+    with pytest.raises(MissingPODBasisError) as caught:
+        _build_amg_coarsening(matrix, config, sparse=sparse)
+
+    assert caught.value.dataset_dir == Path("pod-fit")

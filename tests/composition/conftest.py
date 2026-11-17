@@ -22,16 +22,18 @@ atomic_spec = atomic_support.atomic_spec
 _JOB = """\
 # a comment that must never matter
 [run]
-type = "fit"
+type = "train"
 seed = 42
 precision = "64"
 data = "{profile}"
 
 {experiment}
 [model]
-name = "PODCoarseningFittable"
-module_path = "neuralls.composition.preconditioners.pod_fittable"
-rank = {rank}
+name = "ScaleEquivariantEmbeddedFactorizedFFNN"
+num_layers = {num_layers}
+
+[training.trainer]
+max_epochs = 1
 """
 
 _PROFILE = """\
@@ -48,12 +50,12 @@ name = "ArrayDataModule"
 
 @pytest.fixture
 def write_job(tmp_path: Path) -> JobWriter:
-    """Write a fit-job TOML plus the data-profile TOML it references."""
+    """Write a train-job TOML plus the data-profile TOML it references."""
 
     def _write(
         *,
         root: Path | None = None,
-        rank: int = 10,
+        num_layers: int = 2,
         batch_size: int = 256,
         experiment_name: str | None = None,
         comment: str = "",
@@ -68,7 +70,9 @@ def write_job(tmp_path: Path) -> JobWriter:
         job = base / "jobs" / "job.toml"
         job.write_text(
             comment
-            + _JOB.format(profile="../profiles/data.toml", experiment=experiment, rank=rank),
+            + _JOB.format(
+                profile="../profiles/data.toml", experiment=experiment, num_layers=num_layers
+            ),
             encoding="utf-8",
         )
         return job

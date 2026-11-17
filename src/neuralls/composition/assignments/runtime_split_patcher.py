@@ -4,13 +4,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from neuralls.composition.assignments._job_types import TrainableJobConfig
+from neuralls.composition.assignments._job_types import TrainLikeJobConfig
 
 
-def patch_split_settings[T: TrainableJobConfig](settings: T, *, split_file: Path) -> T:
+def patch_split_settings[T: TrainLikeJobConfig](settings: T, *, split_file: Path) -> T:
     """Point settings at the split file generation pinned.
 
-    Every job trained, searched, fitted, or evaluated against a dataset sees
+    Every job trained, searched, or evaluated against a dataset sees
     the identical held-out partition because they all read the one file. The
     job's own `data.splits` ratios are not consulted: the partition belongs to
     the dataset config's `[split]` section.

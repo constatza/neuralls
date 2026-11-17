@@ -11,8 +11,6 @@ from torchalg.preconditioners.base import BindableInputs, Preconditioner
 
 from neuralls.composition.comparison.models import MatrixWorkload, PlannedSystem
 from neuralls.composition.comparison.plan import SETUP_SEED_STREAM, derive_seed
-from neuralls.composition.generation.ports import SplitStore
-from neuralls.composition.generation.split_pinning import pinned_train_rows
 from neuralls.composition.preconditioners.checkpoint_store import (
     NO_PRELOADED,
     CheckpointLoaders,
@@ -30,10 +28,7 @@ from neuralls.composition.preconditioners.schedule import (
     create_scheduled_preconditioner,
 )
 from neuralls.domain.presentation.methods import SystemRealization
-from neuralls.platform.config.models.coarsening import (
-    NeuralPODCoarseningConfig,
-    PODCoarseningConfig,
-)
+from neuralls.platform.config.models.coarsening import NeuralPODCoarseningConfig
 from neuralls.platform.config.models.preconditioner import (
     AdaptiveSAPreconditionerConfig,
     AMGPreconditionerConfig,
@@ -60,27 +55,27 @@ class PreconditionerService:
     """Service for creating preconditioners via the composition factory.
 
     Args:
-        fit_data: Where the arrays of an inline POD fit are read from; `preload` reads them
+        fit_data: Where a neural POD's parameter arrays are read from; `preload` reads them
             once per method so the timed build never touches the dataset.
-        splits: Where the fit dataset's split is pinned. An inline POD fit keeps only the
-            train fold's rows, since comparisons draw held-out systems from the test fold.
         loaders: How checkpoints are loaded and on which device (`CheckpointLoaders.dlkit`).
         checkpoints: Where checkpoints are loaded ahead of a build (see `preload`).
             ``None`` means nothing is preloaded: every checkpoint is then read
             inside the build, and so inside its timed region.
+        pod_basis: The basis a POD method fitted once before its timed setups
+            (`_method_fit.fit_method`); every build of the method borrows it.
     """
 
     def __init__(
         self,
         fit_data: FitDataLoader,
-        splits: SplitStore,
         loaders: CheckpointLoaders | None = None,
         checkpoints: CheckpointStore | None = None,
+        pod_basis: torch.Tensor | None = None,
     ) -> None:
         self._fit_data = fit_data
-        self._splits = splits
         self._loaders = loaders
         self._checkpoints = checkpoints
+        self._pod_basis = pod_basis
         self._staged_fit_data: dict[str, tuple[np.ndarray, ...]] = {}
 
     def preload(self, matrix: torch.Tensor, config: PreconditionerConfig) -> None:
@@ -94,7 +89,7 @@ class PreconditionerService:
         store.
 
         Args:
-            matrix: System matrix; a fitted POD basis is moved to its dtype/device.
+            matrix: System matrix; checkpoints are loaded for its dtype/device.
             config: Preconditioner configuration.
         """
         if self._checkpoints is not None:
@@ -104,24 +99,14 @@ class PreconditionerService:
                 self._checkpoints,
                 self._loaders,
             )
-        if isinstance(config, AMGPreconditionerConfig):
-            coarsening = config.coarsening
-            if (
-                isinstance(coarsening, PODCoarseningConfig)
-                and coarsening.active_checkpoint_path is None
-            ):
+        match config:
+            case AMGPreconditionerConfig(coarsening=NeuralPODCoarseningConfig() as coarsening):
                 if config.name not in self._staged_fit_data:
-                    train = list(pinned_train_rows(coarsening.dataset_dir, self._splits))
                     self._staged_fit_data[config.name] = tuple(
-                        array[train] for array in self._fit_data.dense(coarsening.dataset_dir)
+                        self._fit_data.parameters(coarsening.dataset_dir)
                     )
-            elif (
-                isinstance(coarsening, NeuralPODCoarseningConfig)
-                and config.name not in self._staged_fit_data
-            ):
-                self._staged_fit_data[config.name] = tuple(
-                    self._fit_data.parameters(coarsening.dataset_dir)
-                )
+            case _:
+                pass
 
     def create_preconditioner(
         self,
@@ -147,6 +132,7 @@ class PreconditionerService:
             ),
             preloaded=preloaded,
             staged_fit_data=self._staged_fit_data.get(config.name),
+            pod_basis=self._pod_basis,
         )
 
 

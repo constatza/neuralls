@@ -33,6 +33,7 @@ from neuralls.domain.presentation.run_names import MethodRunName, NamedRun
 from neuralls.domain.presentation.titles import ComparisonScopePresentation, EditorialPresentation
 from neuralls.domain.solver.models.cost import FitFolds
 from neuralls.domain.solver.models.figure_scope import DatasetScope
+from neuralls.platform.config.models.checkpoint_refs import NeuralCheckpointRef
 from neuralls.platform.config.models.coarsening import (
     AggregationCoarseningConfig,
     PODCoarseningConfig,
@@ -81,12 +82,9 @@ FIT_SPLIT = IndexSplit(train=(0, 1, 2, 3, 4), validation=(5, 6), test=(7,), pred
 
 
 def _verified(folds: FitFolds) -> CheckpointBased:
-    cfg = AMGPreconditionerConfig(
-        coarsening=PODCoarseningConfig(dataset_dir=FIT_DIR, checkpoint_path=Path("basis.pt"))
-    )
     split = PinnedSplit(FIT_SPLIT, "sha256:split")
     return CheckpointBased(
-        tuple(ref for _, ref in cfg.checkpoint_refs()),
+        (NeuralCheckpointRef(checkpoint_path=Path("network.pt")),),
         VerifiedTrainingDataset(FIT_DIR, "sha256:abcdef0123456789", split, folds),
     )
 
@@ -96,10 +94,9 @@ def _verified(folds: FitFolds) -> CheckpointBased:
     [
         (-1, InlineFit, 5),
         (3, InlineFit, 3),
-        (-1, lambda _: _verified(FitFolds.TRAIN), 5),
         (-1, lambda _: _verified(FitFolds.TRAIN_AND_VALIDATION), 7),
     ],
-    ids=["inline-train-fold", "inline-cut-to-n-snapshots", "fit-job-train", "train-and-validation"],
+    ids=["inline-train-fold", "inline-cut-to-n-snapshots", "train-and-validation"],
 )
 def test_a_fit_is_qualified_by_the_rows_of_the_folds_it_read(
     pod_fit_presentation: DatasetPresentation,
@@ -125,24 +122,6 @@ def test_ordinary_methods_are_standalone() -> None:
     cfg = AMGPreconditionerConfig(coarsening=AggregationCoarseningConfig())
     assert isinstance(
         describe_method(cfg, NoFitData(), NO_DATASET_READS, InMemorySplitStore()),
-        StandaloneMethodPresentation,
-    )
-
-
-def test_unverified_checkpoint_pod_has_no_fit_dataset_qualifier() -> None:
-    cfg = AMGPreconditionerConfig(
-        coarsening=PODCoarseningConfig(dataset_dir=FIT_DIR, checkpoint_path=Path("basis.pt"))
-    )
-    assert isinstance(
-        describe_method(
-            cfg,
-            CheckpointBased(
-                tuple(ref for _, ref in cfg.checkpoint_refs()),
-                TrainingDataUnavailable("no training run"),
-            ),
-            NO_DATASET_READS,
-            InMemorySplitStore(),
-        ),
         StandaloneMethodPresentation,
     )
 
@@ -236,12 +215,9 @@ def test_a_dataset_that_cannot_be_described_is_rejected() -> None:
 def test_indistinguishable_methods_are_rejected_before_execution(
     pod_fit_presentation: DatasetPresentation, dataset_presentation: DatasetPresentation
 ) -> None:
-    """Two fit assignments over identical datasets have distinct ids but one presentation."""
+    """Two POD methods over identical datasets have distinct ids but one presentation."""
     copy_a, copy_b = Path("copy-a"), Path("copy-b")
-    copies = [
-        pod_spec(copy_a, 10, assignment="fit-copy-a"),
-        pod_spec(copy_b, 10, assignment="fit-copy-b"),
-    ]
+    copies = [pod_spec(copy_a, 10), pod_spec(copy_b, 10)]
 
     with pytest.raises(DuplicateMethodPresentationError) as caught:
         prepare_comparison_presentation(

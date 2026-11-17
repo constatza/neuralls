@@ -12,7 +12,6 @@ from pydantic import (
     PositiveInt,
     ValidationInfo,
     field_validator,
-    model_validator,
 )
 
 from neuralls.platform.config.context import expand_path_field
@@ -22,7 +21,7 @@ from neuralls.platform.config.models.fact_roles import (
     OPERATIONAL_ROLE,
     PROVENANCE_ROLE,
 )
-from neuralls.platform.config.models.slugs import slug_number
+from neuralls.platform.config.models.slugs import slug_number, slug_text
 from neuralls.shared.digest import InputData
 from neuralls.shared.fact_binding import (
     Fact,
@@ -139,45 +138,34 @@ class TargetDimCoarseningConfig(BaseModel):
         )
 
 
-class PODCoarseningConfig(NeuralCheckpointRef):
+class PODCoarseningConfig(BaseModel):
     """POD coarsening (the POD-2G of Nikolopoulos et al. 2022, §3.3-3.5).
 
     The prolongation/restriction operator is a POD basis fit to a snapshot
     ensemble of high-fidelity solutions (or, for a sharper coarse space,
     CG error traces e_k = x* - x_k, which are richer than raw solution vectors
     since e_0 == x* and later k emphasize slow-converging directions) —
-    read from an already-generated dataset directory, not raw files, so the
-    same validation/normalization/manifest guarantees as every other
-    dataset in this repo apply.
+    read from the train fold of an already-generated dataset directory, not raw
+    files, so the same validation/normalization/manifest guarantees as every
+    other dataset in this repo apply.
 
-    Inherits the optional checkpoint-identity fields from
-    ``NeuralCheckpointRef`` (``assignment``, ``model_ref``, ``checkpoint_path``,
-    ``resolved_checkpoint_path``) so a POD basis can *also* be fit once
-    ahead of time via a ``FitJobConfig`` assignment and reconstructed from its
-    MLflow-tracked checkpoint at comparison time, instead of being refit
-    inline from ``dataset_dir`` on every run — see
-    ``composition/preconditioners/factory.py``'s AMG branch. None of these
-    fields are required: a `PODCoarseningConfig` with no checkpoint identity
-    set behaves exactly as before (inline `dataset_dir` fit only).
+    The basis is fitted once per comparison method, before that method's
+    per-matrix timed setups, and the fit's wall time and peak memory are
+    measured and reported as the method's offline ``fit`` cost
+    (``composition/comparison/_method_fit.py``). It is never checkpointed:
+    the fit is cheap next to a comparison and its cost belongs to the method.
 
-    Complexity: fit cost has two parts — the thin SVD over the snapshot
-    matrix (`m` snapshots x `n` DOFs), `O(min(m, n) * m * n)` for
-    `torch.linalg.svd`'s default full-matrices=False mode (cheap when
-    `m << n`, the usual case), and the one-time Galerkin coarse-matrix
-    triple product `Phi_r^T @ A @ Phi_r` in `build_transfer`, `O(rank * n^2)`
-    (dense `n x n` matrix, dominates the SVD when `rank` isn't tiny relative
-    to `m`). No fit cost at all when checkpoint-backed (see the class
-    docstring above) — just a checkpoint load (done ahead of the timed build, once
-    per dataset), though `build_transfer`'s
-    triple product still runs once per comparison since it depends on the
-    matrix, not the basis. Per-iteration application cost is `O(rank * n)`
-    for the basis projection itself, but every CG iteration through
-    `AMGPreconditioner`'s V-cycle also pays the surrounding cycle's O(n^2)
-    dense fine-level smoothing/residual cost — see
-    `AMGPreconditionerConfig`'s complexity note; POD's basis projection
-    is cheap next to that, not instead of it. See
-    `torchalg.preconditioners.implementations.pod.coarsening` /
-    `.basis` for the derivation.
+    Complexity: the fit is torchalg's ``compute_pod_basis`` over the ``m``
+    snapshot rows of ``n`` DOFs, a thin SVD of ``O(min(m, n) * m * n)``, plus,
+    for the energy inner product, the products with the sparse train-fold mean
+    matrix ``W`` (``O(m * nnz(W))``). The per-matrix timed setup holds only
+    the Galerkin coarse matrix ``Φᵀ(AΦ)`` in ``build_transfer``,
+    ``O(rank * nnz(A) + rank² * n)`` on a CSR ``A``, and the coarse LU.
+    Per-iteration application cost is ``O(rank * n)`` for the basis projection,
+    next to the surrounding V-cycle's fine-level smoothing and residual cost —
+    see ``AMGPreconditionerConfig``'s complexity note. See
+    ``torchalg.preconditioners.implementations.pod`` and
+    ``torchalg.utils.pod_basis`` for the derivation.
     """
 
     method: Annotated[Literal["pod"], IDENTITY_ROLE] = "pod"
@@ -196,49 +184,17 @@ class PODCoarseningConfig(NeuralCheckpointRef):
     )
     n_snapshots: Annotated[SnapshotCount, Fact(SNAPSHOT_COUNT, show=Show.NON_DEFAULT)] = Field(
         default=ALL_SNAPSHOTS,
-        description=(
-            "Number of snapshot rows an inline fit reads; -1 means all. A checkpoint-backed "
-            "basis is loaded, not refit, so it accepts only the default."
-        ),
+        description="Number of train-fold snapshot rows the fit reads; -1 means all.",
     )
     inner_product: Annotated[
         InnerProductKind, Fact(INNER_PRODUCT, convert=enum_value, show=Show.NON_DEFAULT)
     ] = Field(
         default=InnerProductKind.EUCLIDEAN,
         description=(
-            "Inner product the basis was fitted in. Energy needs a checkpoint identity: "
-            "only the offline fit job computes the energy weight."
+            "Inner product the basis is fitted in. Energy weighs it by the mean train-fold matrix."
         ),
     )
     model_config = ConfigDict(extra="forbid", frozen=True)
-
-    @model_validator(mode="after")
-    def _energy_needs_a_fitted_checkpoint(self) -> PODCoarseningConfig:
-        """Reject an energy inner product on an inline fit.
-
-        The inline fit runs inside the comparison's measured setup and always fits in the
-        Euclidean inner product, so an energy POD exists only as a fit job's checkpoint.
-        """
-        if self.inner_product is InnerProductKind.ENERGY and self.exposed_checkpoint_ref() is None:
-            raise ValueError(
-                "An energy inner product needs a checkpoint identity (assignment, model_ref "
-                "or checkpoint_path): the inline POD fit is Euclidean only"
-            )
-        return self
-
-    @model_validator(mode="after")
-    def _snapshot_count_needs_an_inline_fit(self) -> PODCoarseningConfig:
-        """Reject a snapshot cut on a checkpoint-backed basis.
-
-        A checkpoint's basis is loaded, not refit, so ``n_snapshots`` would change nothing
-        and still be stated as a method fact beside the checkpoint's fitted ``N``.
-        """
-        if self.n_snapshots != ALL_SNAPSHOTS and self.exposed_checkpoint_ref() is not None:
-            raise ValueError(
-                "n_snapshots applies only to an inline POD fit: a checkpoint-backed basis "
-                "(assignment, model_ref or checkpoint_path) is loaded, not refit"
-            )
-        return self
 
     @field_validator("dataset_dir", mode="before")
     @classmethod
@@ -255,7 +211,7 @@ class PODCoarseningConfig(NeuralCheckpointRef):
         return expand_path_field(v, info)
 
     def inline_fit_rows(self, available: int) -> int:
-        """How many of ``available`` staged snapshot rows an inline fit reads.
+        """How many of ``available`` train-fold snapshot rows the fit reads.
 
         The first ``n_snapshots`` of them, or all when ``n_snapshots`` is -1.
         """
@@ -264,28 +220,20 @@ class PODCoarseningConfig(NeuralCheckpointRef):
         return min(self.n_snapshots, available)
 
     def exposed_checkpoint_ref(self) -> NeuralCheckpointRef | None:
-        """Opt into checkpoint resolution only when a resolvable identity is set.
-
-        Unlike a neural preconditioner (always checkpoint-backed), POD
-        coarsening is equally valid unfitted-from-scratch (``dataset_dir`` +
-        ``rank`` only, no checkpoint fields at all) — that case must stay
-        invisible to `CheckpointRefBearing` resolution so it keeps falling
-        through to today's inline fit unchanged.
-        """
-        has_identity = (
-            self.assignment is not None
-            or self.model_ref is not None
-            or self.checkpoint_path is not None
-        )
-        return self if has_identity else None
+        """Fitted inside the comparison — never checkpoint-backed."""
+        return None
 
     def slug(self) -> str:
-        """Deterministic slug for this coarsening, including any checkpoint identity."""
+        """Deterministic slug for this coarsening, naming the dataset the basis is fitted on.
+
+        The fit dataset distinguishes two POD methods of equal rank, as a checkpoint
+        identity does for a fitted model; only its directory name enters, so a moved
+        workspace keeps its keys.
+        """
         base = f"pod_rank{slug_number(self.rank)}_n{self.n_snapshots}"
         if self.inner_product is InnerProductKind.ENERGY:
             base = f"{base}_energy"
-        ref = self.exposed_checkpoint_ref()
-        return f"{base}_{ref.checkpoint_slug()}" if ref is not None else base
+        return f"{base}_data_{slug_text(self.dataset_dir.name)}"
 
 
 class NeuralPODCoarseningConfig(NeuralCheckpointRef):

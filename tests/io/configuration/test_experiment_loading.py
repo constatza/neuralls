@@ -7,6 +7,11 @@ from pathlib import Path
 import numpy as np
 import pytest
 import tomli_w
+from pydantic import ValidationError
+
+from neuralls.platform.config.dlkit_bridge import load_job_config
+from neuralls.platform.config.models.pod_job import PODJobConfig, PODRunSection, PODSection
+from neuralls.shared.types import InnerProductKind
 
 
 @pytest.fixture
@@ -249,80 +254,39 @@ class TestTrainingPipelineWithMLflow:
         assert custom_output_root in experiment.workspace.root_dir.parents
 
 
-def _write_fit_job_config(path: Path, *, experiment_name: str) -> None:
-    """Write a minimal lower-case one-shot fit job (`run.type = "fit"`, no `[training]`)."""
-    job_config = {
-        "run": {"type": "fit", "seed": 42},
-        "experiment": {"name": experiment_name},
-        "model": {
-            "name": "PODCoarseningStrategy",
-            "module_path": "torchalg.preconditioners.implementations.pod",
-            "rank": 8,
-        },
-        "data": {
-            "name": "FlexibleDataset",
-            "batch_size": 2,
-            "num_workers": 0,
-            "pin_memory": False,
-            "shuffle": True,
-            "module": {"name": "ArrayDataModule"},
-        },
-        "tracking": {"backend": "mlflow"},
-    }
-    with open(path, "wb") as f:
-        tomli_w.dump(job_config, f)
+_POD_RECIPE = """\
+[run]
+type = "pod"
+
+[pod]
+rank = 8
+inner_product = "energy"
+"""
 
 
-def test_load_assignment_accepts_fit_job_without_trainer_section(
-    training_setup: dict,
-    neuralls_settings,
-) -> None:
-    """A `run.type = "fit"` assignment (no `[training]` section) loads without
-    crashing on `patch_runtime_workspace`'s trainer guard clause.
+def test_a_pod_recipe_loads_as_a_pod_job(tmp_path: Path, neuralls_settings) -> None:
+    """A `run.type = "pod"` job is a neuralls recipe, validated without dlkit."""
+    job_path = tmp_path / "pod.toml"
+    job_path.write_text(_POD_RECIPE, encoding="utf-8")
 
-    Regression guard for `FitJobConfig`/`TrainableJobConfig` wiring
-    (`_job_types.py`, `patch_runtime_workspace_for_job`,
-    `assembler.py::_require_trainable_job`): before that wiring, this raised
-    either `ConfigValidationError` (job loader's stale FitJobConfig blocklist)
-    or `ValueError` (`patch_runtime_workspace`'s "Training jobs require
-    [training].trainer" guard, unconditionally applied to every job kind).
-    """
-    from neuralls.composition.assignments.assembler import AssignmentIdentity, load_assignment
-
-    data_dir = training_setup["data_dir"]
-    datasets_dir = training_setup["datasets_dir"]
-    jobs_dir = training_setup["jobs_dir"]
-    matrix_path = training_setup["matrix_path"]
-    rhs_path = training_setup["rhs_path"]
-
-    data_config_path = datasets_dir / "fit_test_data.toml"
-    with open(data_config_path, "wb") as f:
-        tomli_w.dump(
-            {
-                "id": "fit_test_data",
-                "source": {"matrix_path": str(matrix_path), "rhs_path": str(rhs_path)},
-                "generation": {
-                    "scaling": {"kind": "none"},
-                    "shuffle": True,
-                    "seed": 42,
-                    "strategy": [{"name": "random", "samples": 20}],
-                },
-                "output": {"data_dir": str(data_dir / "processed")},
-            },
-            f,
-        )
-
-    output_root = data_dir / "fit_output"
-    job_config_path = jobs_dir / "fit_test_job.toml"
-    _write_fit_job_config(job_config_path, experiment_name="FitTestJob")
-
-    experiment = load_assignment(
-        job_config_path=job_config_path,
-        data_config_path=data_config_path,
-        neuralls_settings=neuralls_settings,
-        output_root=output_root,
-        identity=AssignmentIdentity(dataset_registry_id=data_config_path.stem),
+    assert load_job_config(job_path, neuralls_settings) == PODJobConfig(
+        run=PODRunSection(type="pod"),
+        pod=PODSection(rank=8, inner_product=InnerProductKind.ENERGY),
     )
 
-    assert experiment.settings.training is None
-    assert experiment.settings.tracking.backend == "mlflow"
+
+@pytest.mark.parametrize(
+    "extra",
+    ["seed = 42\n", '\n[model]\nname = "PODCoarseningFittable"\n'],
+    ids=["run-seed", "model-section"],
+)
+def test_a_pod_recipe_rejects_unknown_keys(tmp_path: Path, neuralls_settings, extra: str) -> None:
+    """Only rank, inner product and snapshot cut configure a POD fit."""
+    job_path = tmp_path / "pod.toml"
+    job_path.write_text(
+        _POD_RECIPE.replace('type = "pod"\n', f'type = "pod"\n{extra}'), encoding="utf-8"
+    )
+
+    with pytest.raises(ValidationError) as error:
+        load_job_config(job_path, neuralls_settings)
+    assert [detail["type"] for detail in error.value.errors()] == ["extra_forbidden"]

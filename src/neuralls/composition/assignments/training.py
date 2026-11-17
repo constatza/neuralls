@@ -21,7 +21,7 @@ from neuralls.composition.assignments._dataset_assembly import (
     _load_and_prepare_data,
     resolve_dataset_format,
 )
-from neuralls.composition.assignments._job_types import AnyJobConfig
+from neuralls.composition.assignments._job_types import DlkitJobConfig
 from neuralls.composition.assignments._settings_pipeline import _configure_training_pipeline
 from neuralls.composition.assignments._training_artifacts import (
     MlflowCoordinates,
@@ -84,7 +84,7 @@ def _unwrap_execution_result(
 ) -> DlkitTrainingResult:
     """Normalize dlkit's execute() results to the underlying training result.
 
-    A `train`/`fit` job's `execute()` returns a `TrainingResult` directly; a
+    A `train` job's `execute()` returns a `TrainingResult` directly; a
     `search` job's returns an `OptimizationResult` wrapping the best trial's
     `TrainingResult` in `.training_result` — delegated to
     `OptimizationResult.as_training_result()`, which raises `WorkflowError`
@@ -290,7 +290,7 @@ class _TrainingFinalizationContext:
     assignment_id: str | None
     presentation: TrainingPresentation
     dataset_id: str
-    workflow_settings: AnyJobConfig
+    workflow_settings: DlkitJobConfig
     contract: RuntimeDatasetContract
     config_path: Path
     resolved_data_config_path: Path | None
@@ -307,7 +307,7 @@ class PreparedTraining:
     has completed (success or failure).
     """
 
-    workflow_settings: AnyJobConfig
+    workflow_settings: DlkitJobConfig
     run_config: MlflowRunConfig
     runtime_mlflow_env: MlflowRuntimeEnvironment
     tmp_path: Path
@@ -486,7 +486,7 @@ def finalize_prepared_training(
         prepared: The assignment's prepared training inputs.
         execution_result: Whatever dlkit's ``execute()`` (or a multirun
             child's dispatch) returned for this assignment — a ``TrainingResult``
-            directly for a ``train``/``fit`` job, or an ``OptimizationResult``
+            directly for a ``train`` job, or an ``OptimizationResult``
             for a ``search`` job.
         tracking: Source of the clients and lease managers used while finalizing.
 

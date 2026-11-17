@@ -46,6 +46,9 @@ def temp_config_structure(tmp_path: Path) -> Path:
         f.write("[[jobs]]\n")
         f.write('id = "exp2_job"\n')
         f.write('path = "jobs/exp2_job.toml"\n\n')
+        f.write("[[jobs]]\n")
+        f.write('id = "pod_job"\n')
+        f.write('path = "jobs/pod_job.toml"\n\n')
         f.write("# Assignment 1: Full config with explicit checkpoint\n")
         f.write("[[assignments]]\n")
         f.write('id = "exp1"\n')
@@ -58,7 +61,16 @@ def temp_config_structure(tmp_path: Path) -> Path:
         f.write("[[assignments]]\n")
         f.write('id = "exp2"\n')
         f.write('dataset = "exp2_data"\n')
-        f.write('job = "exp2_job"\n')
+        f.write('job = "exp2_job"\n\n')
+        f.write("# Assignment 3: POD recipe, fitted inside the comparison, never trained\n")
+        f.write("[[assignments]]\n")
+        f.write('id = "pod1"\n')
+        f.write('dataset = "exp1_data"\n')
+        f.write('job = "pod_job"\n')
+
+    (project_root / "configs" / "jobs" / "pod_job.toml").write_text(
+        '[run]\ntype = "pod"\n\n[pod]\nrank = 4\n', encoding="utf-8"
+    )
 
     # Dataset configs
     with open(project_root / "configs" / "datasets" / "exp1_data.toml", "w", encoding="utf-8") as f:
@@ -144,7 +156,7 @@ def test_load_assignments_success(
         neuralls_settings=neuralls_settings,
     )
 
-    assert len(batch.assignments) == 2
+    assert [assignment.spec.assignment_id for assignment in batch.assignments] == ["exp1", "exp2"]
 
     exp1 = batch.assignments[0]
     exp2 = batch.assignments[1]
