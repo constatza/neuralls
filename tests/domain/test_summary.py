@@ -6,7 +6,6 @@ import numpy as np
 import polars as pl
 import pytest
 
-from neuralls.domain.benchmarking.uncertainty import ClusterStatistic, matrix_cluster_interval
 from neuralls.domain.solver.reporting.metrics import METRICS, MetricId
 from neuralls.domain.solver.reporting.summary import (
     OUTCOME_COUNTS_SCHEMA,
@@ -20,9 +19,8 @@ from neuralls.domain.solver.reporting.summary import (
     summarize,
     timing_noise,
 )
-from neuralls.shared.constants import DEFAULT_RANDOM_SEED, RESIDUAL_MISMATCH_FACTOR
-from neuralls.shared.types import MatrixId
-from tests.observation_support import AMG, BROKEN, DATASET, JACOBI
+from neuralls.shared.constants import RESIDUAL_MISMATCH_FACTOR
+from tests.observation_support import AMG, BROKEN, JACOBI
 
 SYSTEM_METRICS = (
     MetricId.ITERATIONS,
@@ -130,18 +128,6 @@ def test_summary_of_the_unbalanced_method_matches_the_hand_computed_row(
     unbalanced_observations: pl.DataFrame,
 ) -> None:
     summary = summarize(unbalanced_observations, MetricId.ITERATIONS, Population.OWN)
-    systems_ci = matrix_cluster_interval(
-        {(DATASET, MatrixId(1)): [2.0, 5.0, 3.0], (DATASET, MatrixId(2)): [8.0]},
-        ClusterStatistic.MEAN_OVER_SYSTEMS,
-        seed=DEFAULT_RANDOM_SEED,
-    )
-    matrices_ci = matrix_cluster_interval(
-        {(DATASET, MatrixId(1)): [2.0, 5.0, 3.0], (DATASET, MatrixId(2)): [8.0]},
-        ClusterStatistic.MEAN_OVER_MATRICES,
-        seed=DEFAULT_RANDOM_SEED,
-    )
-    assert systems_ci is not None
-    assert matrices_ci is not None
 
     assert _row(summary, AMG) == pytest.approx(
         {
@@ -158,10 +144,11 @@ def test_summary_of_the_unbalanced_method_matches_the_hand_computed_row(
             # values 2, 5, 3 on matrix 1 and 8 on matrix 2
             "mean_over_systems": 18 / 4,
             "mean_over_matrices": (10 / 3 + 8) / 2,
-            "mean_over_systems_ci_low": systems_ci.low,
-            "mean_over_systems_ci_high": systems_ci.high,
-            "mean_over_matrices_ci_low": matrices_ci.low,
-            "mean_over_matrices_ci_high": matrices_ci.high,
+            # two matrices are fewer than MIN_INTERVAL_MATRICES, so no interval is drawn
+            "mean_over_systems_ci_low": None,
+            "mean_over_systems_ci_high": None,
+            "mean_over_matrices_ci_low": None,
+            "mean_over_matrices_ci_high": None,
             # sorted values 2, 3, 5, 8, position (n - 1) * level
             "q05": 2.15,
             "q25": 2.75,

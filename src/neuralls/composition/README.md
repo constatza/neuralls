@@ -470,7 +470,7 @@ traits on its source model (`RhsSourceModelBase` in
 normalization step read instead of keeping lists of kinds: `generated` (the
 vector is synthesized, never matrix-scaled), `seeded` (the source consumes the
 per-system seed, so each system gets an independent
-`plan.derive_seed(entry.seed, matrix_id, k)`, a `SeedSequence` of the triple,
+`plan.derive_seed(entry.seed, matrix_id, k)`, a `SeedSequence` of the base and keys,
 and neighbouring systems never share an RHS vector) and `single_draw`
 (`rhs_count` must be 1). `gaussian` and `sinusoidal` are generated and seeded;
 `raw_lhs`/`raw_rhs` are one fixed vector (single-draw, not generated); `dataset`
@@ -672,9 +672,20 @@ also warmed once per process before the first system (`shared.device.warm_up_dev
 so no preconditioner's timing absorbs CUDA/cuSPARSE first-call costs. The warm-up
 covers dense matmul, triangular solve, CSR matvec and the CG loop only: first use of
 LU, Cholesky, SVD, eigensolvers or an iterative spectral-radius estimate is not
-pre-paid and lands in whichever timed region needs it first. The device cache is
+pre-paid; the per-run `timing.warmup` (one discarded execution of every timed region by
+default) absorbs it instead, so it lands in no stored sample. The device cache is
 released after each matrix and each preconditioner, never between timing repeats of
-one event. This is separate from the per-run `timing.warmup`, which stays opt-in.
+one event.
+
+Each matrix's setup is timed by `repeat_timed_outcome` with a fingerprint
+(`_preconditioner_setup.setup_fingerprint`: the built preconditioner's class and realized
+facts), so setup repeats that built different hierarchies are stored `Diverged` as solves
+are; a failure reading those facts raises `RealizedFactCaptureError` like the capture after
+setup. A randomized setup (aSA, BAMG) is built from `setup_config_for_matrix`, its seed
+`plan.derive_seed(config.seed, matrix_id, stream=SETUP_SEED_STREAM)` (a stream apart from
+the RHS seeds): one seed for the warm-up and every repeat of a matrix, a different one per
+matrix; the method's identity, slug and facts keep the
+configured seed, and figure cards state the derivation (`setup_seed`).
 
 The method-owned checkpoint store spans its matrices, so loaded weights are
 shared without sharing a matrix setup event. Each matrix's tensors and prepared

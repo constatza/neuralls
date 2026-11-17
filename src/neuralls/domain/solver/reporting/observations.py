@@ -133,8 +133,14 @@ OBSERVATION_SCHEMA: dict[str, pl.DataType | type[pl.DataType]] = {
     "true_residual_rel": pl.Float64,
     "stopping_threshold_rel": pl.Float64,
     "timing_spread": pl.Float64,
+    "setup_samples_s": pl.List(pl.Float64),
+    "solve_samples_s": pl.List(pl.Float64),
 }
-"""One row per planned system of a method; ``outcome`` holds ``Outcome`` values."""
+"""One row per planned system of a method; ``outcome`` holds ``Outcome`` values.
+
+``setup_samples_s`` and ``solve_samples_s`` are the stored timing repeats of the row's matrix
+setup and of its solve (null without the event), which the two-level bootstrap of a time
+redraws."""
 
 _OBSERVATION_SORT_KEYS = ("method", "dataset", "matrix_id", "rhs_ordinal", "recipe", "system_id")
 _MATRIX_KEYS = ["dataset", "matrix_id"]
@@ -197,10 +203,12 @@ def observations(
         "iterations",
         "true_residual_rel",
         "rhs_norm",
-        "samples_s",
         solve_outcome=solve_outcome_expr(),
+        solve_samples_s=pl.col("samples_s"),
     )
-    setups = setup_events.select(*_MATRIX_KEYS, "setup_s", "setup_status")
+    setups = setup_events.select(
+        *_MATRIX_KEYS, "setup_s", "setup_status", setup_samples_s=pl.col("samples_s")
+    )
     factors = convergence_factors(convergence).select("system_id", "convergence_factor")
     joined = (
         planned.join(solves, on="system_id", how="left", validate="1:1")
@@ -239,7 +247,7 @@ def observations(
 
 def _timing_spread_expr() -> pl.Expr:
     """``(max - min) / median`` of the timing repeats; undefined for a zero median."""
-    samples = pl.col("samples_s").list
+    samples = pl.col("solve_samples_s").list
     median = samples.median()
     return pl.when(median > 0).then((samples.max() - samples.min()) / median)
 

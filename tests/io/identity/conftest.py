@@ -22,6 +22,7 @@ from neuralls.platform.config.models.preconditioner import (
     IC0PreconditionerConfig,
     StandardPreconditionerConfig,
 )
+from tests.solver_support import SINGLE_TIMED_RUN
 
 type ComparisonFactory = Callable[..., ComparisonConfig]
 type DataConfigFactory = Callable[..., DataConfigFile]
@@ -73,6 +74,7 @@ def make_comparison(matrix_file: Path, snapshot_dir: Path) -> ComparisonFactory:
             max_iterations=max_iterations,
             stopping_criterion="residual_norm",
             m_max=1,
+            timing=SINGLE_TIMED_RUN,
         )
         return ComparisonConfig(
             general=ComparisonGeneral(params=params, data=data),

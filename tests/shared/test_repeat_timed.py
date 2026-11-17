@@ -51,24 +51,13 @@ def clock(monkeypatch: pytest.MonkeyPatch) -> Callable[[list[float]], None]:
     return install
 
 
-def test_default_policy_is_a_single_plain_measurement(clock: Callable[[list[float]], None]) -> None:
-    clock([2.0])
-    calls: list[int] = []
-
-    timed = timed_runs(lambda: calls.append(1) or "value", TimingRepeatPolicy(), device=CPU)
-
-    assert len(calls) == 1
-    assert timed.value == "value"
-    assert timed.seconds == pytest.approx(2.0)
-    assert timed.samples_seconds == (pytest.approx(2.0),)
-
-
-def test_warmup_runs_are_executed_but_not_timed(clock: Callable[[list[float]], None]) -> None:
+def test_default_policy_discards_one_warmup_then_takes_the_median_of_three(
+    clock: Callable[[list[float]], None],
+) -> None:
     clock([50.0, 1.0, 3.0, 2.0])
     calls: list[int] = []
-    policy = TimingRepeatPolicy(repeats=3, warmup=1, statistic=TimingStatistic.MEDIAN)
 
-    timed = timed_runs(lambda: calls.append(1), policy, device=CPU)
+    timed = timed_runs(lambda: calls.append(1), TimingRepeatPolicy(), device=CPU)
 
     assert len(calls) == 4
     assert timed.samples_seconds == pytest.approx((1.0, 3.0, 2.0))
@@ -88,7 +77,9 @@ def test_statistic_reduces_the_samples(
 ) -> None:
     clock([1.0, 3.0, 2.0])
 
-    timed = timed_runs(lambda: None, TimingRepeatPolicy(repeats=3, statistic=statistic), device=CPU)
+    timed = timed_runs(
+        lambda: None, TimingRepeatPolicy(repeats=3, warmup=0, statistic=statistic), device=CPU
+    )
 
     assert timed.seconds == pytest.approx(expected)
 
@@ -113,7 +104,7 @@ def test_only_the_first_divergence_is_reported(
     try:
         timed = timed_runs(
             lambda: next(counter),
-            TimingRepeatPolicy(repeats=repeats),
+            TimingRepeatPolicy(repeats=repeats, warmup=0),
             device=CPU,
             fingerprint=lambda value: value,
         )
@@ -128,7 +119,10 @@ def test_repeats_with_the_same_fingerprint_agree(clock: Callable[[list[float]], 
     clock([1.0, 1.0])
 
     timed = timed_runs(
-        lambda: 7, TimingRepeatPolicy(repeats=2), device=CPU, fingerprint=lambda value: value
+        lambda: 7,
+        TimingRepeatPolicy(repeats=2, warmup=0),
+        device=CPU,
+        fingerprint=lambda value: value,
     )
 
     assert timed.agreement == Agreed()
@@ -137,7 +131,12 @@ def test_repeats_with_the_same_fingerprint_agree(clock: Callable[[list[float]], 
 def test_a_single_timed_run_has_nothing_to_compare(clock: Callable[[list[float]], None]) -> None:
     clock([1.0])
 
-    timed = timed_runs(lambda: 7, TimingRepeatPolicy(), device=CPU, fingerprint=lambda value: value)
+    timed = timed_runs(
+        lambda: 7,
+        TimingRepeatPolicy(repeats=1, warmup=0),
+        device=CPU,
+        fingerprint=lambda value: value,
+    )
 
     assert timed.agreement == SingleRun()
 
@@ -147,7 +146,7 @@ def test_repeats_without_a_fingerprint_are_unchecked_not_agreed(
 ) -> None:
     clock([1.0, 1.0])
 
-    timed = timed_runs(lambda: 7, TimingRepeatPolicy(repeats=2), device=CPU)
+    timed = timed_runs(lambda: 7, TimingRepeatPolicy(repeats=2, warmup=0), device=CPU)
 
     assert timed.agreement == Unchecked()
 
@@ -158,7 +157,7 @@ def test_a_raising_region_is_a_failed_outcome(clock: Callable[[list[float]], Non
     def boom() -> int:
         raise RuntimeError("boom")
 
-    outcome = repeat_timed_outcome(boom, TimingRepeatPolicy(), device=CPU)
+    outcome = repeat_timed_outcome(boom, TimingRepeatPolicy(repeats=1, warmup=0), device=CPU)
 
     assert isinstance(outcome, FailedTimedRuns)
     assert isinstance(outcome.error, RuntimeError)

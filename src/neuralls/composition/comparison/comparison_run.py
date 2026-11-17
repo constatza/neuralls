@@ -18,6 +18,8 @@ from neuralls.composition.comparison._preconditioner_setup import (
     _load_extra_inputs,
     _schedule_preconditioner,
     capture_system_realizations,
+    setup_config_for_matrix,
+    setup_fingerprint,
 )
 from neuralls.composition.comparison.method_data_origin import MethodDataOrigin, origin_evidence
 from neuralls.composition.comparison.models import (
@@ -70,6 +72,7 @@ from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.platform.tracking.run_names import render_dataset_label, render_method_label
 from neuralls.shared.device import (
     FailedTimedRuns,
+    Unchecked,
     WorkloadMemoryObserver,
     release_device_memory,
     repeat_timed_outcome,
@@ -221,6 +224,7 @@ def _setup_failed(
             samples_s=timing.samples_seconds,
             peak_memory=MeasuredPeakMemory(timing.peak_memory_bytes),
             outcome=SetupFailed(f"{type(error).__name__}: {error}"),
+            repeats=Unchecked(),
         ),
         attempts=(),
         diagnostics=tuple(
@@ -359,10 +363,12 @@ def _execute_on_device(
         return _setup_failed(
             run, bundle, event_id, error=exc, dataset_text=dataset_text, timing=_SetupTiming()
         )
+    setup_config = setup_config_for_matrix(method.config, bundle.matrix_id)
     timed_setup = repeat_timed_outcome(
-        lambda: _build_scheduled_and_bind(run.service, matrix, method.config, staged_inputs),
+        lambda: _build_scheduled_and_bind(run.service, matrix, setup_config, staged_inputs),
         run.params.timing,
         device=run.device,
+        fingerprint=lambda built: setup_fingerprint(built, PreconditionerName(method.name), bundle),
     )
     run.observer.observe_operation(timed_setup.peak_memory_bytes)
     if isinstance(timed_setup, FailedTimedRuns):
@@ -385,6 +391,7 @@ def _execute_on_device(
         samples_s=timed_setup.samples_seconds,
         peak_memory=MeasuredPeakMemory(timed_setup.peak_memory_bytes),
         outcome=SetupCompleted(),
+        repeats=timed_setup.agreement,
     )
     return _solve_bundle(run, bundle, matrix, timed_setup.value, setup_event, dataset_text)
 

@@ -287,7 +287,7 @@ def _solver_params(repeats: int) -> SolverParams:
         max_iterations=50,
         stopping_criterion="residual_norm",
         m_max=10,
-        timing=TimingRepeatPolicy(repeats=repeats),
+        timing=TimingRepeatPolicy(repeats=repeats, warmup=0),
     )
 
 

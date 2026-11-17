@@ -296,11 +296,19 @@ def _online(row: SyntheticRow) -> float | None:
     return row.seconds if row.online_seconds is None else row.online_seconds
 
 
+def _setup_samples(row: SyntheticRow) -> list[float] | None:
+    """One setup repeat: what the online time adds to the solve, 0 when it adds nothing."""
+    if row.seconds is None:
+        return None
+    online = _online(row)
+    return [0.0 if online is None else online - row.seconds]
+
+
 def synthetic_observations(rows: Sequence[SyntheticRow]) -> pl.DataFrame:
     """Observation frame of ``rows`` for tests that need exact hand-chosen values.
 
     Columns a row does not state are null, except the identity columns and the planned RHS
-    count, which are the same for every row.
+    count, which are the same for every row. A solved row's setup and solve were timed once.
     """
     return pl.DataFrame(
         [
@@ -318,6 +326,8 @@ def synthetic_observations(rows: Sequence[SyntheticRow]) -> pl.DataFrame:
                 "planned_rhs": 1,
                 "online_s": _online(row),
                 "online_amortized_s": _online(row),
+                "setup_samples_s": _setup_samples(row),
+                "solve_samples_s": None if row.seconds is None else [row.seconds],
             }
             for row in rows
         ],

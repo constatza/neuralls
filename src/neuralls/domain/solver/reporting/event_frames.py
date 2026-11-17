@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Collection, Sequence
+from dataclasses import dataclass
 from math import isfinite
 from typing import assert_never
 
@@ -60,6 +61,9 @@ SETUP_EVENT_SCHEMA: dict[str, pl.DataType | type[pl.DataType]] = {
     "memory_status": pl.String,
     "setup_status": pl.String,
     "failure_reason": pl.String,
+    "repeat_status": pl.String,
+    "repeat_first_fingerprint": pl.Int64,
+    "repeat_other_fingerprint": pl.Int64,
 }
 
 SOLVE_ATTEMPT_SCHEMA: dict[str, pl.DataType | type[pl.DataType]] = {
@@ -158,6 +162,7 @@ def build_setup_frame(events: Collection[MatrixSetupEvent]) -> pl.DataFrame:
     for event in events:
         peak_memory_bytes, memory_status = _memory_fields(event.peak_memory)
         setup_status, failure_reason = _setup_outcome_fields(event.outcome)
+        repeat_status, repeat_first, repeat_other = _repeat_fields(event.repeats)
         rows.append(
             {
                 "setup_event_id": event.event_id,
@@ -170,6 +175,9 @@ def build_setup_frame(events: Collection[MatrixSetupEvent]) -> pl.DataFrame:
                 "memory_status": memory_status,
                 "setup_status": setup_status,
                 "failure_reason": failure_reason,
+                "repeat_status": repeat_status,
+                "repeat_first_fingerprint": repeat_first,
+                "repeat_other_fingerprint": repeat_other,
             }
         )
     return pl.DataFrame(rows, schema=SETUP_EVENT_SCHEMA)
@@ -236,6 +244,7 @@ def decode_setup_frame(frame: pl.DataFrame) -> tuple[MatrixSetupEvent, ...]:
                 if row["setup_status"] == "completed"
                 else SetupFailed(reason=row["failure_reason"] or "")
             ),
+            repeats=_decode_repeats(row, _SETUP_REPEAT_COLUMNS),
         )
         for row in frame.iter_rows(named=True)
     )
@@ -266,7 +275,7 @@ def decode_solve_frame(frame: pl.DataFrame) -> tuple[SolveAttempt, ...]:
             ),
             residual=_decode_residual(row),
             exact_reference=_decode_reference_outcome(row),
-            repeats=_decode_repeats(row),
+            repeats=_decode_repeats(row, _SOLVE_REPEAT_COLUMNS),
         )
         for row in frame.iter_rows(named=True)
     )
@@ -283,7 +292,24 @@ def _decode_residual(row: dict[str, object]) -> ResidualMeasurement:
             return UnmeasuredResidual()
 
 
-def _decode_repeats(row: dict[str, object]) -> RepeatAgreement:
+@dataclass(frozen=True, slots=True)
+class _RepeatColumns:
+    """The columns holding what a diverged repeat disagreed on, and what that value is."""
+
+    first: str
+    other: str
+    value: str
+
+
+_SOLVE_REPEAT_COLUMNS = _RepeatColumns(
+    "repeat_first_iterations", "repeat_other_iterations", "iterations"
+)
+_SETUP_REPEAT_COLUMNS = _RepeatColumns(
+    "repeat_first_fingerprint", "repeat_other_fingerprint", "fingerprint"
+)
+
+
+def _decode_repeats(row: dict[str, object], columns: _RepeatColumns) -> RepeatAgreement:
     match row["repeat_status"]:
         case "single":
             return SingleRun()
@@ -293,8 +319,8 @@ def _decode_repeats(row: dict[str, object]) -> RepeatAgreement:
             return Agreed()
         case _:
             return Diverged(
-                first=_required_int(row["repeat_first_iterations"], "first repeat iterations"),
-                other=_required_int(row["repeat_other_iterations"], "divergent repeat iterations"),
+                first=_required_int(row[columns.first], f"first repeat {columns.value}"),
+                other=_required_int(row[columns.other], f"divergent repeat {columns.value}"),
             )
 
 
@@ -434,6 +460,7 @@ def validate_decoded_setup_frame(frame: pl.DataFrame) -> None:
             raise ValueError(f"failed setup {event_id!r} is missing a failure reason")
         if status == "completed" and reason is not None:
             raise ValueError(f"completed setup {event_id!r} has a failure reason")
+        _validate_repeat_columns(row, event_id, _SETUP_REPEAT_COLUMNS)
         key = (dataset, matrix_id, method)
         if key in setup_keys:
             raise ValueError("duplicate setup key for dataset, matrix, and method")
@@ -473,7 +500,7 @@ def validate_decoded_solve_frame(frame: pl.DataFrame) -> None:
                 raise ValueError(f"failed solve {system_id!r} is missing a failure reason")
         _validate_residual_columns(row, system_id)
         _validate_outcome_columns(row, system_id)
-        _validate_repeat_columns(row, system_id)
+        _validate_repeat_columns(row, system_id, _SOLVE_REPEAT_COLUMNS)
         if system_id in seen_systems:
             raise ValueError(f"duplicate solve system ID: {system_id!r}")
         seen_systems.add(system_id)
@@ -529,20 +556,18 @@ def _validate_outcome_columns(row: dict[str, object], system_id: str) -> None:
         )
 
 
-def _validate_repeat_columns(row: dict[str, object], system_id: str) -> None:
-    """Iteration columns of the repeat agreement must exist exactly when the repeats diverged."""
-    carries_iterations = (
-        row["repeat_first_iterations"] is not None or row["repeat_other_iterations"] is not None
-    )
+def _validate_repeat_columns(row: dict[str, object], subject: str, columns: _RepeatColumns) -> None:
+    """The divergence columns of the repeat agreement exist exactly when the repeats diverged."""
+    carries_values = row[columns.first] is not None or row[columns.other] is not None
     match row["repeat_status"]:
         case "single" | "unchecked" | "agreed":
-            if carries_iterations:
-                raise ValueError(f"non-diverged repeats of {system_id!r} carry iteration counts")
+            if carries_values:
+                raise ValueError(f"non-diverged repeats of {subject!r} carry a {columns.value}")
         case "diverged":
-            first = _required_int(row["repeat_first_iterations"], "first repeat iterations")
-            other = _required_int(row["repeat_other_iterations"], "divergent repeat iterations")
+            first = _required_int(row[columns.first], f"first repeat {columns.value}")
+            other = _required_int(row[columns.other], f"divergent repeat {columns.value}")
             if first == other:
-                raise ValueError(f"diverged repeats of {system_id!r} have equal iteration counts")
+                raise ValueError(f"diverged repeats of {subject!r} have an equal {columns.value}")
         case other_status:
             raise ValueError(f"unknown repeat status: {other_status!r}")
 

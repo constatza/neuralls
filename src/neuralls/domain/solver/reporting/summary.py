@@ -5,7 +5,8 @@ outcomes in its ``MetricSpec.defined_on``, so every statistic here reads the sel
 system that failed is never a zero, an iteration cap or a missing term of a mean.
 
 Vocabulary: a *timing repeat* is the same solve timed again (already reduced inside ``solve_s``),
-a *bootstrap resample* is an in-memory redraw of whole matrices, a *RHS* is one system of a matrix.
+a *bootstrap resample* is an in-memory redraw of whole matrices (and, for a time, of the timing
+repeats of each drawn matrix's events), a *RHS* is one system of a matrix.
 ``mean_over_systems`` pools every selected system; ``mean_over_matrices`` averages the per-matrix
 means so every matrix weighs the same.
 """
@@ -22,9 +23,17 @@ from neuralls.domain.benchmarking.uncertainty import (
     ClusterStatistic,
     MatrixCluster,
     matrix_cluster_interval,
+    two_level_interval,
 )
+from neuralls.domain.solver.models.statistics import Interval
 from neuralls.domain.solver.reporting.metrics import METRICS, MetricId, MetricSpec, ObservationUnit
 from neuralls.domain.solver.reporting.observations import Outcome
+from neuralls.domain.solver.reporting.timed_values import (
+    TimedMetric,
+    UntimedMetric,
+    timed_clusters,
+    timing_of,
+)
 from neuralls.shared.constants import DEFAULT_RANDOM_SEED, RESIDUAL_MISMATCH_FACTOR
 from neuralls.shared.types import MatrixId
 
@@ -165,7 +174,9 @@ def summarize(
     """One summary row per method of ``metric`` over ``population``, with ``SUMMARY_SCHEMA``.
 
     A method with no defined unit still has a row: ``n_defined`` is 0 and every statistic is null,
-    never 0. Intervals are 95% matrix-cluster bootstrap intervals, null below two matrices.
+    never 0. Intervals are 95% bootstrap intervals over whole matrices, which for a time also
+    redraw each event's timing repeats (``timed_values``); null below ``MIN_INTERVAL_MATRICES``
+    matrices.
     """
     spec = METRICS[metric]
     selected = select(obs, metric, population)
@@ -217,12 +228,8 @@ def _statistics(spec: MetricSpec, selected: pl.DataFrame, seed: int) -> dict[str
         return dict(_NO_STATISTICS)
     value = pl.col(spec.column).cast(pl.Float64)
     by_matrix = selected.group_by(_MATRIX_KEYS, maintain_order=True).agg(value)
-    clusters: dict[MatrixCluster, Sequence[float]] = {
-        (dataset, MatrixId(matrix_id)): cluster
-        for dataset, matrix_id, cluster in by_matrix.iter_rows()
-    }
-    systems_ci = matrix_cluster_interval(clusters, ClusterStatistic.MEAN_OVER_SYSTEMS, seed=seed)
-    matrices_ci = matrix_cluster_interval(clusters, ClusterStatistic.MEAN_OVER_MATRICES, seed=seed)
+    systems_ci = _interval(spec, selected, by_matrix, ClusterStatistic.MEAN_OVER_SYSTEMS, seed)
+    matrices_ci = _interval(spec, selected, by_matrix, ClusterStatistic.MEAN_OVER_MATRICES, seed)
     pooled = selected.select(
         mean_over_systems=value.mean(),
         **{
@@ -241,6 +248,27 @@ def _statistics(spec: MetricSpec, selected: pl.DataFrame, seed: int) -> dict[str
         "mean_over_matrices_ci_low": matrices_ci.low if matrices_ci else None,
         "mean_over_matrices_ci_high": matrices_ci.high if matrices_ci else None,
     }
+
+
+def _interval(
+    spec: MetricSpec,
+    selected: pl.DataFrame,
+    by_matrix: pl.DataFrame,
+    statistic: ClusterStatistic,
+    seed: int,
+) -> Interval | None:
+    """The interval of ``statistic``: two-level for a time, matrix-cluster otherwise."""
+    match timing_of(spec.id):
+        case TimedMetric() as timing:
+            return two_level_interval(timed_clusters(selected, timing), statistic, seed=seed)
+        case UntimedMetric():
+            clusters: dict[MatrixCluster, Sequence[float]] = {
+                (dataset, MatrixId(matrix_id)): cluster
+                for dataset, matrix_id, cluster in by_matrix.iter_rows()
+            }
+            return matrix_cluster_interval(clusters, statistic, seed=seed)
+        case unreachable:
+            assert_never(unreachable)
 
 
 def time_per_iteration_summary(obs: pl.DataFrame, population: Population) -> pl.DataFrame:

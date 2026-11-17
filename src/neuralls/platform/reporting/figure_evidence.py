@@ -17,7 +17,8 @@ import polars as pl
 
 from neuralls.domain.benchmarking.paired import compared_methods, paired_systems, speed_ratios
 from neuralls.domain.benchmarking.uncertainty import (
-    MatrixClusterBootstrap,
+    BootstrapKind,
+    ClusterBootstrap,
     TooFewMatrices,
     cluster_bootstrap,
 )
@@ -30,6 +31,7 @@ from neuralls.domain.solver.reporting.summary import (
     select,
     timing_noise,
 )
+from neuralls.domain.solver.reporting.timed_values import bootstrap_kind_of
 from neuralls.shared.types import PreconditionerName
 
 SINGLE_REPEAT_WARNING = (
@@ -50,7 +52,7 @@ class MethodInterval:
     """The interval of one method's mark over that method's own matrices, or why it has none."""
 
     method: PreconditionerName
-    interval: TooFewMatrices | MatrixClusterBootstrap
+    interval: TooFewMatrices | ClusterBootstrap
 
 
 @dataclass(frozen=True, slots=True)
@@ -160,7 +162,7 @@ def intervals_of_speed_ratios(
     ``speed_ratio_summary`` resamples for that method.
     """
     ratios = speed_ratios(paired_systems(observations, reference, metric))
-    return _per_method(ratios, compared_methods(observations, reference))
+    return _per_method(ratios, compared_methods(observations, reference), bootstrap_kind_of(metric))
 
 
 def intervals_of_means(
@@ -172,11 +174,13 @@ def intervals_of_means(
     ``summarize`` resamples for that method.
     """
     methods = sorted(observations["method"].unique().to_list())
-    return _per_method(select(observations, metric, population), methods)
+    return _per_method(select(observations, metric, population), methods, bootstrap_kind_of(metric))
 
 
-def _per_method(rows: pl.DataFrame, methods: Sequence[str]) -> PerMethodIntervals:
-    """The interval of each of ``methods`` over the distinct matrices its ``rows`` cover."""
+def _per_method(
+    rows: pl.DataFrame, methods: Sequence[str], kind: BootstrapKind
+) -> PerMethodIntervals:
+    """The ``kind`` interval of each of ``methods`` over the distinct matrices its ``rows`` cover."""
     counts = dict(
         rows.group_by("method")
         .agg(pl.struct("dataset", "matrix_id").n_unique().alias("matrices"))
@@ -184,7 +188,9 @@ def _per_method(rows: pl.DataFrame, methods: Sequence[str]) -> PerMethodInterval
     )
     return PerMethodIntervals(
         tuple(
-            MethodInterval(PreconditionerName(method), cluster_bootstrap(counts.get(method, 0)))
+            MethodInterval(
+                PreconditionerName(method), cluster_bootstrap(counts.get(method, 0), kind)
+            )
             for method in methods
         )
     )

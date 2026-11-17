@@ -146,10 +146,11 @@ unplanned system raise `ValueError`.
 | `true_residual_rel` | `solve_attempts.true_residual_rel`; null when unmeasured |
 | `stopping_threshold_rel` | `true_residual.stopping_threshold_rel(rtol, atol, rhs_norm)` from `planned_systems` and `solve_attempts.rhs_norm`; null without a nonzero measured RHS norm |
 | `timing_spread` | `(max - min) / median` of `solve_attempts.samples_s`; 0 for one sample, null without a solve row or for a zero median |
+| `setup_samples_s`, `solve_samples_s` | `setup_events.samples_s` of the system's matrix and `solve_attempts.samples_s`, every timed repeat of each event, which the two-level bootstrap redraws; null without the event |
 
 Vocabulary. A **timing repeat** is the same operation timed again to cut noise; its samples are
 reduced to one representative `setup_s` or `solve_s` and are never summed as separate RHS solves.
-A **bootstrap resample** is an in-memory redraw of whole matrices. An **RHS system** is one
+A **bootstrap resample** is an in-memory redraw of whole matrices and, for a time, of each drawn matrix's timing repeats. An **RHS system** is one
 matrix and one right-hand side. The report uses these time names consistently:
 
 | Name | Value | Status |
@@ -200,7 +201,9 @@ $$\bar{x}^{\mathrm{sys}}_p = \frac{1}{|\mathcal{P}_p|} \sum_{s \in \mathcal{P}_p
 
 $$\bar{x}^{\mathrm{sys},(b)} = \frac{\sum_{i}\sum_{s \in \mathcal{P}_{p,m^{(b)}_i}} x_{p,s}}{\sum_{i} |\mathcal{P}_{p,m^{(b)}_i}|}, \quad \bar{x}^{\mathrm{mat},(b)} = \frac{1}{K'}\sum_{i} \frac{1}{|\mathcal{P}_{p,m^{(b)}_i}|}\sum_{s \in \mathcal{P}_{p,m^{(b)}_i}} x_{p,s}, \quad \mathrm{CI} = [q_{\alpha/2}, q_{1-\alpha/2}]\ \text{of}\ \{\bar{x}^{(b)}\}_{b=1}^{B}$$
 
-Seeded with `DEFAULT_RANDOM_SEED`; `None` if $K' < 2$; a matrix with no system in the population is dropped. Nothing about the solves is recomputed: it resamples stored per-system values, grouped by matrix, because RHS of one matrix share it and the effective sample size is $K$. It covers matrix-to-matrix variability only, not timing noise. `benchmarking/uncertainty.py::matrix_cluster_interval` computes it for `ClusterStatistic.MEAN_OVER_SYSTEMS`, `MEAN_OVER_MATRICES` and `MEDIAN`.
+Seeded with `DEFAULT_RANDOM_SEED`; `None` if $K' <$ `MIN_INTERVAL_MATRICES` (5): a percentile bootstrap undercovers below about ten clusters, and two matrices give only three distinct resamples, so a single-matrix or few-matrix case gets descriptive distributions and no interval; a matrix with no system in the population is dropped. Nothing about the solves is recomputed: it resamples stored per-system values, grouped by matrix, because RHS of one matrix share it and the effective sample size is $K$. `benchmarking/uncertainty.py::matrix_cluster_interval` computes it for `ClusterStatistic.MEAN_OVER_SYSTEMS`, `MEAN_OVER_MATRICES` and `MEDIAN`; it is the interval of the metrics that are deterministic per pair (iterations, convergence factor).
+
+**Two-level bootstrap interval** (every metric in seconds: the means of the times, the speed ratio). A time is $x_{p,s} = a_{p,s}\,t^{\mathrm{setup}}_{p,m(s)} + b_{p,s}\,t^{\mathrm{solve}}_{p,s}$, each $t$ the median of its event's $R$ stored timing repeats $	au_{\cdot,j}$ (`setup_samples_s`, `solve_samples_s` of the observation view), with $(a, b)$ = $(0, 1)$ for `solve_s`, $(1, 1)$ for `online_s`, $(1/r_{m(s)}, 1)$ for `online_amortized_s`, $(1, 0)$ for `setup_s` and $(0, 1/k_{p,s})$ for `time_per_iteration_s` (`reporting/timed_values.py::timing_of`). Each resample (a) draws matrices as above, (b) inside each drawn matrix redraws the $R$ repeats of every event with replacement, its setup once for all its RHS, and takes their median, and (c) recomputes the values and then the statistic; a speed ratio redraws both methods' events of the matrix. An event with $R = 1$ has nothing to redraw, and with no spread in any event the interval equals the matrix-cluster one. It covers matrix-to-matrix variability and timing noise; the inner median is the default `TimingStatistic`, so a case reduced by another statistic gets an interval around medians. `benchmarking/uncertainty.py::two_level_interval` computes it from `TimedCluster`s built by `reporting/timed_values.py`.
 
 **Time per iteration** (per system with a real iteration count $k \ge 1$; `UNCONVERGED` runs count because time and iterations are both real and a rate is not censored; `SOLVER_ERROR` and setup failures do not): $\theta_{p,s} = t^{\mathrm{solve}}_{p,s} / k_{p,s}$. It isolates per-iteration cost (preconditioner application, flexible-CG overhead) from numerical effectiveness; fixed per-solve overhead inflates $\theta$ when $k$ is small, which is why a figure's bar is the ratio of sums $\Theta_p$ (`time_per_iteration_summary`, below) and the per-system $\theta_{p,s}$ are drawn only as points.
 
@@ -226,7 +229,7 @@ method: `n_planned` and `n_defined` count the metric's observation units, `n_mat
 with a defined unit, and `n_unconverged`, `n_solver_error`, `n_setup_failed`, `n_not_attempted`
 always count systems, whichever the metric's unit. A method with no defined unit has
 `n_defined = 0` and null statistics, never 0. `mean_over_systems_ci_*` and
-`mean_over_matrices_ci_*` are the 95% matrix-cluster bootstrap interval, null below two matrices.
+`mean_over_matrices_ci_*` are the 95% bootstrap interval (two-level for a time, matrix-cluster otherwise), null below `MIN_INTERVAL_MATRICES` matrices.
 `time_per_iteration_summary(obs, population)` gives one `RATIO_OF_SUMS_SCHEMA` row per method
 (`n_planned`, `n_defined`, `n_matrices` as above, `solve_s_sum`, `iterations_sum`,
 `ratio_of_sums`) over the systems `select` keeps for `TIME_PER_ITERATION_S`:
@@ -257,10 +260,11 @@ failed, which is what the breakdown is meant to show. A per-matrix metric (`SETU
 `RESIDUAL_MISMATCH_FACTOR` times the stopping level and reports the worst ratio; classification
 is never changed by it. `timing_noise(obs)` gives the median `timing_spread` per method and
 `outcome_counts(obs)` the number of planned systems per method in each `Outcome`
-(`OUTCOME_COUNTS_SCHEMA`); figure cards record both. `benchmarking/uncertainty.py::MatrixClusterBootstrap`
-(`matrices`, `level`, `resamples`, the last two defaulting to `CONFIDENCE_LEVEL` and
-`BOOTSTRAP_RESAMPLES`, the values `matrix_cluster_interval` resamples with) is what a card states
-about an interval it draws.
+(`OUTCOME_COUNTS_SCHEMA`); figure cards record both. `benchmarking/uncertainty.py::ClusterBootstrap`
+(`kind`, a closed `BootstrapKind`: `matrix_cluster_bootstrap` or `two_level_bootstrap`, chosen per
+metric by `reporting/timed_values.py::bootstrap_kind_of`; `matrices`; `level`, `resamples`, the last
+two defaulting to `CONFIDENCE_LEVEL` and `BOOTSTRAP_RESAMPLES`, the values the intervals resample
+with) is what a card states about an interval it draws.
 
 Reproduce a table from the stored parquets of a session:
 
@@ -464,7 +468,7 @@ solved has no row. `speed_ratio_summary(obs, reference, metric, seed=...)` has
 | `n_ratio` | `both` rows with both values positive, the systems a ratio $x_{\mathrm{ref},s} / x_{p,s}$ exists for; a zero value makes it undefined, never infinite |
 | `n_matrices` | distinct `(dataset, matrix_id)` among the ratio rows: the cluster count the interval rests on, since sibling RHS share a matrix and `n_ratio` overstates the effective sample size |
 | `n_reference_only`, `n_method_only` | one-sided systems |
-| `median_ratio`, `ci_low`, `ci_high` | median ratio (above 1 favours the method) and its matrix-cluster bootstrap interval; null without a ratio, interval null below two matrices |
+| `median_ratio`, `ci_low`, `ci_high` | median ratio (above 1 favours the method) and its bootstrap interval (two-level for a time, matrix-cluster otherwise); null without a ratio, interval null below `MIN_INTERVAL_MATRICES` matrices |
 
 `speed_ratios(paired)` lists the per-system ratios behind the summary (`method`, `dataset`,
 `matrix_id`, `system_id`, `ratio`), so a ratio CDF and the summary count the same systems. Reports
@@ -573,13 +577,27 @@ from a validated method data origin (`resolve_generation_cost`, `resolve_fit_cos
 `recorded_seconds` returns the seconds of a `Known` cost and `None` otherwise.
 `MethodWorkload` also requires the resolved method's path-free data evidence; the artifact writer records it with the scientific presentation so a future reuse decision can compare provenance, not rendered text.
 
-## Timing-repeat agreement
+## Measurement protocol and timing-repeat agreement
 
-`shared/device.py::repeat_timed_outcome` repeats a timed region per the `TimingRepeatPolicy` and
-returns a `RepeatAgreement` with the timing: `SingleRun` (one timed execution), `Unchecked`
-(several, but no fingerprint to compare), `Agreed`, or `Diverged(first, other)` (a repeat's
-iteration count differed from the first, so its samples are not comparable; the first divergence is
-logged once). `SolveAttempt.repeats` stores it for every solve; a solve that raised is `Unchecked`, a non-finite iterate keeps the agreement of its completed repeats.
+Every timed region, each matrix's setup and each pair's solve, runs per the case's
+`TimingRepeatPolicy`: by default one warm-up execution, discarded with its time and peak memory,
+then three timed repetitions whose median is the event's time. The warm-up absorbs first-call costs
+the once-per-process `warm_up_device` misses (the LU, SVD and eigensolver kernels and the omega
+estimate a setup reaches); the median follows Hoefler & Belli (SC'15), since run times are
+right-skewed and the median is robust to that. Every repetition is stored (`samples_s`), so the
+two-level bootstrap can redraw them. A randomized setup (aSA, BAMG) is built with a seed derived
+per matrix from its configured seed (`composition/comparison/_preconditioner_setup.py::setup_config_for_matrix`):
+the warm-up and every repetition of one matrix use the same seed, and different matrices draw
+different candidates, so seed variability enters the matrix-level interval.
+
+`shared/device.py::repeat_timed_outcome` returns a `RepeatAgreement` with the timing: `SingleRun`
+(one timed execution), `Unchecked` (several, but no fingerprint to compare), `Agreed`, or
+`Diverged(first, other)` (a repeat's fingerprint differed from the first, so its samples are not
+comparable; the first divergence is logged once). `SolveAttempt.repeats` stores it for every solve,
+fingerprinted by the iteration count; a solve that raised is `Unchecked`, a non-finite iterate
+keeps the agreement of its completed repeats. `MatrixSetupEvent.repeats` stores it for every setup,
+fingerprinted by the built preconditioner's class and realized facts (`setup_fingerprint`: level
+count and coarse dimension of a hierarchy); a setup that raised is `Unchecked`.
 
 ## Split records
 

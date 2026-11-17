@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import zlib
 from pathlib import Path
 
 import numpy as np
@@ -9,6 +10,7 @@ import torch
 from torchalg.preconditioners.base import BindableInputs, Preconditioner
 
 from neuralls.composition.comparison.models import MatrixWorkload, PlannedSystem
+from neuralls.composition.comparison.plan import SETUP_SEED_STREAM, derive_seed
 from neuralls.composition.generation.ports import SplitStore
 from neuralls.composition.generation.split_pinning import pinned_train_rows
 from neuralls.composition.preconditioners.checkpoint_store import (
@@ -16,7 +18,10 @@ from neuralls.composition.preconditioners.checkpoint_store import (
     CheckpointLoaders,
     CheckpointStore,
 )
-from neuralls.composition.preconditioners.descriptions import describe_realized_preconditioner
+from neuralls.composition.preconditioners.descriptions import (
+    Facts,
+    describe_realized_preconditioner,
+)
 from neuralls.composition.preconditioners.factory import create_preconditioner
 from neuralls.composition.preconditioners.ports import FitDataLoader
 from neuralls.composition.preconditioners.preloading import preload_checkpoints
@@ -30,7 +35,9 @@ from neuralls.platform.config.models.coarsening import (
     PODCoarseningConfig,
 )
 from neuralls.platform.config.models.preconditioner import (
+    AdaptiveSAPreconditionerConfig,
     AMGPreconditionerConfig,
+    BootstrapAMGPreconditionerConfig,
     PreconditionerConfig,
 )
 from neuralls.platform.storage.training_artifacts import (
@@ -168,8 +175,19 @@ def capture_system_realizations(
     Raises:
         RealizedFactCaptureError: If the facts cannot be read, with the method and matrix.
     """
+    facts = _realized_facts(preconditioner, method, bundle)
+    return tuple(
+        SystemRealization(member.tag.system_id, bundle.matrix_id, facts)
+        for member in bundle.members
+    )
+
+
+def _realized_facts(
+    preconditioner: Preconditioner, method: PreconditionerName, bundle: MatrixWorkload
+) -> Facts:
+    """The realized facts of ``preconditioner``, or a failure naming the method and matrix."""
     try:
-        facts = describe_realized_preconditioner(preconditioner)
+        return describe_realized_preconditioner(preconditioner)
     except Exception as exc:
         raise RealizedFactCaptureError(
             ComparisonMatrixFailureContext(
@@ -180,10 +198,44 @@ def capture_system_realizations(
             ),
             exc,
         ) from exc
-    return tuple(
-        SystemRealization(member.tag.system_id, bundle.matrix_id, facts)
-        for member in bundle.members
-    )
+
+
+def setup_config_for_matrix(
+    config: PreconditionerConfig, matrix_id: MatrixId
+) -> PreconditionerConfig:
+    """The config one matrix's setup is built from: a randomized setup draws a seed per matrix.
+
+    A seeded setup (aSA, BAMG) is built with a seed derived from ``config.seed`` and the matrix
+    (``derive_seed`` in the ``SETUP_SEED_STREAM``). Every warm-up and timed repeat of one
+    matrix builds from this same config, so its repeats stay identical and their fingerprints
+    agree, while different matrices draw different candidates, which puts the seed's
+    variability into the matrix-level interval at no extra cost. The method's identity, slug and facts keep the configured seed; only the
+    build sees the derived one. A setup with no seed is returned unchanged.
+    """
+    match config:
+        case AdaptiveSAPreconditionerConfig() | BootstrapAMGPreconditionerConfig():
+            seed = derive_seed(config.seed, matrix_id, stream=SETUP_SEED_STREAM)
+            return config.model_copy(update={"seed": seed})
+        case _:
+            return config
+
+
+def setup_fingerprint(
+    preconditioner: Preconditioner, method: PreconditionerName, bundle: MatrixWorkload
+) -> int:
+    """A cheap deterministic summary of a built preconditioner, to compare timed setup repeats.
+
+    It is the class plus the realized facts every supported preconditioner already reports
+    (``describe_realized_preconditioner``: level count and coarse dimension of a hierarchy,
+    nothing for a setup without one), so a repeat that built a different hierarchy than the
+    first makes the setup's repeats ``Diverged``. CRC-32 keeps it stable across processes and
+    within the stored ``Int64`` column.
+
+    Raises:
+        RealizedFactCaptureError: If the facts cannot be read, with the method and matrix.
+    """
+    facts = _realized_facts(preconditioner, method, bundle)
+    return zlib.crc32(repr((type(preconditioner).__qualname__, facts)).encode("utf-8"))
 
 
 def _schedule_preconditioner(

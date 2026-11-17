@@ -232,9 +232,10 @@ class ComparisonBaseline(BaseModel):
             from which a distribution column gains a box and a violin). Complete defaults, so no case needs a
             ``[comparison_baseline.figure_style]`` table at all.
         timing: How often each preconditioner build and each solve is timed
-            (``repeats``, ``warmup``, ``statistic``). Defaults to one timed run;
-            raise ``repeats`` for steadier estimates when systems are cheap
-            enough to afford it. Capped by ``MAX_TIMING_REPEATS``.
+            (``repeats``, ``warmup``, ``statistic``). Defaults to one discarded
+            warm-up and the median of three timed runs (``TimingRepeatPolicy``);
+            a case that needs cheap runs sets ``repeats = 1`` and ``warmup = 0``.
+            Capped by ``MAX_TIMING_REPEATS``.
     """
 
     rtol: float = Field(default=DEFAULT_RTOL, gt=0.0)

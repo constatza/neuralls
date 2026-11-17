@@ -65,7 +65,7 @@ class Whisker:
 
 @dataclass(frozen=True, slots=True)
 class NoWhisker:
-    """The bar has no interval: a ratio of sums, or fewer than two matrices to resample."""
+    """The bar has no interval: a ratio of sums, or too few matrices to resample."""
 
 
 @dataclass(frozen=True, slots=True)

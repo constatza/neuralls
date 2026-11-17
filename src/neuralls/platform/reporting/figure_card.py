@@ -24,10 +24,12 @@ from neuralls.domain.benchmarking.selection import (
 )
 from neuralls.domain.benchmarking.uncertainty import (
     MIN_INTERVAL_MATRICES,
-    MatrixClusterBootstrap,
+    BootstrapKind,
+    ClusterBootstrap,
     TooFewMatrices,
     cluster_bootstrap,
 )
+from neuralls.domain.presentation.methods import ConfiguredMethodPresentation
 from neuralls.domain.solver.models.figure_scope import render_figure_scope
 from neuralls.domain.solver.models.group_presentation import SolverTimingContext
 from neuralls.domain.solver.reporting.cohorts import (
@@ -93,6 +95,8 @@ from neuralls.shared.runtime_environment import (
     decode_environment,
     encode_environment,
 )
+from neuralls.shared.scientific_description.catalog import SEED
+from neuralls.shared.scientific_description.models import IntegerFact
 from neuralls.shared.scientific_description.policy import NotationPolicy, RenderTarget
 from neuralls.shared.system_scaling import RhsScaling, parse_system_scaling
 from neuralls.shared.types import DatasetId, PreconditionerName, RunId, SessionRunId
@@ -132,6 +136,7 @@ class InvalidFigureCardReason(StrEnum):
     INTERVAL_INVALID = "interval_invalid"
     INTERVAL_METHOD_NOT_A_STRING = "interval_method_not_a_string"
     INTERVAL_MINIMUM_WRONG = "interval_minimum_wrong"
+    INTERVAL_RESAMPLED_WRONG = "interval_resampled_wrong"
     INTERVAL_CONTRADICTS_MATRIX_COUNT = "interval_contradicts_matrix_count"
     INTERVAL_KIND_UNKNOWN = "interval_kind_unknown"
     INTERVAL_FIELDS_NOT_EXACT = "interval_fields_not_exact"
@@ -287,15 +292,16 @@ class FigureIntervalKind(StrEnum):
 class MethodIntervalKind(StrEnum):
     """The card's name for one method's interval, or the reason it has none."""
 
-    MATRIX_CLUSTER_BOOTSTRAP = MatrixClusterBootstrap.NAME
+    MATRIX_CLUSTER_BOOTSTRAP = BootstrapKind.MATRIX_CLUSTER.value
+    TWO_LEVEL_BOOTSTRAP = BootstrapKind.TWO_LEVEL.value
     TOO_FEW_MATRICES = "too_few_matrices"
 
 
+_BOOTSTRAP_FIELDS = frozenset({"method", "kind", "resampled", "matrices", "level", "resamples"})
 _METHOD_INTERVAL_FIELDS: Mapping[MethodIntervalKind, frozenset[str]] = {
     MethodIntervalKind.TOO_FEW_MATRICES: frozenset({"method", "kind", "matrices", "minimum"}),
-    MethodIntervalKind.MATRIX_CLUSTER_BOOTSTRAP: frozenset(
-        {"method", "kind", "matrices", "level", "resamples"}
-    ),
+    MethodIntervalKind.MATRIX_CLUSTER_BOOTSTRAP: _BOOTSTRAP_FIELDS,
+    MethodIntervalKind.TWO_LEVEL_BOOTSTRAP: _BOOTSTRAP_FIELDS,
 }
 """The exact keys of a method's entry in ``[[interval.methods]]``, by its kind."""
 
@@ -322,10 +328,11 @@ def _encode_method_interval(entry: MethodInterval) -> dict[str, Any]:
                 "matrices": matrices,
                 "minimum": MIN_INTERVAL_MATRICES,
             }
-        case MatrixClusterBootstrap(matrices=matrices, level=level, resamples=resamples):
+        case ClusterBootstrap(kind=kind, matrices=matrices, level=level, resamples=resamples):
             return {
                 "method": entry.method,
-                "kind": MethodIntervalKind.MATRIX_CLUSTER_BOOTSTRAP.value,
+                "kind": kind.value,
+                "resampled": kind.description,
                 "matrices": matrices,
                 "level": level,
                 "resamples": resamples,
@@ -366,7 +373,20 @@ def _decode_method_interval(entry: Mapping[str, Any]) -> MethodInterval:
             InvalidFigureCardReason.INTERVAL_METHOD_NOT_A_STRING,
             "figure card interval method is not a string",
         )
-    bootstrap = cluster_bootstrap(_typed(entry, "matrices", int))
+    matrices = _typed(entry, "matrices", int)
+    match kind:
+        case MethodIntervalKind.TOO_FEW_MATRICES:
+            bootstrap = cluster_bootstrap(matrices, BootstrapKind.MATRIX_CLUSTER)
+        case MethodIntervalKind.MATRIX_CLUSTER_BOOTSTRAP | MethodIntervalKind.TWO_LEVEL_BOOTSTRAP:
+            bootstrap = cluster_bootstrap(matrices, BootstrapKind(kind.value))
+            if entry["resampled"] != BootstrapKind(kind.value).description:
+                raise InvalidFigureCardError(
+                    InvalidFigureCardReason.INTERVAL_RESAMPLED_WRONG,
+                    f"figure card interval of {method} resamples {entry['resampled']!r}, "
+                    f"not what {kind.value} resamples",
+                )
+        case unreachable:
+            assert_never(unreachable)
     match kind, bootstrap:
         case MethodIntervalKind.TOO_FEW_MATRICES, TooFewMatrices():
             if _typed(entry, "minimum", int) != MIN_INTERVAL_MATRICES:
@@ -375,7 +395,10 @@ def _decode_method_interval(entry: Mapping[str, Any]) -> MethodInterval:
                     f"figure card interval minimum is not {MIN_INTERVAL_MATRICES}",
                 )
             return MethodInterval(PreconditionerName(method), bootstrap)
-        case MethodIntervalKind.MATRIX_CLUSTER_BOOTSTRAP, MatrixClusterBootstrap():
+        case (
+            MethodIntervalKind.MATRIX_CLUSTER_BOOTSTRAP | MethodIntervalKind.TWO_LEVEL_BOOTSTRAP,
+            ClusterBootstrap(),
+        ):
             drawn = replace(
                 bootstrap,
                 level=_typed(entry, "level", float),
@@ -535,6 +558,7 @@ def card_payload(card: FigureCard) -> dict[str, Any]:
                 "method_id": str(method.method_id),
                 "config_digest": method.config_digest,
                 "presentation": encode_method_presentation(method.presentation),
+                **_setup_seed(method.presentation),
             }
             for method in metadata.methods
         ],
@@ -573,6 +597,23 @@ def card_payload(card: FigureCard) -> dict[str, Any]:
         case unreachable:
             assert_never(unreachable)
     return payload
+
+
+def _setup_seed(presentation: ConfiguredMethodPresentation) -> dict[str, str]:
+    """How a seeded method's setups were seeded: per matrix, from its configured seed.
+
+    The configured seed stays the method's identity and fact; each matrix's setup is built with
+    a seed derived from it and the matrix (``setup_config_for_matrix``), which the card states so
+    the fact is not read as the seed of every setup.
+    """
+    description = presentation.method
+    for fact in (*description.facts, *description.context_facts):
+        match fact:
+            case IntegerFact(key=key, value=seed) if key == SEED:
+                return {"setup_seed": f"derived per matrix from seed s = {seed}"}
+            case _:
+                continue
+    return {}
 
 
 def _require(table: object, fields: frozenset[str], what: str) -> Mapping[str, Any]:

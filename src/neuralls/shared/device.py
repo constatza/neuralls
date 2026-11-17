@@ -289,18 +289,19 @@ def repeat_timed_outcome[T](
     """Execute `run` per `policy`, reduce its wall times to one number, and keep a timed failure.
 
     Runs `policy.warmup` untimed executions, then `policy.repeats` timed ones, each
-    GPU-synchronised through `track_resource_usage`. The default policy is exactly one
-    timed execution, i.e. a plain measurement. An ordinary exception from any execution
-    becomes a `FailedTimedRuns` that still carries the resource data.
+    GPU-synchronised through `track_resource_usage`. A warm-up that completes is discarded:
+    neither its time nor its peak memory reaches the result. An ordinary exception from any
+    execution, a warm-up included, becomes a `FailedTimedRuns` that still carries the
+    resource data of the execution that raised.
 
     Args:
         run: The region to measure. Must be repeatable (fresh state each call).
         policy: Warm-up count, repeat count and reduction.
         device: Device the region runs on.
-        fingerprint: Optional summary of each result (e.g. an iteration count). A repeat
-            whose summary differs from the first makes the result `Diverged` and logs one
-            warning, since a nondeterministic or stateful region makes its samples
-            incomparable.
+        fingerprint: Optional summary of each result (e.g. an iteration count), read only
+            when there are several timed repeats to compare. A repeat whose summary differs
+            from the first makes the result `Diverged` and logs one warning, since a
+            nondeterministic or stateful region makes its samples incomparable.
 
     Returns:
         The first timed value, the reduced time, every sample, the first timed
@@ -325,7 +326,7 @@ def repeat_timed_outcome[T](
             tuple(samples),
             first_usage.peak_memory_bytes,
         )
-    reference = fingerprint(first_value) if fingerprint is not None else None
+    reference = fingerprint(first_value) if fingerprint is not None and policy.repeats > 1 else None
     agreement = _initial_agreement(policy, has_fingerprint=fingerprint is not None)
     for repeat in range(1, policy.repeats):
         value, usage = _measure_outcome(run, device)

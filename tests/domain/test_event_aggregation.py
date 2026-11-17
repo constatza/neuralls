@@ -68,6 +68,9 @@ def setup_frame_schema() -> pl.Schema:
             "memory_status": pl.String,
             "setup_status": pl.String,
             "failure_reason": pl.String,
+            "repeat_status": pl.String,
+            "repeat_first_fingerprint": pl.Int64,
+            "repeat_other_fingerprint": pl.Int64,
         }
     )
 

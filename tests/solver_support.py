@@ -14,8 +14,11 @@ from neuralls.domain.solver.error_metrics import reference_target
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
 from neuralls.domain.solver.models.config import REFERENCE_PRECISION_MARGIN, SolverParams
 from neuralls.shared.constants import DEFAULT_ATOL, DEFAULT_M_MAX
+from neuralls.shared.timing import TimingRepeatPolicy
 
 DEFAULT_TEST_MAXITER = 100
+SINGLE_TIMED_RUN = TimingRepeatPolicy(repeats=1, warmup=0)
+"""One timed execution and no warm-up, for tests whose subject is not the timing protocol."""
 
 
 def solver_params(rtol: float = 1e-8, maxiter: int = DEFAULT_TEST_MAXITER) -> SolverParams:
@@ -26,6 +29,7 @@ def solver_params(rtol: float = 1e-8, maxiter: int = DEFAULT_TEST_MAXITER) -> So
         max_iterations=maxiter,
         stopping_criterion="residual_norm",
         m_max=DEFAULT_M_MAX,
+        timing=SINGLE_TIMED_RUN,
     )
 
 

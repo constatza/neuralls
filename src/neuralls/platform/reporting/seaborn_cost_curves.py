@@ -309,7 +309,7 @@ def _draw_summary_marks(ax: Axes, position: int, row: Mapping[str, object]) -> s
             )
             marks |= {Mark.MEAN_POINT, Mark.CONFIDENCE_INTERVAL}
         case float(mean), None, None:
-            # Below two matrices the bootstrap gives no interval, so the mean stands alone.
+            # Below MIN_INTERVAL_MATRICES matrices the bootstrap gives no interval, so the mean stands alone.
             ax.scatter(
                 [position],
                 [mean],

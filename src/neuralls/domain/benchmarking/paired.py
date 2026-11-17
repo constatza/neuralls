@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from enum import StrEnum
 from typing import assert_never
 
@@ -18,9 +19,20 @@ from neuralls.domain.benchmarking.uncertainty import (
     ClusterStatistic,
     MatrixCluster,
     matrix_cluster_interval,
+    two_level_interval,
 )
+from neuralls.domain.solver.models.statistics import Interval
 from neuralls.domain.solver.reporting.metrics import METRICS, MetricId, system_metric
 from neuralls.domain.solver.reporting.summary import Population, select
+from neuralls.domain.solver.reporting.timed_values import (
+    REFERENCE_SUFFIX,
+    TIMING_COLUMNS,
+    TimedMetric,
+    UntimedMetric,
+    timed_ratio_clusters,
+    timing_of,
+    with_timing_weights,
+)
 from neuralls.shared.constants import DEFAULT_RANDOM_SEED
 from neuralls.shared.types import MatrixId, PreconditionerName
 
@@ -169,19 +181,52 @@ def speed_ratio_summary(
     ``n_ratio``. ``n_matrices`` is the number of distinct ``(dataset, matrix_id)`` among the ratio
     rows, the cluster count the interval rests on: sibling RHS share a matrix, so it is not
     ``n_ratio``. ``median_ratio`` and the 95% bootstrap interval (``ci_low``, ``ci_high``) resample
-    whole matrices; the statistics are null without a ratio and the interval is null below two
-    matrices. ``n_reference_only`` and ``n_method_only`` count the one-sided systems.
+    whole matrices, and for a time also the timing repeats of both sides' events of each drawn
+    matrix (two-level); the statistics are null without a ratio and the interval is null below
+    ``MIN_INTERVAL_MATRICES`` matrices. ``n_reference_only`` and ``n_method_only`` count the
+    one-sided systems.
 
     Raises:
         ValueError: The reference is not among the methods, or the metric has one value per
             matrix.
     """
     paired = paired_systems(obs, reference, metric)
+    timing = _timing_rows(obs, reference, metric)
     rows = [
-        _speed_ratio_row(method, paired.filter(pl.col("method") == method), seed)
+        _speed_ratio_row(method, paired.filter(pl.col("method") == method), timing, seed)
         for method in compared_methods(obs, reference)
     ]
     return pl.DataFrame(rows, schema=SPEED_RATIO_SCHEMA)
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class _TimedSides:
+    """Every method's selected rows of a time metric, and the reference's, with their weights."""
+
+    methods: pl.DataFrame
+    reference: pl.DataFrame
+
+
+def _timing_rows(
+    obs: pl.DataFrame, reference: PreconditionerName, metric: MetricId
+) -> _TimedSides | UntimedMetric:
+    """The timing repeats and weights the two-level interval of a time ratio redraws."""
+    match timing_of(metric):
+        case TimedMetric() as timing:
+            weighted = with_timing_weights(select(obs, metric, Population.OWN), timing).select(
+                "method", *_SYSTEM_KEYS, *TIMING_COLUMNS
+            )
+            is_reference = pl.col("method") == reference
+            return _TimedSides(
+                methods=weighted.filter(~is_reference),
+                reference=weighted.filter(is_reference)
+                .drop("method")
+                .rename({column: f"{column}{REFERENCE_SUFFIX}" for column in TIMING_COLUMNS}),
+            )
+        case UntimedMetric() as untimed:
+            return untimed
+        case unreachable:
+            assert_never(unreachable)
 
 
 def speed_ratios(paired: pl.DataFrame) -> pl.DataFrame:
@@ -201,7 +246,9 @@ def speed_ratios(paired: pl.DataFrame) -> pl.DataFrame:
     )
 
 
-def _speed_ratio_row(method: str, pairs: pl.DataFrame, seed: int) -> dict[str, object]:
+def _speed_ratio_row(
+    method: str, pairs: pl.DataFrame, timing: _TimedSides | UntimedMetric, seed: int
+) -> dict[str, object]:
     kind = pl.col("pair_kind")
     ratios = speed_ratios(pairs)
     return {
@@ -211,24 +258,44 @@ def _speed_ratio_row(method: str, pairs: pl.DataFrame, seed: int) -> dict[str, o
         "n_matrices": ratios.unique(subset=_MATRIX_KEYS).height,
         "n_reference_only": pairs.filter(kind == PairKind.REFERENCE_ONLY.value).height,
         "n_method_only": pairs.filter(kind == PairKind.METHOD_ONLY.value).height,
-        **_ratio_statistics(ratios, seed),
+        **_ratio_statistics(ratios, timing, seed),
     }
 
 
-def _ratio_statistics(ratios: pl.DataFrame, seed: int) -> dict[str, float | None]:
+def _ratio_statistics(
+    ratios: pl.DataFrame, timing: _TimedSides | UntimedMetric, seed: int
+) -> dict[str, float | None]:
     if ratios.height == 0:
         return dict(_NO_RATIO_STATISTICS)
-    by_matrix = ratios.group_by(_MATRIX_KEYS, maintain_order=True).agg(pl.col("ratio"))
-    clusters: dict[MatrixCluster, Sequence[float]] = {
-        (dataset, MatrixId(matrix_id)): cluster
-        for dataset, matrix_id, cluster in by_matrix.iter_rows()
-    }
-    interval = matrix_cluster_interval(clusters, ClusterStatistic.MEDIAN, seed=seed)
+    interval = _ratio_interval(ratios, timing, seed)
     return {
         "median_ratio": ratios.select(pl.col("ratio").median()).item(),
         "ci_low": interval.low if interval else None,
         "ci_high": interval.high if interval else None,
     }
+
+
+def _ratio_interval(
+    ratios: pl.DataFrame, timing: _TimedSides | UntimedMetric, seed: int
+) -> Interval | None:
+    """The median ratio's interval: two-level for a time, matrix-cluster otherwise."""
+    match timing:
+        case _TimedSides(methods=methods, reference=reference):
+            pairs = ratios.join(methods, on=["method", *_SYSTEM_KEYS], how="left").join(
+                reference, on=_SYSTEM_KEYS, how="left"
+            )
+            return two_level_interval(
+                timed_ratio_clusters(pairs), ClusterStatistic.MEDIAN, seed=seed
+            )
+        case UntimedMetric():
+            by_matrix = ratios.group_by(_MATRIX_KEYS, maintain_order=True).agg(pl.col("ratio"))
+            clusters: dict[MatrixCluster, Sequence[float]] = {
+                (dataset, MatrixId(matrix_id)): cluster
+                for dataset, matrix_id, cluster in by_matrix.iter_rows()
+            }
+            return matrix_cluster_interval(clusters, ClusterStatistic.MEDIAN, seed=seed)
+        case unreachable:
+            assert_never(unreachable)
 
 
 def break_even(obs: pl.DataFrame, reference: PreconditionerName) -> pl.DataFrame:

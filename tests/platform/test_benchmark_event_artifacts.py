@@ -243,6 +243,9 @@ def test_event_artifacts_round_trip_preserves_schema_values_order_links_and_vari
             "memory_status": pl.String,
             "setup_status": pl.String,
             "failure_reason": pl.String,
+            "repeat_status": pl.String,
+            "repeat_first_fingerprint": pl.Int64,
+            "repeat_other_fingerprint": pl.Int64,
         }
     )
     assert solves.schema == pl.Schema(
@@ -285,6 +288,9 @@ def test_event_artifacts_round_trip_preserves_schema_values_order_links_and_vari
             "memory_status": "measured",
             "setup_status": "completed",
             "failure_reason": None,
+            "repeat_status": "single",
+            "repeat_first_fingerprint": None,
+            "repeat_other_fingerprint": None,
         }
     ]
     assert solves.to_dicts() == [

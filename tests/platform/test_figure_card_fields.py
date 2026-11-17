@@ -4,8 +4,9 @@ A card is built the way the report sink builds it: the figure plan of a group re
 through ``build_figure_card`` and ``card_payload``. ``metric``, ``population`` and ``statistic`` name
 what is summarized. The payload is read by key:
 
-- ``interval`` is a table on every card whose ``kind`` is ``matrix_cluster_bootstrap`` (with
-  ``level``, ``resamples`` and ``matrices``), ``too_few_matrices`` (``matrices``, ``minimum``) or
+- ``interval`` is a table on every card whose ``kind`` is ``per_method``, each method's entry a
+  ``matrix_cluster_bootstrap`` or ``two_level_bootstrap`` (with ``resampled``, ``level``,
+  ``resamples`` and ``matrices``) or ``too_few_matrices`` (``matrices``, ``minimum``), or
   ``not_drawn_by_kind``;
 - ``r_m`` lists the distinct planned RHS counts per matrix, present only on online metrics;
 - ``outcome_counts`` holds, per method, the number of systems with each outcome;
@@ -28,15 +29,22 @@ from neuralls.domain.benchmarking.paired import (
     speed_ratio_summary,
 )
 from neuralls.domain.benchmarking.profiles import performance_series
-from neuralls.domain.benchmarking.uncertainty import MIN_INTERVAL_MATRICES, TooFewMatrices
+from neuralls.domain.benchmarking.uncertainty import (
+    MIN_INTERVAL_MATRICES,
+    BootstrapKind,
+    TooFewMatrices,
+)
+from neuralls.domain.presentation.methods import StandaloneMethodPresentation
 from neuralls.domain.solver.models.group_outcomes import RecipeProfileReport
 from neuralls.domain.solver.models.group_presentation import GroupPresentation
 from neuralls.domain.solver.reporting.metrics import METRICS, MetricId, Unit
 from neuralls.domain.solver.reporting.observations import Outcome
 from neuralls.domain.solver.reporting.summary import Population, summarize, timing_noise
+from neuralls.domain.solver.reporting.timed_values import bootstrap_kind_of
 from neuralls.platform.reporting.figure_card import (
     InvalidFigureCardError,
     InvalidFigureCardReason,
+    _setup_seed,
     build_figure_card,
     card_payload,
     decode_figure_card,
@@ -50,6 +58,8 @@ from neuralls.platform.reporting.figure_planning import figure_plans
 from neuralls.platform.reporting.figure_recipes import FIGURE_RECIPES, GroupFigureRecipe
 from neuralls.shared.constants import BOOTSTRAP_RESAMPLES, CONFIDENCE_LEVEL
 from neuralls.shared.digest import Json
+from neuralls.shared.scientific_description.catalog import SEED, make_fact
+from neuralls.shared.scientific_description.models import ScientificDescription, ScientificFact
 from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import PreconditionerName
 
@@ -57,7 +67,6 @@ type Payload = Mapping[str, Json]
 
 FILE_KEY = "key"
 SESSION_RUN_ID = "session-run"
-BOOTSTRAP_KIND = "matrix_cluster_bootstrap"
 
 _GROUP_RECIPES = [
     recipe for recipe in FIGURE_RECIPES.values() if isinstance(recipe, GroupFigureRecipe)
@@ -241,21 +250,28 @@ def test_the_speed_ratio_card_states_each_methods_interval_as_its_table_counts_i
         profile_report.observations, PreconditionerName("jacobi"), REFERENCE_METRIC
     )
 
-    assert _method_matrices(payloads["speed_ratio_online_cdf"]) == _expected_matrices(summary)
+    assert _method_matrices(payloads["speed_ratio_online_cdf"]) == _expected_matrices(
+        summary, REFERENCE_METRIC
+    )
 
 
-def test_a_drawn_interval_entry_states_its_bootstrap_with_toml_types(
-    payloads: dict[str, Payload],
+@pytest.mark.parametrize("kind", list(BootstrapKind))
+def test_a_drawn_interval_entry_names_its_bootstrap_and_survives_decoding(
+    payloads: dict[str, Payload], kind: BootstrapKind
 ) -> None:
-    drawn = [
-        entry
-        for entry in _method_entries(payloads["speed_ratio_online_cdf"])
-        if entry["kind"] == BOOTSTRAP_KIND
-    ]
+    interval = _per_method(
+        {
+            "method": "amg",
+            "kind": kind.value,
+            "resampled": kind.description,
+            "matrices": MIN_INTERVAL_MATRICES,
+            "level": CONFIDENCE_LEVEL,
+            "resamples": BOOTSTRAP_RESAMPLES,
+        }
+    )
+    payload = {**payloads["speed_ratio_online_cdf"], "interval": interval}
 
-    assert {(entry["level"], entry["resamples"], type(entry["matrices"])) for entry in drawn} == {
-        (CONFIDENCE_LEVEL, BOOTSTRAP_RESAMPLES, int)
-    }
+    assert card_payload(decode_figure_card(payload))["interval"] == interval
 
 
 def test_mean_figures_exist_for_every_mean_kind() -> None:
@@ -311,7 +327,7 @@ def test_a_mean_card_states_each_methods_interval_as_its_table_counts_it(
     variant = _BY_STEM[stem]
     summary = summarize(profile_report.observations, variant.metric, variant.population)
 
-    assert _method_matrices(payloads[stem]) == _expected_matrices(summary)
+    assert _method_matrices(payloads[stem]) == _expected_matrices(summary, variant.metric)
 
 
 @pytest.mark.parametrize("stem", _COMMON_MEAN_STEMS)
@@ -466,7 +482,14 @@ def _per_method(*entries: object) -> dict[str, object]:
     return {"kind": "per_method", "methods": list(entries)}
 
 
-_BOOT = {"method": "amg", "kind": "matrix_cluster_bootstrap", "level": 0.95, "resamples": 10}
+_BOOT = {
+    "method": "amg",
+    "kind": BootstrapKind.MATRIX_CLUSTER.value,
+    "resampled": BootstrapKind.MATRIX_CLUSTER.description,
+    "level": 0.95,
+    "resamples": 10,
+}
+_ENOUGH = MIN_INTERVAL_MATRICES + 1
 
 
 @pytest.mark.parametrize(
@@ -518,12 +541,12 @@ _BOOT = {"method": "amg", "kind": "matrix_cluster_bootstrap", "level": 0.95, "re
             id="another minimum",
         ),
         pytest.param(
-            _per_method({**_BOOT, "matrices": 4}, {**_BOOT, "matrices": 4}),
+            _per_method({**_BOOT, "matrices": _ENOUGH}, {**_BOOT, "matrices": _ENOUGH}),
             InvalidFigureCardReason.INTERVAL_INVALID,
             id="a method twice",
         ),
         pytest.param(
-            _per_method({**_BOOT, "method": 7, "matrices": 4}),
+            _per_method({**_BOOT, "method": 7, "matrices": _ENOUGH}),
             InvalidFigureCardReason.INTERVAL_METHOD_NOT_A_STRING,
             id="method not a string",
         ),
@@ -535,14 +558,19 @@ _BOOT = {"method": "amg", "kind": "matrix_cluster_bootstrap", "level": 0.95, "re
             id="negative matrices",
         ),
         pytest.param(
-            _per_method({**_BOOT, "matrices": 4, "level": 5.0}),
+            _per_method({**_BOOT, "matrices": _ENOUGH, "level": 5.0}),
             InvalidFigureCardReason.INTERVAL_INVALID,
             id="level above one",
         ),
         pytest.param(
-            _per_method({**_BOOT, "matrices": 4, "resamples": 0}),
+            _per_method({**_BOOT, "matrices": _ENOUGH, "resamples": 0}),
             InvalidFigureCardReason.INTERVAL_INVALID,
             id="no resamples",
+        ),
+        pytest.param(
+            _per_method({**_BOOT, "matrices": _ENOUGH, "resampled": "matrices, timing repeats"}),
+            InvalidFigureCardReason.INTERVAL_RESAMPLED_WRONG,
+            id="resampled levels of another kind",
         ),
         pytest.param("none", InvalidFigureCardReason.NOT_A_TABLE, id="not a table"),
     ],
@@ -573,12 +601,32 @@ def _method_matrices(payload: Payload) -> dict[object, tuple[object, object]]:
     }
 
 
-def _expected_matrices(summary: pl.DataFrame) -> dict[object, tuple[object, object]]:
+def _expected_matrices(
+    summary: pl.DataFrame, metric: MetricId
+) -> dict[object, tuple[object, object]]:
     """Each method's interval kind and matrices as its row of the figure's table counts them."""
     return {
         method: (
-            BOOTSTRAP_KIND if matrices >= MIN_INTERVAL_MATRICES else "too_few_matrices",
+            bootstrap_kind_of(metric).value
+            if matrices >= MIN_INTERVAL_MATRICES
+            else "too_few_matrices",
             matrices,
         )
         for method, matrices in summary.select("method", "n_matrices").iter_rows()
     }
+
+
+@pytest.mark.parametrize(
+    ("facts", "statement"),
+    [
+        ((make_fact(SEED, 3),), {"setup_seed": "derived per matrix from seed s = 3"}),
+        ((), {}),
+    ],
+    ids=["seeded setup", "unseeded setup"],
+)
+def test_a_seeded_methods_card_entry_states_its_setup_seed_is_derived_per_matrix(
+    facts: tuple[ScientificFact, ...], statement: dict[str, str]
+) -> None:
+    presentation = StandaloneMethodPresentation(ScientificDescription("aSA", facts=facts))
+
+    assert _setup_seed(presentation) == statement

@@ -62,6 +62,7 @@ from tests.observation_support import observations_of_workloads
 from tests.presentation_support import PreparedMethodFactory
 from tests.realized_support import completed_workload, levels
 from tests.recipe_support import ALPHA, BETA, GAUSSIAN
+from tests.solver_support import SINGLE_TIMED_RUN
 
 
 class _Built:
@@ -78,7 +79,12 @@ class _Counters:
 @pytest.fixture
 def solver_params() -> SolverParams:
     return SolverParams(
-        rtol=1e-6, atol=1e-10, max_iterations=20, stopping_criterion="residual_norm", m_max=5
+        rtol=1e-6,
+        atol=1e-10,
+        max_iterations=20,
+        stopping_criterion="residual_norm",
+        m_max=5,
+        timing=SINGLE_TIMED_RUN,
     )
 
 

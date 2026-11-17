@@ -19,6 +19,7 @@ from neuralls.composition.assignments.comparison_prepare import (
 from neuralls.domain.solver.models.config import ComparisonData, ComparisonGeneral, SolverParams
 from neuralls.platform.config.models.comparison import ComparisonConfig
 from neuralls.shared.types import ComparisonRhsSourceKind, RowKind
+from tests.solver_support import SINGLE_TIMED_RUN
 
 pytestmark = pytest.mark.deferred_io("dataset-fixture-io")
 
@@ -34,6 +35,7 @@ def solver_params() -> SolverParams:
         max_iterations=10,
         stopping_criterion="residual_norm",
         m_max=20,
+        timing=SINGLE_TIMED_RUN,
     )
 
 

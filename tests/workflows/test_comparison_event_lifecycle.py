@@ -57,6 +57,7 @@ from tests.loaders_support import CPU
 from tests.measurement_support import NO_REFERENCE
 from tests.presentation_support import PreparedMethodFactory
 from tests.recipe_support import GAUSSIAN
+from tests.solver_support import SINGLE_TIMED_RUN
 
 type CapturedLog = Callable[[str], list[str]]
 
@@ -69,6 +70,7 @@ def solver_params() -> SolverParams:
         max_iterations=20,
         stopping_criterion="residual_norm",
         m_max=5,
+        timing=SINGLE_TIMED_RUN,
     )
 
 

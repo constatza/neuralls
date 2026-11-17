@@ -54,10 +54,22 @@ def _row(summary: pl.DataFrame, method: str) -> dict[str, object]:
     return summary.filter(pl.col("method") == method).row(0, named=True)
 
 
+def _with_interval(summary: pl.DataFrame, statistic: str) -> pl.DataFrame:
+    """``summary`` with an interval around each defined mean, which the profile's four matrices
+    are too few to bootstrap."""
+    mean = pl.col(statistic)
+    return summary.with_columns(
+        (mean - 1.0).alias(f"{statistic}_ci_low"), (mean + 1.0).alias(f"{statistic}_ci_high")
+    )
+
+
 def test_a_mean_bar_and_its_whisker_are_the_summary_row_of_its_method(
     profile_report: RecipeProfileReport,
 ) -> None:
-    summary = figure_summaries(profile_report, no_offline_cost(profile_report))["iteration_means"]
+    summary = _with_interval(
+        figure_summaries(profile_report, no_offline_cost(profile_report))["iteration_means"],
+        "mean_over_systems",
+    )
 
     panel = bar_panel(summary, Statistic.MEAN_OVER_SYSTEMS)
 
@@ -86,7 +98,10 @@ def test_a_method_with_nothing_defined_has_no_bar_but_keeps_its_counts(
 def test_setup_bars_read_the_mean_over_matrices_of_matrices_set_up(
     profile_report: RecipeProfileReport,
 ) -> None:
-    summary = figure_summaries(profile_report, no_offline_cost(profile_report))["setup_means"]
+    summary = _with_interval(
+        figure_summaries(profile_report, no_offline_cost(profile_report))["setup_means"],
+        "mean_over_matrices",
+    )
 
     panel = bar_panel(summary, Statistic.MEAN_OVER_MATRICES)
 

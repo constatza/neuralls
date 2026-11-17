@@ -49,6 +49,7 @@ from tests.fakes.fit_data import FakeFitData
 from tests.fakes.split_store import InMemorySplitStore
 from tests.loaders_support import CPU
 from tests.presentation_support import PreparedMethodFactory
+from tests.solver_support import SINGLE_TIMED_RUN
 
 _SOLVER_PARAMS = SolverParams(
     rtol=1e-6,
@@ -56,6 +57,7 @@ _SOLVER_PARAMS = SolverParams(
     max_iterations=50,
     stopping_criterion="residual_norm",
     m_max=10,
+    timing=SINGLE_TIMED_RUN,
 )
 
 

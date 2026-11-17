@@ -22,17 +22,13 @@ SEED = 7
 type SummaryCounts = tuple[int, int, int, int, int]
 """n_systems_both_solved, n_ratio, n_matrices, n_reference_only, n_method_only."""
 
-type RatioStatistics = tuple[float, float, float]
-"""median_ratio, ci_low, ci_high."""
 
 # amortized online time = solve + setup / planned RHS of the matrix:
 # amg 1+6/3, 2+6/3, 3+6/3 (matrix 1), 4+12/3 (matrix 2); jacobi 0.5+1/3, 0.6+1/3, 0.7+1/3,
-# 0.8+2/3. The ratio is reference over method; the matrix-cluster interval of a median over two
-# matrices spans the medians of matrix 1 alone, of matrix 2 alone and of both pooled.
+# 0.8+2/3. The ratio is reference over method; two matrices are fewer than
+# MIN_INTERVAL_MATRICES, so no pairing has an interval.
 REFERENCE_COMPARISONS: tuple[
-    tuple[
-        PreconditionerName, PreconditionerName, list[float], SummaryCounts, RatioStatistics | None
-    ],
+    tuple[PreconditionerName, PreconditionerName, list[float], SummaryCounts, float | None],
     ...,
 ] = (
     (
@@ -40,23 +36,19 @@ REFERENCE_COMPARISONS: tuple[
         AMG,
         [(0.5 + 1 / 3) / 3, (0.6 + 1 / 3) / 4, (0.7 + 1 / 3) / 5, (0.8 + 2 / 3) / 8],
         (4, 4, 2, 5, 0),
-        (0.22, (0.8 + 2 / 3) / 8, (0.6 + 1 / 3) / 4),
+        0.22,
     ),
     (
         AMG,
         JACOBI,
         [3 / (0.5 + 1 / 3), 4 / (0.6 + 1 / 3), 5 / (0.7 + 1 / 3), 8 / (0.8 + 2 / 3)],
         (4, 4, 2, 0, 5),
-        (
-            (4 / (0.6 + 1 / 3) + 5 / (0.7 + 1 / 3)) / 2,
-            4 / (0.6 + 1 / 3),
-            8 / (0.8 + 2 / 3),
-        ),
+        (4 / (0.6 + 1 / 3) + 5 / (0.7 + 1 / 3)) / 2,
     ),
     (JACOBI, BROKEN, [], (0, 0, 0, 9, 0), None),
     (AMG, BROKEN, [], (0, 0, 0, 4, 0), None),
 )
-"""Reference, method, the ratios, the counts and the statistics of each pairing."""
+"""Reference, method, the ratios, the counts and the median ratio of each pairing."""
 
 
 def _summary_row(summary: pl.DataFrame, method: str) -> dict[str, object]:
@@ -64,7 +56,7 @@ def _summary_row(summary: pl.DataFrame, method: str) -> dict[str, object]:
 
 
 @pytest.mark.parametrize(
-    ("reference", "method", "ratios", "counts", "statistics"), REFERENCE_COMPARISONS
+    ("reference", "method", "ratios", "counts", "median"), REFERENCE_COMPARISONS
 )
 def test_speed_ratio_summary_of_the_online_time_of_each_pairing(
     unbalanced_observations: pl.DataFrame,
@@ -72,7 +64,7 @@ def test_speed_ratio_summary_of_the_online_time_of_each_pairing(
     method: PreconditionerName,
     ratios: list[float],
     counts: SummaryCounts,
-    statistics: RatioStatistics | None,
+    median: float | None,
 ) -> None:
     per_system = speed_ratios(
         paired_systems(unbalanced_observations, reference, MetricId.ONLINE_AMORTIZED_S)
@@ -100,11 +92,8 @@ def test_speed_ratio_summary_of_the_online_time_of_each_pairing(
         )
         == counts
     )
-    observed = (row["median_ratio"], row["ci_low"], row["ci_high"])
-    if statistics is None:
-        assert observed == (None, None, None)
-    else:
-        assert observed == pytest.approx(statistics)
+    assert row["median_ratio"] == (None if median is None else pytest.approx(median))
+    assert (row["ci_low"], row["ci_high"]) == (None, None)
 
 
 def test_paired_frame_has_the_declared_schema_and_never_the_reference_as_method(

@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from math import isfinite
 
-from neuralls.shared.device import RepeatAgreement
+from neuralls.shared.device import RepeatAgreement, SingleRun
 from neuralls.shared.rhs_recipe import RhsRecipe
 from neuralls.shared.types import DatasetId, MatrixId, PreconditionerName, SetupEventId, SystemId
 
@@ -151,6 +151,9 @@ class MatrixSetupEvent:
     samples_s: tuple[float, ...]
     peak_memory: PeakMemory
     outcome: SetupOutcome
+    repeats: RepeatAgreement = field(default_factory=SingleRun)
+    """Whether the timed repeats of this setup reproduced the first one's built-operator
+    fingerprint; a setup that raised is ``Unchecked``."""
 
     def __post_init__(self) -> None:
         """Reject impossible setup durations before they enter benchmark summaries."""

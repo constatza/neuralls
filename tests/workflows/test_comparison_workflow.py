@@ -122,6 +122,7 @@ from tests.fakes.comparison_runs import RecordingTrackingServices
 from tests.fakes.split_store import InMemorySplitStore
 from tests.presentation_support import NO_DATASET_READS, PreparedMethodFactory
 from tests.recipe_support import GAUSSIAN
+from tests.solver_support import SINGLE_TIMED_RUN
 from tests.workflows.comparison_support import (
     make_settings,
     mock_cfg,
@@ -243,6 +244,7 @@ def _solver_params(tmp_path: Path) -> ComparisonGeneral:
             max_iterations=10,
             stopping_criterion="residual_norm",
             m_max=20,
+            timing=SINGLE_TIMED_RUN,
         ),
         data=ComparisonData(
             matrix_path=tmp_path / "matrix.npy",

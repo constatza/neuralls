@@ -657,10 +657,11 @@ def test_sink_logs_explicit_counts_and_ratio_metrics(
     assert metrics[_key("n_ratio", group, "jacobi")] == 3
     assert metrics[_key("n_matrices", group, "jacobi")] == 2
     assert metrics[_key("speed_ratio_median", group, "jacobi")] == pytest.approx(0.6)
-    assert metrics[_key("speed_ratio_ci_low", group, "jacobi")] == pytest.approx(4.5 / 9.5)
-    assert metrics[_key("speed_ratio_ci_high", group, "jacobi")] == pytest.approx(
-        (1.5 / 2.5 + 2.5 / 3.0) / 2
-    )
+    # two matrices are fewer than MIN_INTERVAL_MATRICES, so no interval is logged
+    assert {
+        _key("speed_ratio_ci_low", group, "jacobi"),
+        _key("speed_ratio_ci_high", group, "jacobi"),
+    }.isdisjoint(metrics)
     assert metrics[_key("n_reference_only", group, "never")] == 3
 
 

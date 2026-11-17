@@ -107,10 +107,14 @@ def test_solve_attempts_survive_a_frame_round_trip(
     "repeats", [SingleRun(), Unchecked(), Agreed(), Diverged(first=12, other=13)]
 )
 def test_every_repeat_agreement_survives_a_frame_round_trip(
-    solve_attempts: tuple[SolveAttempt, ...], repeats: RepeatAgreement
+    setup_events: tuple[MatrixSetupEvent, ...],
+    solve_attempts: tuple[SolveAttempt, ...],
+    repeats: RepeatAgreement,
 ) -> None:
+    events = tuple(replace(event, repeats=repeats) for event in setup_events)
     attempts = tuple(replace(attempt, repeats=repeats) for attempt in solve_attempts)
 
+    assert decode_setup_frame(build_setup_frame(events)) == events
     assert decode_solve_frame(build_solve_frame(attempts)) == attempts
 
 

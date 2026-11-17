@@ -23,6 +23,7 @@ from tests.composition.workload_support import DIAGONAL, matrix_bundle
 from tests.loaders_support import CPU
 from tests.measurement_support import NO_REFERENCE
 from tests.presentation_support import PreparedMethodFactory
+from tests.solver_support import SINGLE_TIMED_RUN
 
 FAILING_MATRIX_ID = 1
 HEALTHY_MATRIX_ID = 2
@@ -45,7 +46,12 @@ def two_matrix_bundles() -> tuple[MatrixWorkload, MatrixWorkload]:
 def solver_params() -> SolverParams:
     """Tight, cheap solver parameters."""
     return SolverParams(
-        rtol=1e-8, atol=1e-14, max_iterations=50, stopping_criterion="residual_norm", m_max=5
+        rtol=1e-8,
+        atol=1e-14,
+        max_iterations=50,
+        stopping_criterion="residual_norm",
+        m_max=5,
+        timing=SINGLE_TIMED_RUN,
     )
 
 

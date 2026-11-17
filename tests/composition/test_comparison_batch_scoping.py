@@ -87,6 +87,7 @@ from tests.fakes.comparison_runs import (
 )
 from tests.loaders_support import CPU
 from tests.presentation_support import NO_DATASET_READS, PreparedMethodFactory
+from tests.solver_support import SINGLE_TIMED_RUN
 
 
 def _system(dataset: str, matrix: int, entry_id: str = "system") -> MagicMock:
@@ -106,6 +107,7 @@ def _system(dataset: str, matrix: int, entry_id: str = "system") -> MagicMock:
         max_iterations=20,
         stopping_criterion="residual_norm",
         m_max=5,
+        timing=SINGLE_TIMED_RUN,
     )
     system.cfg.general.data.system_scaling = GershgorinScaling()
     system.cfg.general.data.rhs_scaling = RhsScaling.NONE
@@ -218,6 +220,7 @@ def test_method_schedule_rejects_mixed_matrix_and_solver_semantics() -> None:
             max_iterations=20,
             stopping_criterion="residual_norm",
             m_max=5,
+            timing=SINGLE_TIMED_RUN,
         )
         system.cfg.general.data.system_scaling = GershgorinScaling()
         system.cfg.general.data.rhs_scaling = RhsScaling.NONE

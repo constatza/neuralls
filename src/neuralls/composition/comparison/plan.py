@@ -48,20 +48,29 @@ from neuralls.platform.storage.dataset_shape import (
 )
 from neuralls.shared.types import ComparisonRhsSourceKind, MatrixId
 
-__all__ = ["derive_seed", "plan_comparisons", "plan_systems"]
+__all__ = ["SETUP_SEED_STREAM", "derive_seed", "plan_comparisons", "plan_systems"]
 
 _SINGLE_MATRIX_ROW = 0
 """A single-matrix dataset stores its one matrix once (broadcast layout), at row 0."""
 
 
-def derive_seed(base: int | None, matrix_id: MatrixId, ordinal: int) -> int:
-    """Independent, reproducible RHS seed for one (matrix, draw) of a case.
+SETUP_SEED_STREAM = (1,)
+"""The `SeedSequence` spawn key of a matrix's setup seed. It keeps setup seeds a stream apart
+from RHS seeds: without it the keys ``(matrix_id,)`` hash like ``(matrix_id, 0)``, the seed of
+the matrix's first RHS draw."""
 
-    Hashing the triple through `SeedSequence` makes neighbouring matrices and
-    neighbouring draws statistically independent, where reusing one seed (or
-    adding the ordinal to it) would hand every system the same or a correlated vector.
+
+def derive_seed(base: int | None, *keys: int, stream: tuple[int, ...] = ()) -> int:
+    """Independent, reproducible seed for one keyed draw of a case.
+
+    The keys are ``(matrix_id, ordinal)`` for one RHS draw and ``(matrix_id,)`` with
+    ``stream=SETUP_SEED_STREAM`` for one matrix's randomized setup. Hashing the base and keys
+    through `SeedSequence` makes neighbouring matrices and neighbouring draws statistically
+    independent, where reusing one seed (or adding the ordinal to it) would hand every system
+    the same or a correlated vector.
     """
-    return int(np.random.SeedSequence([base or 0, matrix_id, ordinal]).generate_state(1)[0])
+    entropy = [base or 0, *keys]
+    return int(np.random.SeedSequence(entropy, spawn_key=stream).generate_state(1)[0])
 
 
 def _system_seed(

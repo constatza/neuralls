@@ -36,24 +36,28 @@ class TimingStatistic(StrEnum):
 class TimingRepeatPolicy:
     """Measurement effort for one timed region (a solve, or a preconditioner build).
 
-    The default (one timed run, no warm-up) is the cheapest possible and is what
-    a case gets unless it asks for better estimates; every system can be
-    expensive, so the effort is opt-in and capped by `MAX_TIMING_REPEATS`.
+    The default is one discarded warm-up, then three timed executions reduced by their
+    median. The warm-up absorbs first-call costs that `shared.device.warm_up_device` does
+    not pre-pay, because they belong to kernels only a real build or solve reaches: the
+    LU, SVD and eigensolver kernels and the damping (omega) estimate of a setup. Three
+    samples give a median, the reduction Hoefler & Belli recommend (SC'15, "Scientific
+    benchmarking of parallel computing systems"): run times are right-skewed by
+    interference, and the median is robust to it where the mean is not. A case that needs
+    cheap runs sets `repeats = 1` and `warmup = 0`; every execution repeats the whole region
+    for every (system, preconditioner), so the effort is capped by `MAX_TIMING_REPEATS`.
 
     Attributes:
         repeats: Timed executions whose samples are reduced by `statistic`.
-        warmup: Untimed executions run first, absorbing one-off costs (lazy
-            imports, allocator growth, cold caches). Each one repeats the whole
-            timed region (a full build or solve) for every (system,
-            preconditioner), so it is opt-in. Costs that occur once per process
-            (CUDA context, cuBLAS/cuSPARSE handles, kernel loading) are instead
-            paid once by `shared.device.warm_up_device` before the first
-            measurement (kernels outside that warm-up, such as LU, SVD or
-            eigensolvers, are not pre-paid), and checkpoint loading is kept outside the timed region
+        warmup: Untimed executions run first and discarded (neither their time nor their
+            peak memory is stored), absorbing one-off costs (lazy imports, allocator
+            growth, cold caches, first calls of factorization kernels). Costs that occur
+            once per process (CUDA context, cuBLAS/cuSPARSE handles, kernel loading) are
+            instead paid once by `shared.device.warm_up_device` before the first
+            measurement, and checkpoint loading is kept outside the timed region
             altogether (`PreconditionerService.preload`).
         statistic: Reduction applied to the timed samples.
     """
 
-    repeats: Annotated[int, Field(ge=1, le=MAX_TIMING_REPEATS)] = 1
-    warmup: Annotated[int, Field(ge=0, le=MAX_TIMING_REPEATS)] = 0
+    repeats: Annotated[int, Field(ge=1, le=MAX_TIMING_REPEATS)] = 3
+    warmup: Annotated[int, Field(ge=0, le=MAX_TIMING_REPEATS)] = 1
     statistic: TimingStatistic = TimingStatistic.MEDIAN
