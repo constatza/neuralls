@@ -12,9 +12,6 @@ max_iterations = 5000
 stopping_criterion = "residual_norm"
 m_max = 20
 
-[comparison_baseline.timing]
-repeats = 3
-
 [[comparison_baseline.preconditioners]]
 name = "identity"
 type = "identity"
