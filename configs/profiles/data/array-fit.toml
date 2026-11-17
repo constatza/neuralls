@@ -4,9 +4,8 @@ batch_size = 256
 pin_memory = false
 shuffle = true
 
-# val is forced to 0 for fit jobs by runtime_split_patcher.py (POD has no
-# training loop to serve a validation fold) regardless of what's set here, so
-# this profile's jobs always train on 90% (1 - test).
+# These ratios are not consulted: every job reads the split that generation
+# pinned for its dataset, set by the dataset config's [split] section.
 [data.splits]
 test = 0.1
 val = 0.1

@@ -30,5 +30,11 @@ samples = 5000
 stop = 15
 probe_distribution = "gaussian"
 
+# The POD fit has no training loop to serve a validation fold, so the
+# dataset keeps none: 4500 fit / 500 test rows of the one matrix.
+[split]
+test_ratio = 0.1
+val_ratio = 0.0
+
 [output]
 data_dir = "${NEURALLS_PROCESSED_DIR}"
