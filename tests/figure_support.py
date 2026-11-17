@@ -11,10 +11,10 @@ from neuralls.shared.types import PreconditionerName
 
 VARIANT_METRIC: Mapping[str, MetricId] = {
     "ecdf_iterations": MetricId.ITERATIONS,
-    "ecdf_time_solve": MetricId.SOLVE_S,
-    "ecdf_time_online": MetricId.ONLINE_S,
+    "ecdf_solve": MetricId.SOLVE_S,
+    "ecdf_online_amortized": MetricId.ONLINE_AMORTIZED_S,
     "performance_profile_solve": MetricId.SOLVE_S,
-    "performance_profile_online": MetricId.ONLINE_S,
+    "performance_profile_online_amortized": MetricId.ONLINE_AMORTIZED_S,
     "convergence_factor": MetricId.CONVERGENCE_FACTOR,
 }
 """The per-system metric of each variant whose figure draws one metric of the observation view."""

@@ -178,7 +178,7 @@ def test_time_per_iteration_points_are_each_recipes_systems_with_an_iterate(
     ("metric", "label"),
     [
         (MetricId.ITERATIONS, "4/9 solved"),
-        (MetricId.ONLINE_S, "4/9 solved"),
+        (MetricId.ONLINE_AMORTIZED_S, "4/9 solved"),
         (MetricId.SETUP_S, "4/9 set up"),
         (MetricId.TIME_PER_ITERATION_S, "4/9 returned an iterate"),
     ],

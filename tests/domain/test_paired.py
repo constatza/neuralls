@@ -27,7 +27,9 @@ METHOD = PreconditionerName("method")
 
 def _summary(rows: list[SyntheticRow]) -> dict[str, object]:
     obs = synthetic_observations(rows)
-    return speed_ratio_summary(obs, REFERENCE, MetricId.ONLINE_S, seed=SEED).row(0, named=True)
+    return speed_ratio_summary(obs, REFERENCE, MetricId.ONLINE_AMORTIZED_S, seed=SEED).row(
+        0, named=True
+    )
 
 
 def _counts(summary: dict[str, object]) -> tuple[object, object, object]:
@@ -72,7 +74,9 @@ def three_ratios_on_one_matrix_and_one_on_another() -> list[SyntheticRow]:
 def test_pairs_split_into_both_method_only_and_reference_only(
     mixed_rows: list[SyntheticRow],
 ) -> None:
-    paired = paired_systems(synthetic_observations(mixed_rows), REFERENCE, MetricId.ONLINE_S)
+    paired = paired_systems(
+        synthetic_observations(mixed_rows), REFERENCE, MetricId.ONLINE_AMORTIZED_S
+    )
 
     assert paired.select("system_id", "pair_kind", "reference_value", "method_value").rows() == [
         ("s0", PairKind.BOTH, 4.0, 2.0),
@@ -86,7 +90,9 @@ def test_speed_ratio_fields_and_asymmetric_counts(mixed_rows: list[SyntheticRow]
     obs = synthetic_observations(mixed_rows)
     summary = _summary(mixed_rows)
 
-    assert speed_ratios(paired_systems(obs, REFERENCE, MetricId.ONLINE_S))["ratio"].to_list() == [
+    assert speed_ratios(paired_systems(obs, REFERENCE, MetricId.ONLINE_AMORTIZED_S))[
+        "ratio"
+    ].to_list() == [
         2.0,
         2.0,
     ]
@@ -135,7 +141,9 @@ def test_non_positive_time_is_not_turned_into_infinite_ratio() -> None:
     ]
     obs = synthetic_observations(rows)
 
-    ratios = speed_ratios(paired_systems(obs, REFERENCE, MetricId.ONLINE_S))["ratio"].to_list()
+    ratios = speed_ratios(paired_systems(obs, REFERENCE, MetricId.ONLINE_AMORTIZED_S))[
+        "ratio"
+    ].to_list()
 
     assert ratios == [2.0]
 
@@ -170,7 +178,9 @@ def test_a_zero_time_counts_its_success_without_a_ratio(
 def test_speed_ratios_keep_the_identity_of_the_system_each_ratio_belongs_to(
     mixed_rows: list[SyntheticRow],
 ) -> None:
-    paired = paired_systems(synthetic_observations(mixed_rows), REFERENCE, MetricId.ONLINE_S)
+    paired = paired_systems(
+        synthetic_observations(mixed_rows), REFERENCE, MetricId.ONLINE_AMORTIZED_S
+    )
 
     assert speed_ratios(paired).select(
         "method", "dataset", "matrix_id", "system_id", "ratio"

@@ -29,7 +29,9 @@ def count_label(n_defined: int, n_planned: int, metric: MetricId) -> str:
 
 def _defined_word(metric: MetricId) -> str:
     match metric:
-        case MetricId.ITERATIONS | MetricId.SOLVE_S | MetricId.ONLINE_S | MetricId.STANDALONE_S:
+        case (
+            MetricId.ITERATIONS | MetricId.SOLVE_S | MetricId.ONLINE_S | MetricId.ONLINE_AMORTIZED_S
+        ):
             return "solved"
         case MetricId.SETUP_S:
             return "set up"
@@ -75,8 +77,6 @@ Derived from the label font size, so a larger font wraps sooner instead of crowd
 neighbouring column.
 """
 
-_NO_BREAK_SPACE = "\u00a0"
-
 _COLUMN_LINE_FRACTION = 0.045
 """Fraction of the value axis' height one annotation line (and half a line of gap) takes."""
 
@@ -88,13 +88,8 @@ _COLUMN_ANNOTATION_GAP_PT = 2.0
 
 
 def _wrap_line(line: str) -> str:
-    """Wrap ``line`` to a column, keeping the alternatives around a slash ("fit / training") whole.
-
-    A word longer than the column stays on its own line instead of being cut.
-    """
-    glued = line.replace(" / ", f"{_NO_BREAK_SPACE}/{_NO_BREAK_SPACE}")
-    wrapped = textwrap.fill(glued, _COLUMN_ANNOTATION_WRAP, break_long_words=False)
-    return wrapped.replace(_NO_BREAK_SPACE, " ")
+    """Wrap ``line`` to a column; a word longer than the column stays on its own line."""
+    return textwrap.fill(line, _COLUMN_ANNOTATION_WRAP, break_long_words=False)
 
 
 @dataclass(frozen=True, slots=True)

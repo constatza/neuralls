@@ -31,7 +31,8 @@ def test_the_catalog_cannot_be_mutated() -> None:
 
 
 @pytest.mark.parametrize(
-    "metric", [MetricId.ITERATIONS, MetricId.SOLVE_S, MetricId.ONLINE_S, MetricId.STANDALONE_S]
+    "metric",
+    [MetricId.ITERATIONS, MetricId.SOLVE_S, MetricId.ONLINE_AMORTIZED_S, MetricId.ONLINE_S],
 )
 def test_costs_are_defined_on_converged_systems_only(metric: MetricId) -> None:
     assert METRICS[metric].defined_on == SOLVED_ONLY

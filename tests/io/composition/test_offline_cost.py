@@ -9,9 +9,9 @@ from dlkit.infrastructure.types.split import IndexSplit
 from mlflow.tracking import MlflowClient
 
 from neuralls.composition.comparison._offline_cost import (
+    resolve_fit_cost,
     resolve_generation_cost,
     resolve_offline_cost,
-    resolve_training_cost,
 )
 from neuralls.composition.comparison.method_data_origin import (
     CheckpointBased,
@@ -255,18 +255,18 @@ def test_distinct_training_runs_add_their_wall_times(
     origin = CheckpointBased(
         (_ref(first), _ref(second)), TrainingDataUnavailable("different datasets")
     )
-    assert resolve_training_cost(origin, runs=runs) == Known(
+    assert resolve_fit_cost(origin, runs=runs) == Known(
         TRAINING_SECONDS + 30.0, None, CostProvenance.HISTORICAL
     )
 
 
 def test_explicit_checkpoint_has_unknown_training_cost(runs: MlflowClient) -> None:
     origin = CheckpointBased((_ref(None),), TrainingDataUnavailable("no training run"))
-    assert resolve_training_cost(origin, runs=runs) == Unavailable(
+    assert resolve_fit_cost(origin, runs=runs) == Unavailable(
         "1 of 1 checkpoints have no recorded training run"
     )
 
 
 def test_missing_training_run_is_unavailable(runs: MlflowClient) -> None:
     origin = CheckpointBased((_ref("gone"),), TrainingDataUnavailable("no dataset identity"))
-    assert isinstance(resolve_training_cost(origin, runs=runs), Unavailable)
+    assert isinstance(resolve_fit_cost(origin, runs=runs), Unavailable)

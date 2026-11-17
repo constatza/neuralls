@@ -1,4 +1,4 @@
-"""Historical generation and training costs for a validated method data origin."""
+"""Historical generation and fit costs for a validated method data origin."""
 
 from __future__ import annotations
 
@@ -46,17 +46,17 @@ def resolve_offline_cost(
     """Attribute offline stages to the prepared method's validated dependencies."""
     return OfflineStages(
         generation=resolve_generation_cost(origin, splits),
-        training=resolve_training_cost(origin, runs=runs, run_costs=run_costs),
+        fit=resolve_fit_cost(origin, runs=runs, run_costs=run_costs),
     )
 
 
-def resolve_training_cost(
+def resolve_fit_cost(
     origin: MethodDataOrigin,
     *,
     runs: MlflowClient,
     run_costs: Mapping[str, Known | Unavailable] | None = None,
 ) -> StageCost:
-    """Sum each distinct resolved training run once; an unknown run stays unknown."""
+    """Sum each distinct resolved fit or training run once; an unknown run stays unknown."""
     if isinstance(origin, NoFitData | InlineFit):
         return NotApplicable()
     refs = origin.checkpoint_refs

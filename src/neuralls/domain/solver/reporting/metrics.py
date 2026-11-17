@@ -23,7 +23,7 @@ class MetricId(StrEnum):
     ITERATIONS = "iterations"
     SOLVE_S = "solve_s"
     ONLINE_S = "online_s"
-    STANDALONE_S = "standalone_s"
+    ONLINE_AMORTIZED_S = "online_amortized_s"
     SETUP_S = "setup_s"
     TIME_PER_ITERATION_S = "time_per_iteration_s"
     CONVERGENCE_FACTOR = "convergence_factor"
@@ -85,24 +85,23 @@ _SPECS = (
         id=MetricId.ONLINE_S,
         column="online_s",
         unit=Unit.SECONDS,
-        label="amortized online time per system [s]",
+        label="online time per pair (setup + solve) [s]",
         observation_unit=ObservationUnit.SYSTEM,
         defined_on=_CONVERGED_ONLY,
         formula=(
-            r"t^{\mathrm{online}}_{p,s} = t^{\mathrm{solve}}_{p,s}"
-            r" + \frac{t^{\mathrm{setup}}_{p,m(s)}}{r_{m(s)}}"
+            r"t^{\mathrm{online}}_{p,s} = t^{\mathrm{setup}}_{p,m(s)} + t^{\mathrm{solve}}_{p,s}"
         ),
     ),
     MetricSpec(
-        id=MetricId.STANDALONE_S,
-        column="standalone_s",
+        id=MetricId.ONLINE_AMORTIZED_S,
+        column="online_amortized_s",
         unit=Unit.SECONDS,
-        label="standalone online time per system [s]",
+        label="amortized online time per pair (setup shared by the RHS of its matrix) [s]",
         observation_unit=ObservationUnit.SYSTEM,
         defined_on=_CONVERGED_ONLY,
         formula=(
-            r"t^{\mathrm{standalone}}_{p,s} = t^{\mathrm{solve}}_{p,s}"
-            r" + t^{\mathrm{setup}}_{p,m(s)}"
+            r"t^{\mathrm{online,amortized}}_{p,s} = \frac{t^{\mathrm{setup}}_{p,m(s)}}{r_{m(s)}}"
+            r" + t^{\mathrm{solve}}_{p,s}"
         ),
     ),
     MetricSpec(

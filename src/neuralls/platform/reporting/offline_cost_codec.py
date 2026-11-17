@@ -80,7 +80,7 @@ def encode_offline_cost(offline: OfflineStages) -> OfflinePayload:
     """The ``[offline]`` tables of ``summary.toml`` for ``offline``."""
     return {
         "generation": _encode_generation(offline.generation),
-        "training": _encode_stage(offline.training),
+        "fit": _encode_stage(offline.fit),
     }
 
 
@@ -90,7 +90,7 @@ def decode_offline_cost(payload: object) -> OfflineStages:
         raise TypeError("the summary has no offline cost block")
     return OfflineStages(
         generation=_decode_generation(payload.get("generation")),
-        training=_decode_stage(payload.get("training"), "training"),
+        fit=_decode_stage(payload.get("fit"), "fit"),
     )
 
 

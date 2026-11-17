@@ -341,8 +341,8 @@ def test_repeat_samples_are_retained_but_totals_use_one_representative(
         workload.workload_peak_memory,
     )
     assert isinstance(summary, CompleteWorkloadSummary)
-    assert summary.solve_total_s == 8.0
-    assert summary.solve_total_s != sum(
+    assert summary.workload_solve_s == 8.0
+    assert summary.workload_solve_s != sum(
         sample for attempt in workload.solve_attempts for sample in attempt.samples_s
     )
 

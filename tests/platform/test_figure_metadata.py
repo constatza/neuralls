@@ -81,7 +81,7 @@ def scope(dataset_presentation: DatasetPresentation) -> RecipeScope:
 def _card(metadata: FigureMetadata, notation: NotationPolicy) -> FigureCard:
     return build_figure_card(
         FIGURE,
-        "Amortized Online Time per System",
+        "Amortized Online Time per Pair",
         metadata,
         session_run_id=SESSION_RUN_ID,
         environment=SESSION_ENVIRONMENT,

@@ -142,7 +142,7 @@ class _MethodRun:
         service: Builds and preloads the method's preconditioner for each matrix.
         params: Solver and timing parameters.
         device: Device the matrices and solves live on.
-        offline_cost: One-off generation and training cost attached to every result.
+        offline_cost: One-off generation and fit cost attached to every result.
         observer: Tracks the workload's peak memory across setup and solves.
         method_text: The method as its log lines name it.
         reference_target_rel: Relative residual every reference solve of the run must reach.

@@ -33,7 +33,7 @@ def observations() -> pl.DataFrame:
     )
 
 
-@pytest.fixture(params=(MetricId.SOLVE_S, MetricId.ONLINE_S))
+@pytest.fixture(params=(MetricId.SOLVE_S, MetricId.ONLINE_AMORTIZED_S))
 def time_metric(request: pytest.FixtureRequest) -> MetricId:
     """Every time-profile contract is exercised for both supported scenarios."""
     return request.param

@@ -100,12 +100,6 @@ def test_annotation_lines_are_wrapped_separately_and_kept_apart() -> None:
     assert annotation.wrapped == "102.5 s\nfit\ninline,\ncounted\nin setup"
 
 
-def test_alternatives_around_a_slash_are_not_split() -> None:
-    annotation = ColumnAnnotation(0, 1.0, "total unknown: offline fit / training unavailable")
-
-    assert annotation.wrapped == "total\nunknown:\noffline\nfit / training\nunavailable"
-
-
 def test_the_value_axis_leaves_room_above_the_tallest_annotation_base() -> None:
     annotations = [ColumnAnnotation(0, 2.0, "4/9 solved"), ColumnAnnotation(1, 5.0, "9/9 solved")]
 
@@ -118,7 +112,7 @@ def test_the_value_axis_leaves_room_above_the_tallest_annotation_base() -> None:
 def test_more_annotation_lines_need_more_headroom() -> None:
     one_line = value_axis_top([ColumnAnnotation(0, 5.0, "4/9 solved")])
     three_lines = value_axis_top(
-        [ColumnAnnotation(0, 5.0, "total unknown: generation unavailable")]
+        [ColumnAnnotation(0, 5.0, "full cost unknown: generation unavailable")]
     )
 
     assert one_line is not None
@@ -134,9 +128,7 @@ def test_there_is_no_scale_to_extend_when_no_mark_rises_above_zero(bases: list[f
 
 
 def test_headroom_follows_the_lines_a_base_needs_not_the_tallest_base() -> None:
-    short_bar_long_note = ColumnAnnotation(
-        0, 1.0, "total unknown: offline fit / training unavailable"
-    )
+    short_bar_long_note = ColumnAnnotation(0, 1.0, "full cost unknown: offline fit unavailable")
     tall_bar_short_note = ColumnAnnotation(1, 10.0, "9/9 solved")
 
     top = value_axis_top([short_bar_long_note, tall_bar_short_note])

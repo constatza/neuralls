@@ -623,7 +623,7 @@ def test_failed_solve_frame_rejects_convergence_only_residual() -> None:
         lambda payload: payload["memory"].update(status="measured", peak_bytes=-1),
         lambda payload: payload["memory"].pop("status"),
         lambda payload: payload.pop("offline"),
-        lambda payload: payload["offline"]["training"].update(status="free"),
+        lambda payload: payload["offline"]["fit"].update(status="free"),
     ],
 )
 def test_reuse_rejects_invalid_summary_memory_or_offline_cost(

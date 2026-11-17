@@ -127,10 +127,10 @@ def cohort_split(table: TableKind) -> CohortSplit:
             return CohortSplit.POOLED_AT_MIXTURE
         case (
             TableKind.SUMMARY
-            | TableKind.WORKLOAD_TOTALS
+            | TableKind.WORKLOAD
             | TableKind.COST_CURVES
             | TableKind.MATRIX_BREAKDOWN
-            | TableKind.COST_BREAKDOWN
+            | TableKind.FULL_COST_BREAKDOWN
         ):
             return CohortSplit.WHOLE_GROUP
         case unreachable:

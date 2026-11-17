@@ -6,9 +6,6 @@ from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from typing import assert_never
 
-from neuralls.domain.benchmarking.paired import (
-    REFERENCE_METRIC,
-)
 from neuralls.domain.solver.models.group_outcomes import (
     GroupReport,
     RecipeProfileReport,
@@ -129,12 +126,33 @@ class HistoryFigureRecipe:
 
 type FigureRecipe = GroupFigureRecipe | HistoryFigureRecipe
 
-_TIME_MEAN_METRICS: tuple[tuple[str, str, MetricId], ...] = (
-    ("solve", "Solve-only Time per System", MetricId.SOLVE_S),
-    ("online", "Amortized Online Time per System", MetricId.ONLINE_S),
-    ("standalone", "Standalone Online Time per System", MetricId.STANDALONE_S),
+
+@dataclass(frozen=True, slots=True)
+class _Time:
+    """One time drawn: its file-stem word, its titles and its metric.
+
+    ``word`` is a stage of the cost vocabulary in ``domain/solver/README.md``, with the
+    ``_amortized`` modifier for the multi-RHS variant; ``short`` names it inside a longer title.
+    """
+
+    word: str
+    title: str
+    short: str
+    metric: MetricId
+
+
+_SOLVE = _Time("solve", "Solve-only Time per Pair", "Solve-only", MetricId.SOLVE_S)
+_ONLINE = _Time("online", "Online Time per Pair", "Online", MetricId.ONLINE_S)
+_ONLINE_AMORTIZED = _Time(
+    "online_amortized",
+    "Amortized Online Time per Pair",
+    "Amortized Online",
+    MetricId.ONLINE_AMORTIZED_S,
 )
-"""File-stem word, title and metric of each time whose mean is drawn."""
+_TIMES = (_SOLVE, _ONLINE, _ONLINE_AMORTIZED)
+_ONLINE_TIMES = (_ONLINE, _ONLINE_AMORTIZED)
+"""The pair online time and its amortized multi-RHS variant, drawn side by side by each kind
+that compares online costs."""
 
 
 def _bar_variant(
@@ -156,12 +174,6 @@ _DISTRIBUTION_SUMMARY = (
     "and not a confidence interval; points are per-matrix means"
 )
 """What a distribution's marks are; its card records no interval, so this says why."""
-
-_DISTRIBUTION_TIMES: tuple[tuple[str, str, MetricId], ...] = (
-    ("solve", "Solve-only Time per System", MetricId.SOLVE_S),
-    ("online", "Amortized Online Time per System", MetricId.ONLINE_S),
-)
-"""File-stem word, title and metric of each time whose distribution is drawn."""
 
 
 def _distribution_variant(stem: str, title: str, metric: MetricId) -> FigureVariant:
@@ -195,48 +207,59 @@ FIGURE_RECIPES: Mapping[FigureKind, FigureRecipe] = {
             FigureKind.SOLVE_TIME,
             (
                 FigureVariant(
-                    "solve_time_bars",
-                    "Solve-only Workload Total",
-                    "sum of solve-only seconds across attempted RHS systems, including failures",
+                    "workload_solve_bars",
+                    "Solve-only Workload Sum",
+                    "sum of solve-only seconds across attempted pairs, including failures",
                     MetricId.SOLVE_S,
                     Population.OWN,
-                    Statistic.WORKLOAD_TOTAL,
+                    Statistic.WORKLOAD_SUM,
                 ),
             ),
             FailureTreatment.NONE,
             _BOTH,
-            group_drawers.solve_time_bars,
-            TableKind.WORKLOAD_TOTALS,
+            group_drawers.workload_bars,
+            TableKind.WORKLOAD,
         ),
         GroupFigureRecipe(
             FigureKind.ONLINE_TIME,
             (
                 FigureVariant(
-                    "online_time_bars",
-                    "Online Workload Total",
-                    "sum of matrix setup seconds once and solve-only seconds across attempted RHS systems",
+                    "workload_online_bars",
+                    "Online Workload Sum",
+                    "sum over attempted pairs of the matrix setup seconds charged to each pair "
+                    "plus its solve-only seconds",
                     MetricId.ONLINE_S,
                     Population.OWN,
-                    Statistic.WORKLOAD_TOTAL,
+                    Statistic.WORKLOAD_SUM,
+                ),
+                FigureVariant(
+                    "workload_online_amortized_bars",
+                    "Amortized Online Workload Sum",
+                    "sum of matrix setup seconds once per matrix and solve-only seconds across "
+                    "attempted pairs",
+                    MetricId.ONLINE_AMORTIZED_S,
+                    Population.OWN,
+                    Statistic.WORKLOAD_SUM,
                 ),
             ),
             FailureTreatment.NONE,
             _BOTH,
-            group_drawers.online_time_bars,
-            TableKind.WORKLOAD_TOTALS,
+            group_drawers.workload_bars,
+            TableKind.WORKLOAD,
         ),
         GroupFigureRecipe(
             FigureKind.PAIRED_TIME,
-            (
+            tuple(
                 FigureVariant(
-                    "paired_time_scatter",
-                    "Amortized Online Time per System",
-                    "amortized online seconds per paired RHS; asymmetric failures "
-                    "axis-censored; both-failed pairs omitted",
-                    REFERENCE_METRIC,
+                    f"paired_{time.word}_scatter",
+                    time.title,
+                    f"{METRICS[time.metric].label} of each pair against the reference; "
+                    "asymmetric failures axis-censored; both-failed pairs omitted",
+                    time.metric,
                     Population.OWN,
                     Statistic.PAIRED_VALUES,
-                ),
+                )
+                for time in _ONLINE_TIMES
             ),
             FailureTreatment.CENSORED,
             _BOTH,
@@ -245,15 +268,16 @@ FIGURE_RECIPES: Mapping[FigureKind, FigureRecipe] = {
         ),
         GroupFigureRecipe(
             FigureKind.SPEED_RATIO,
-            (
+            tuple(
                 FigureVariant(
-                    "speed_ratio_cdf",
-                    "Amortized Online Speed Ratio",
-                    "reference/method amortized-online speed ratio",
-                    REFERENCE_METRIC,
+                    f"speed_ratio_{time.word}_cdf",
+                    f"{time.short} Speed Ratio",
+                    f"reference/method ratio of {METRICS[time.metric].label}",
+                    time.metric,
                     Population.OWN,
                     Statistic.SPEED_RATIO_CDF,
-                ),
+                )
+                for time in _ONLINE_TIMES
             ),
             FailureTreatment.OMITTED,
             _BOTH,
@@ -262,23 +286,16 @@ FIGURE_RECIPES: Mapping[FigureKind, FigureRecipe] = {
         ),
         GroupFigureRecipe(
             FigureKind.PERFORMANCE_PROFILE,
-            (
+            tuple(
                 FigureVariant(
-                    "performance_profile_solve",
-                    "Solve-only Performance Profile",
-                    "solve-only time per system performance ratio",
-                    MetricId.SOLVE_S,
+                    f"performance_profile_{time.word}",
+                    f"{time.short} Performance Profile",
+                    f"{METRICS[time.metric].label} performance ratio",
+                    time.metric,
                     Population.OWN,
                     Statistic.PERFORMANCE_PROFILE,
-                ),
-                FigureVariant(
-                    "performance_profile_online",
-                    "Amortized Online Performance Profile",
-                    "amortized online time per system performance ratio",
-                    MetricId.ONLINE_S,
-                    Population.OWN,
-                    Statistic.PERFORMANCE_PROFILE,
-                ),
+                )
+                for time in _TIMES
             ),
             FailureTreatment.CENSORED,
             _BOTH,
@@ -304,23 +321,16 @@ FIGURE_RECIPES: Mapping[FigureKind, FigureRecipe] = {
         ),
         GroupFigureRecipe(
             FigureKind.ECDF_TIME,
-            (
+            tuple(
                 FigureVariant(
-                    "ecdf_time_solve",
-                    "Solve-only Time per System",
-                    "solve-only seconds per planned RHS",
-                    MetricId.SOLVE_S,
+                    f"ecdf_{time.word}",
+                    time.title,
+                    f"{METRICS[time.metric].label} of each planned pair",
+                    time.metric,
                     Population.OWN,
                     Statistic.ECDF,
-                ),
-                FigureVariant(
-                    "ecdf_time_online",
-                    "Amortized Online Time per System",
-                    "amortized online seconds per planned RHS",
-                    MetricId.ONLINE_S,
-                    Population.OWN,
-                    Statistic.ECDF,
-                ),
+                )
+                for time in _TIMES
             ),
             FailureTreatment.CENSORED,
             _BOTH,
@@ -331,11 +341,11 @@ FIGURE_RECIPES: Mapping[FigureKind, FigureRecipe] = {
             FigureKind.BREAKEVEN,
             (
                 FigureVariant(
-                    "breakeven",
+                    "breakeven_online_amortized",
                     "Break-even",
                     "mean setup + n x mean solve-only seconds per RHS on one matrix, means over the "
                     "matrices and systems common to the method and the reference",
-                    MetricId.STANDALONE_S,
+                    MetricId.ONLINE_AMORTIZED_S,
                     Population.COMMON,
                     Statistic.CUMULATIVE_COST,
                 ),
@@ -383,13 +393,13 @@ FIGURE_RECIPES: Mapping[FigureKind, FigureRecipe] = {
             FigureKind.TIME_MEANS,
             tuple(
                 _bar_variant(
-                    f"time_means_{word}_{population}",
-                    title,
-                    metric,
+                    f"time_means_{time.word}_{population}",
+                    time.title,
+                    time.metric,
                     population,
                     Statistic.MEAN_OVER_SYSTEMS,
                 )
-                for word, title, metric in _TIME_MEAN_METRICS
+                for time in _TIMES
                 for population in Population
             ),
             FailureTreatment.OMITTED,
@@ -440,8 +450,8 @@ FIGURE_RECIPES: Mapping[FigureKind, FigureRecipe] = {
         GroupFigureRecipe(
             FigureKind.TIME_DISTRIBUTION,
             tuple(
-                _distribution_variant(f"time_distribution_{word}", title, metric)
-                for word, title, metric in _DISTRIBUTION_TIMES
+                _distribution_variant(f"time_distribution_{time.word}", time.title, time.metric)
+                for time in _TIMES
             ),
             FailureTreatment.OMITTED,
             _BOTH,
@@ -470,25 +480,26 @@ FIGURE_RECIPES: Mapping[FigureKind, FigureRecipe] = {
             TableKind.MATRIX_BREAKDOWN,
         ),
         GroupFigureRecipe(
-            FigureKind.COST_BREAKDOWN,
+            FigureKind.FULL_COST_BREAKDOWN,
             (
                 FigureVariant(
-                    "cost_breakdown",
-                    "Total Cost",
-                    "offline (dataset generation + training, paid once per method artifact) "
-                    "+ setup + solve-only seconds of the report's workload, stacked per method; "
-                    "a fit is charged the share of the generation in the folds it read (train for "
-                    "a POD fit, train and validation for neural training); an offline stage with "
-                    "no recorded cost draws no segment and leaves the total unstated",
+                    "full_cost_breakdown",
+                    "Full Cost",
+                    "offline (dataset generation + fit, paid once per method artifact) "
+                    "+ setup + solve-only seconds of the report's pairs, each pair charged its "
+                    "matrix's setup, stacked per method; a fit is charged the share of the "
+                    "generation in the folds it read (train for a POD fit, train and validation "
+                    "for neural training); an offline stage with no recorded cost draws no "
+                    "segment and leaves the full cost unstated",
                     MetricId.ONLINE_S,
                     Population.OWN,
-                    Statistic.OFFLINE_ONLINE_TOTAL,
+                    Statistic.FULL_COST,
                 ),
             ),
             FailureTreatment.NONE,
             _BOTH,
-            group_drawers.cost_breakdown,
-            TableKind.COST_BREAKDOWN,
+            group_drawers.full_cost_breakdown,
+            TableKind.FULL_COST_BREAKDOWN,
         ),
         HistoryFigureRecipe(
             FigureKind.RESIDUAL_HISTORY,
@@ -543,7 +554,7 @@ def compares_to_reference(statistic: Statistic) -> bool:
         case Statistic.PAIRED_VALUES | Statistic.SPEED_RATIO_CDF | Statistic.CUMULATIVE_COST:
             return True
         case (
-            Statistic.WORKLOAD_TOTAL
+            Statistic.WORKLOAD_SUM
             | Statistic.ECDF
             | Statistic.PERFORMANCE_PROFILE
             | Statistic.MEAN_AND_MEDIAN
@@ -552,7 +563,7 @@ def compares_to_reference(statistic: Statistic) -> bool:
             | Statistic.RATIO_OF_SUMS
             | Statistic.QUANTILES
             | Statistic.MEAN_PER_MATRIX
-            | Statistic.OFFLINE_ONLINE_TOTAL
+            | Statistic.FULL_COST
         ):
             return False
         case unreachable:

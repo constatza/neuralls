@@ -70,7 +70,7 @@ def plot_calls(monkeypatch: pytest.MonkeyPatch) -> PlotCalls:
 
     for name in (
         "plot_workload_bars",
-        "plot_cost_breakdown",
+        "plot_full_cost_breakdown",
         "plot_ecdf_profile",
         "plot_performance_profile",
         "plot_paired_time_scatter",
@@ -173,7 +173,7 @@ def test_the_iteration_ecdf_is_drawn_from_the_iterations_of_converged_systems(
     ("metric", "amg", "jacobi"),
     [
         (MetricId.SOLVE_S, [1.0, 2.0], [4.0, 8.0]),
-        (MetricId.ONLINE_S, [1.5, 2.5], [4.5, 8.5]),
+        (MetricId.ONLINE_AMORTIZED_S, [1.5, 2.5], [4.5, 8.5]),
     ],
 )
 def test_the_time_ecdf_is_drawn_from_the_metrics_seconds(
@@ -192,7 +192,7 @@ def test_the_time_ecdf_is_drawn_from_the_metrics_seconds(
 def test_the_online_performance_profile_is_drawn_from_ratios_to_the_best_method(
     report: RecipeProfileReport, plot_calls: PlotCalls
 ) -> None:
-    _draw(report, FigureKind.PERFORMANCE_PROFILE, MetricId.ONLINE_S)
+    _draw(report, FigureKind.PERFORMANCE_PROFILE, MetricId.ONLINE_AMORTIZED_S)
 
     call = plot_calls.by_function["plot_performance_profile"]
     series = _series_of(call)
@@ -200,17 +200,20 @@ def test_the_online_performance_profile_is_drawn_from_ratios_to_the_best_method(
     assert _x(series, AMG) == [1.0, 1.0]
     assert _x(series, JACOBI) == [1.0, 3.0]
     assert series.n_excluded_zero_best == 0
-    assert call.options["metric"] is MetricId.ONLINE_S
+    assert call.options["metric"] is MetricId.ONLINE_AMORTIZED_S
 
 
 def test_the_paired_scatter_is_drawn_from_the_online_pairs_against_the_reference(
     report: RecipeProfileReport, plot_calls: PlotCalls
 ) -> None:
-    _draw(report, FigureKind.PAIRED_TIME, MetricId.ONLINE_S)
+    _draw(report, FigureKind.PAIRED_TIME, MetricId.ONLINE_AMORTIZED_S)
 
     call = plot_calls.by_function["plot_paired_time_scatter"]
     (paired,) = _frames_of(call)
-    assert (call.options["reference_name"], call.options["metric"]) == (AMG, MetricId.ONLINE_S)
+    assert (call.options["reference_name"], call.options["metric"]) == (
+        AMG,
+        MetricId.ONLINE_AMORTIZED_S,
+    )
     assert paired.select("system_id", "pair_kind", "reference_value", "method_value").rows() == [
         ("s0", PairKind.BOTH, 1.5, 4.5),
         ("s1", PairKind.REFERENCE_ONLY, 2.5, None),
@@ -221,7 +224,7 @@ def test_the_paired_scatter_is_drawn_from_the_online_pairs_against_the_reference
 def test_the_speed_ratio_cdf_is_drawn_from_the_ratios_and_their_summary(
     report: RecipeProfileReport, plot_calls: PlotCalls
 ) -> None:
-    _draw(report, FigureKind.SPEED_RATIO, MetricId.ONLINE_S)
+    _draw(report, FigureKind.SPEED_RATIO, MetricId.ONLINE_AMORTIZED_S)
 
     call = plot_calls.by_function["plot_speed_ratio_cdf"]
     ratios, summary = _frames_of(call)
@@ -235,13 +238,17 @@ def test_the_speed_ratio_cdf_is_drawn_from_the_ratios_and_their_summary(
 def test_the_break_even_curves_are_drawn_from_the_cost_curves_they_store_against_the_reference(
     report: RecipeProfileReport, plot_calls: PlotCalls
 ) -> None:
-    summary = figure_summaries(report, no_offline_cost(report))["breakeven"]
-    group_recipe(FigureKind.BREAKEVEN).draw(_data(report, summary, MetricId.STANDALONE_S), TARGET)
+    summary = figure_summaries(report, no_offline_cost(report))["breakeven_online_amortized"]
+    group_recipe(FigureKind.BREAKEVEN).draw(
+        _data(report, summary, MetricId.ONLINE_AMORTIZED_S), TARGET
+    )
 
     call = plot_calls.by_function["plot_break_even_curves"]
     (curves,) = _frames_of(call)
     assert call.options["reference_name"] == AMG
-    assert_frame_equal(curves, figure_summaries(report, no_offline_cost(report))["breakeven"])
+    assert_frame_equal(
+        curves, figure_summaries(report, no_offline_cost(report))["breakeven_online_amortized"]
+    )
 
 
 def test_the_convergence_factors_are_drawn_from_their_cohort_summary_and_the_observations(
@@ -262,9 +269,9 @@ def test_the_convergence_factors_are_drawn_from_their_cohort_summary_and_the_obs
 @pytest.mark.parametrize(
     ("kind", "metric"),
     [
-        (FigureKind.PAIRED_TIME, MetricId.ONLINE_S),
-        (FigureKind.SPEED_RATIO, MetricId.ONLINE_S),
-        (FigureKind.BREAKEVEN, MetricId.STANDALONE_S),
+        (FigureKind.PAIRED_TIME, MetricId.ONLINE_AMORTIZED_S),
+        (FigureKind.SPEED_RATIO, MetricId.ONLINE_AMORTIZED_S),
+        (FigureKind.BREAKEVEN, MetricId.ONLINE_S),
     ],
 )
 def test_reference_figures_need_a_configured_reference_among_the_methods(
@@ -284,8 +291,9 @@ def test_reference_figures_need_a_configured_reference_among_the_methods(
     ("kind", "metric", "function"),
     [
         (FigureKind.SOLVE_TIME, MetricId.SOLVE_S, "plot_workload_bars"),
+        (FigureKind.ONLINE_TIME, MetricId.ONLINE_AMORTIZED_S, "plot_workload_bars"),
         (FigureKind.ONLINE_TIME, MetricId.ONLINE_S, "plot_workload_bars"),
-        (FigureKind.COST_BREAKDOWN, MetricId.ONLINE_S, "plot_cost_breakdown"),
+        (FigureKind.FULL_COST_BREAKDOWN, MetricId.ONLINE_S, "plot_full_cost_breakdown"),
     ],
 )
 def test_bar_figures_are_drawn_from_the_summary_frame_they_store(
@@ -312,6 +320,7 @@ def test_bar_figures_are_drawn_from_the_summary_frame_they_store(
     [
         (FigureKind.SOLVE_TIME, MetricId.SOLVE_S, WorkloadTotal.SOLVE),
         (FigureKind.ONLINE_TIME, MetricId.ONLINE_S, WorkloadTotal.ONLINE),
+        (FigureKind.ONLINE_TIME, MetricId.ONLINE_AMORTIZED_S, WorkloadTotal.ONLINE_AMORTIZED),
     ],
 )
 def test_the_time_bars_draw_the_total_of_their_metric(
@@ -331,8 +340,8 @@ def test_the_time_bars_draw_the_total_of_their_metric(
     [
         (FigureKind.ITERATION_MEANS, MetricId.ITERATIONS, Statistic.MEAN_OVER_SYSTEMS),
         (FigureKind.TIME_MEANS, MetricId.SOLVE_S, Statistic.MEAN_OVER_SYSTEMS),
+        (FigureKind.TIME_MEANS, MetricId.ONLINE_AMORTIZED_S, Statistic.MEAN_OVER_SYSTEMS),
         (FigureKind.TIME_MEANS, MetricId.ONLINE_S, Statistic.MEAN_OVER_SYSTEMS),
-        (FigureKind.TIME_MEANS, MetricId.STANDALONE_S, Statistic.MEAN_OVER_SYSTEMS),
         (FigureKind.SETUP_MEANS, MetricId.SETUP_S, Statistic.MEAN_OVER_MATRICES),
     ],
 )
@@ -377,7 +386,7 @@ def _stem(kind: FigureKind, metric: MetricId) -> str:
     [
         (FigureKind.ITERATION_DISTRIBUTION, MetricId.ITERATIONS),
         (FigureKind.TIME_DISTRIBUTION, MetricId.SOLVE_S),
-        (FigureKind.TIME_DISTRIBUTION, MetricId.ONLINE_S),
+        (FigureKind.TIME_DISTRIBUTION, MetricId.ONLINE_AMORTIZED_S),
     ],
 )
 def test_a_distribution_is_drawn_from_its_cohort_summary_and_the_observations(

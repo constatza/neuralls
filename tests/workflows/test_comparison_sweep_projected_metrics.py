@@ -133,6 +133,8 @@ def test_real_sweep_execution_logs_group_metrics_and_reports(
             | {name.replace(".png", ".parquet") for name in figures}
         )
 
+    times = ("solve", "online", "online_amortized")
+
     def cohort_figures(stem: str, *suffixes: str) -> set[str]:
         """The figures drawn once per cohort, one per stem suffix of the level's cohorts."""
         return {
@@ -143,14 +145,13 @@ def test_real_sweep_execution_logs_group_metrics_and_reports(
                 "iteration_means",
                 *(
                     f"time_means_{time}_{population}"
-                    for time in ("solve", "online", "standalone")
+                    for time in times
                     for population in ("own", "common")
                 ),
                 "setup_means",
                 "time_per_iteration",
                 "iteration_distribution",
-                "time_distribution_solve",
-                "time_distribution_online",
+                *(f"time_distribution_{time}" for time in times),
             )
         }
 
@@ -159,11 +160,21 @@ def test_real_sweep_execution_logs_group_metrics_and_reports(
         return {
             f"{kind}_{stem}.png"
             for kind in (
-                "performance_profile_solve",
-                "performance_profile_online",
+                *(f"performance_profile_{time}" for time in times),
                 "ecdf_iterations",
-                "ecdf_time_solve",
-                "ecdf_time_online",
+                *(f"ecdf_{time}" for time in times),
+            )
+        }
+
+    def workload_figures(stem: str) -> set[str]:
+        """The workload sums and the full cost, one whole-group figure at every level."""
+        return {
+            f"{kind}_{stem}.png"
+            for kind in (
+                "workload_solve_bars",
+                "workload_online_bars",
+                "workload_online_amortized_bars",
+                "full_cost_breakdown",
             )
         }
 
@@ -172,23 +183,15 @@ def test_real_sweep_execution_logs_group_metrics_and_reports(
     all_stem = "All_comparison_matrix_sets"
     assert artifact_names(run_of_level("matrix_set_rhs_type").info.run_id) == with_cards(
         {
-            f"solve_time_bars_{recipe_stem}.png",
-            f"online_time_bars_{recipe_stem}.png",
-            f"cost_breakdown_{recipe_stem}.png",
-            f"performance_profile_solve_{recipe_stem}.png",
-            f"performance_profile_online_{recipe_stem}.png",
-            f"ecdf_iterations_{recipe_stem}.png",
-            f"ecdf_time_solve_{recipe_stem}.png",
-            f"ecdf_time_online_{recipe_stem}.png",
+            *workload_figures(recipe_stem),
+            *pooled_figures(recipe_stem),
             f"matrix_heatmap_iterations_{recipe_stem}.png",
             *cohort_figures(recipe_stem, ""),
         }
     )
     assert artifact_names(run_of_level("matrix_set").info.run_id) == with_cards(
         {
-            f"solve_time_bars_{dataset_stem}.png",
-            f"online_time_bars_{dataset_stem}.png",
-            f"cost_breakdown_{dataset_stem}.png",
+            *workload_figures(dataset_stem),
             # One recipe is no mixture: each cohort kind is one unsuffixed figure at every level.
             *cohort_figures(dataset_stem, ""),
             *pooled_figures(dataset_stem),
@@ -196,9 +199,7 @@ def test_real_sweep_execution_logs_group_metrics_and_reports(
     )
     assert artifact_names(report.report_run_id) == with_cards(
         {
-            f"solve_time_bars_{all_stem}.png",
-            f"online_time_bars_{all_stem}.png",
-            f"cost_breakdown_{all_stem}.png",
+            *workload_figures(all_stem),
             *cohort_figures(all_stem, ""),
             *pooled_figures(all_stem),
         }

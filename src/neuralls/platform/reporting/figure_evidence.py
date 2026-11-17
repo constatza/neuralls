@@ -193,13 +193,13 @@ def _per_method(rows: pl.DataFrame, methods: Sequence[str]) -> PerMethodInterval
 def setup_sharing_of(metric: MetricId, observations: pl.DataFrame) -> SetupSharing:
     """The right-hand-side counts that divide a matrix's setup in ``metric``, if it divides one."""
     match metric:
-        case MetricId.ONLINE_S:
+        case MetricId.ONLINE_AMORTIZED_S:
             per_matrix = observations.unique(["dataset", "matrix_id"])["planned_rhs"]
             return SetupSharedOverRhs(tuple(sorted(per_matrix.unique().to_list())))
         case (
             MetricId.ITERATIONS
             | MetricId.SOLVE_S
-            | MetricId.STANDALONE_S
+            | MetricId.ONLINE_S
             | MetricId.SETUP_S
             | MetricId.TIME_PER_ITERATION_S
             | MetricId.CONVERGENCE_FACTOR

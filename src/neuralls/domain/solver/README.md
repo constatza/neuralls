@@ -23,7 +23,7 @@ every outcome is on the returned `CGComparisonResult`.
 
 Online time is setup plus solve only. Checkpoint and dataset reads, reference
 solves, staging, plotting, persistence, MLflow calls, and historical generation
-or training remain outside it. Required computation after I/O belongs to a
+or fit remain outside it. Required computation after I/O belongs to a
 timed setup or solve event.
 The diagnostic reference `x*` serves only exact-error metrics; preconditioners and
 the compared solves never see it. `error_metrics.reference_solver` factors a matrix
@@ -54,8 +54,8 @@ curve for the convergence frame and plots.
 
 `models/workload.py` represents a method summary as either complete or
 explicitly incomplete. Both variants retain planned, attempted, and converged
-RHS counts, setup and solve totals, total online workload time, and workload
-peak memory. Incomplete summaries name the
+RHS counts, the workload setup, solve and online sums of the cost vocabulary (pair and
+`_amortized`), and workload peak memory. Incomplete summaries name the
 unattempted systems and cannot be ranked.
 
 ## Event reductions
@@ -80,27 +80,30 @@ memory; those values cannot be reconstructed from only the two event frames.
 links before deriving costs. Planned RHS membership is counted by
 `(dataset, matrix_id)` before attempts are joined:
 
+Each name below follows the cost vocabulary ("Cost vocabulary" under "Benchmarking statistics"):
+
 ```text
-per_rhs_setup_share_s = setup_s / full_matrix_planned_rhs_count
-amortized_online_s = solve_s + per_rhs_setup_share_s
-group_allocated_setup_s = setup_s * group_planned_rhs_count / full_matrix_planned_rhs_count
-workload_online_s = sum(group_allocated_setup_s + group_solve_total_s)
+online_s                    = setup_s + solve_s                       (one pair)
+online_amortized_s          = setup_s / full_matrix_planned_rhs_count + solve_s
+matrix_setup_s              = setup_s * group_planned_rhs_count
+matrix_setup_amortized_s    = setup_s * group_planned_rhs_count / full_matrix_planned_rhs_count
+matrix_online_s             = matrix_setup_s + matrix_solve_s
+matrix_online_amortized_s   = matrix_setup_amortized_s + matrix_solve_s
+workload_online_s           = fsum(matrix_online_s)
+workload_online_amortized_s = fsum(matrix_online_amortized_s)
 ```
 
-One matrix setup is therefore charged once even when sibling RHS values belong
-to different recipes. Matrix-set-and-RHS-type summaries allocate that setup using the
-complete matrix membership; matrix-set and all-matrix-sets summaries retain the whole setup
-once. Workload totals use `math.fsum` over representative event values;
-warmups and individual repeat samples are never added to totals.
+The run loop sets a matrix up once and shares it with its RHS; only the reported numbers charge it
+differently. The pair names charge every planned (matrix, RHS) pair of the group its matrix's whole
+measured setup, as for a family in which every pair has its own matrix. The `_amortized` names
+belong to the multi-RHS path: they charge each pair the setup divided by the matrix's full planned
+RHS count, so one matrix setup is charged once even when sibling RHS values belong to different
+recipes, and the groups of a matrix add up to one setup. Workload sums use `math.fsum` over
+representative event values; warmups and individual repeat samples are never added to them.
 
-Two quantities divide a matrix's setup over its planned RHS and are named apart. `online_s` of the
-observation view uses the matrix's whole planned RHS count $r_m$, whichever report group the system
-is in. `allocated_setup_s`, the setup field of `CompleteWorkloadSummary` and
-`IncompleteWorkloadSummary` and the matching column of the workload-totals table, allocates setup
-to one report group by that group's share of the matrix's RHS, so the groups of a matrix add up to
-one setup. Neither is a measurement; both are shares of one measured setup. `online_s` is defined
-only for systems that converged, while workload totals also include the solve time of failed
-attempts, so the two are different denominators and are never compared as if they shared one.
+`online_s` and `online_amortized_s` of the observation view are defined only for systems that
+converged, while workload sums also include the solve time of failed attempts, so the two are
+different denominators and are never compared as if they shared one.
 
 `reporting/classification.py` consumes planned tags, setup events, solve
 attempts, and a report level. A `ConvergenceSummary` keeps planned, attempted,
@@ -137,7 +140,7 @@ unplanned system raise `ValueError`.
 | `solve_s` | `solve_attempts.solve_s`; null without a solve row |
 | `setup_s` | `setup_events.setup_s` of the system's `(dataset, matrix_id)`; null without a setup row |
 | `planned_rhs` | planned systems of the system's `(dataset, matrix_id)` over every recipe in `planned_systems`, the count the setup is divided by |
-| `online_s`, `standalone_s` | `solve_s + setup_s / planned_rhs` and `solve_s + setup_s`; null when either term is null |
+| `online_s`, `online_amortized_s` | `setup_s + solve_s` and `setup_s / planned_rhs + solve_s`; null when either term is null |
 | `time_per_iteration_s` | `solve_s / iterations` for `converged` and `unconverged` rows with at least one iteration |
 | `convergence_factor` | `convergence_factor.py::convergence_factors` of the system's `convergence` rows; null without a stored history, without an iteration in it, or for a zero initial residual |
 | `true_residual_rel` | `solve_attempts.true_residual_rel`; null when unmeasured |
@@ -151,33 +154,37 @@ matrix and one right-hand side. The report uses these time names consistently:
 
 | Name | Value | Status |
 |---|---|---|
-| **Setup time per matrix** | Representative preparation time for one method and matrix, shared by its RHS systems | Measured |
-| **Solve-only time per system** | Representative solve time for one RHS after setup; excludes setup and offline work | Measured |
-| **Amortized online time per system** | Solve-only time plus that matrix's setup divided by its full planned RHS count, across recipes | Derived allocation, not a separately timed operation |
-| **Standalone online time per system** | Solve-only time plus the full matrix setup, the cost if this RHS ran alone | Derived scenario, not a separately timed operation |
-| **Solve-only workload total** | Sum of representative solve-only times of attempted RHS systems, including failed attempts | Derived sum; not an end-to-end wall-clock timer |
-| **Online workload total** | One representative setup per matrix plus the solve-only workload total; for a report subgroup, its proportional share of each matrix setup | Derived sum; not an end-to-end wall-clock timer |
-| **Total cost** | Online workload total plus known offline generation and training costs | Derived; unavailable when an applicable offline cost is unknown |
+| **Setup time per matrix** (`setup_s`) | Representative preparation time for one method and matrix, shared by its RHS systems | Measured |
+| **Solve-only time per pair** (`solve_s`) | Representative solve time for one RHS after setup; excludes setup and offline work | Measured |
+| **Online time per pair** (`online_s`) | Solve-only time plus its matrix's whole setup | Derived, not a separately timed operation |
+| **Amortized online time per pair** (`online_amortized_s`) | Solve-only time plus its matrix's setup divided by its full planned RHS count, across recipes | Derived allocation, not a separately timed operation |
+| **Solve-only workload sum** (`workload_solve_s`) | Sum of representative solve-only times of attempted pairs, including failed attempts | Derived sum; not an end-to-end wall-clock timer |
+| **Online workload sum** (`workload_online_s`) | Every pair's matrix setup plus the solve-only workload sum | Derived sum; not an end-to-end wall-clock timer |
+| **Amortized online workload sum** (`workload_online_amortized_s`) | One representative setup per matrix plus the solve-only workload sum; for a report subgroup, its proportional share of each matrix setup | Derived sum; not an end-to-end wall-clock timer |
+| **Full cost** (`full_cost_seconds`) | Online workload sum plus known offline generation and fit costs | Derived; unavailable when an applicable offline cost is unknown |
 
 The terms **setup** and **solve** follow the conventional phase split used in multigrid studies;
 the setup cost is amortized when a matrix is reused for multiple RHS solves. **Solve-only** states
-that setup is excluded, while **standalone** names the single-RHS setup-plus-solve scenario.
+that setup is excluded; **amortized** marks every quantity that shares a setup over the RHS of its
+matrix.
 `mean_over_systems` pools selected systems; `mean_over_matrices` averages their per-matrix means.
 
 Notation. Method $p$; matrix $m \in \mathcal{M}$, $K = |\mathcal{M}|$; system $s$ = (matrix, RHS), $m(s)$ its matrix; $r_m$ the planned RHS count of $m$; $\mathcal{A}_p$ attempted systems, $\mathcal{C}_p \subseteq \mathcal{A}_p$ converged systems of $p$; $k_{p,s}$ iterations. $\tau_{p,s,j}$ is the wall time of **timing repeat** $j = 1..R$ of the same solve; $\operatorname{stat}$ is the configured `TimingStatistic` (median default).
 
 $$t^{\mathrm{solve}}_{p,s} = \operatorname{stat}_{j}\,\tau^{\mathrm{solve}}_{p,s,j}, \quad t^{\mathrm{setup}}_{p,m} = \operatorname{stat}_{j}\,\tau^{\mathrm{setup}}_{p,m,j}$$
 
-$$t^{\mathrm{online}}_{p,s} = t^{\mathrm{solve}}_{p,s} + \frac{t^{\mathrm{setup}}_{p,m(s)}}{r_{m(s)}}\ \text{(amortized: setup shared by the matrix's planned RHS)}, \qquad t^{\mathrm{standalone}}_{p,s} = t^{\mathrm{solve}}_{p,s} + t^{\mathrm{setup}}_{p,m(s)}\ \text{(every RHS pays the whole setup)}$$
+$$t^{\mathrm{online}}_{p,s} = t^{\mathrm{setup}}_{p,m(s)} + t^{\mathrm{solve}}_{p,s}\ \text{(every pair pays its matrix's whole setup)}, \qquad t^{\mathrm{online,amortized}}_{p,s} = \frac{t^{\mathrm{setup}}_{p,m(s)}}{r_{m(s)}} + t^{\mathrm{solve}}_{p,s}\ \text{(setup shared by the matrix's planned RHS)}$$
 
-$$T^{\mathrm{solve}}_p = \sum_{s \in \mathcal{A}_p} t^{\mathrm{solve}}_{p,s}, \qquad T^{\mathrm{online}}_p = \sum_{m} t^{\mathrm{setup}}_{p,m} + T^{\mathrm{solve}}_p \quad\text{(workload totals; failed attempts keep their time)}$$
+$$T^{\mathrm{solve}}_p = \sum_{s \in \mathcal{A}_p} t^{\mathrm{solve}}_{p,s}, \qquad T^{\mathrm{online}}_p = \sum_{s \in \mathcal{A}_p} t^{\mathrm{setup}}_{p,m(s)} + T^{\mathrm{solve}}_p, \qquad T^{\mathrm{online,amortized}}_p = \sum_{m} t^{\mathrm{setup}}_{p,m} + T^{\mathrm{solve}}_p \quad\text{(workload sums; failed attempts keep their time)}$$
 
-$$T^{\mathrm{solve}}_p = \underbrace{\sum_{s \in \mathcal{C}_p} t^{\mathrm{solve}}_{p,s}}_{\texttt{converged\_solve\_s}} + \underbrace{\sum_{s \in \mathcal{A}_p \setminus \mathcal{C}_p} t^{\mathrm{solve}}_{p,s}}_{\texttt{failed\_solve\_s}}$$
+$$T^{\mathrm{solve}}_p = \underbrace{\sum_{s \in \mathcal{C}_p} t^{\mathrm{solve}}_{p,s}}_{\texttt{workload\_converged\_solve\_s}} + \underbrace{\sum_{s \in \mathcal{A}_p \setminus \mathcal{C}_p} t^{\mathrm{solve}}_{p,s}}_{\texttt{workload\_failed\_solve\_s}}$$
 
-A `MethodWorkloadSummary` stores `failed_solve_s` beside `solve_total_s` and derives `converged_solve_s`; the setup
-sum is not split by outcome, since one setup per matrix serves all its RHS.
+A `MethodWorkloadSummary` stores `workload_setup_s`, `workload_setup_amortized_s`, `workload_solve_s`,
+`workload_failed_solve_s`, `workload_online_s` and `workload_online_amortized_s`, and derives
+`workload_converged_solve_s`; the setup sums are not split by outcome, since one setup per matrix
+serves all its RHS.
 
-A mean of $t^{\mathrm{online}}$ over converged systems is **not** $T^{\mathrm{online}}_p/|\mathcal{S}|$: a failed system's setup share is simply missing.
+A mean of $t^{\mathrm{online,amortized}}$ over converged systems is **not** $T^{\mathrm{online,amortized}}_p/|\mathcal{S}|$: a failed system's setup share is simply missing.
 
 **Populations** for a metric $x$ defined on a set $\mathcal{D}_x$ of outcomes: $\mathcal{P}^{\mathrm{own}}_p = \{ s : \mathrm{outcome}_{p,s} \in \mathcal{D}_x \}$ and $\mathcal{P}^{\mathrm{common}} = \bigcap_{p'} \mathcal{P}^{\mathrm{own}}_{p'}$; $\mathcal{P}_{p,m}$ = its systems on matrix $m$, $\mathcal{M}_{\mathcal{P}} = \{ m : \mathcal{P}_{p,m} \neq \emptyset \}$. `Population.OWN` and `Population.COMMON` select them.
 
@@ -203,8 +210,8 @@ Seeded with `DEFAULT_RANDOM_SEED`; `None` if $K' < 2$; a matrix with no system i
 |---|---|---|---|---|
 | `ITERATIONS` | iterations to converge | system | `converged` | $k_{p,s},\quad s \in \mathcal{C}_p$ |
 | `SOLVE_S` | solve-only time per system [s] | system | `converged` | $t^{\mathrm{solve}}_{p,s} = \operatorname{stat}_{j}\,\tau^{\mathrm{solve}}_{p,s,j}$ |
-| `ONLINE_S` | amortized online time per system [s] | system | `converged` | $t^{\mathrm{online}}_{p,s} = t^{\mathrm{solve}}_{p,s} + \frac{t^{\mathrm{setup}}_{p,m(s)}}{r_{m(s)}}$ |
-| `STANDALONE_S` | standalone online time per system [s] | system | `converged` | $t^{\mathrm{standalone}}_{p,s} = t^{\mathrm{solve}}_{p,s} + t^{\mathrm{setup}}_{p,m(s)}$ |
+| `ONLINE_S` | online time per pair (setup + solve) [s] | system | `converged` | $t^{\mathrm{online}}_{p,s} = t^{\mathrm{setup}}_{p,m(s)} + t^{\mathrm{solve}}_{p,s}$ |
+| `ONLINE_AMORTIZED_S` | amortized online time per pair (setup shared by the RHS of its matrix) [s] | system | `converged` | $t^{\mathrm{online,amortized}}_{p,s} = \frac{t^{\mathrm{setup}}_{p,m(s)}}{r_{m(s)}} + t^{\mathrm{solve}}_{p,s}$ |
 | `SETUP_S` | setup time per matrix [s] | matrix (one value per method, dataset, matrix) | `converged`, `unconverged`, `solver_error` (the setup completed) | $t^{\mathrm{setup}}_{p,m} = \operatorname{stat}_{j}\,\tau^{\mathrm{setup}}_{p,m,j}$ |
 | `TIME_PER_ITERATION_S` | time per iteration [s] | system | `converged`, `unconverged` | $\theta_{p,s} = \frac{t^{\mathrm{solve}}_{p,s}}{k_{p,s}}$ |
 | `CONVERGENCE_FACTOR` | residual reduction factor per iteration | system | `converged` | $\gamma_{p,s} = \left(\frac{\hat{r}_{p,s,J}}{\hat{r}_{p,s,0}}\right)^{1/J_{p,s}},\quad s \in \mathcal{C}_p$ |
@@ -281,42 +288,69 @@ table = summarize(observations_of_methods(frames), MetricId.ONLINE_S, Population
 
 ## Benchmarking statistics
 
-### Comparison vocabulary
+### Cost vocabulary
 
-The benchmark separates costs by when they are paid.
+This table is the single source of every cost name in code, in stored files (`summary.toml`, figure
+tables, MLflow metric keys, figure stems) and in the paper; other docs point here. Each keyword
+denotes exactly one measured or derived quantity and means the same wherever it appears. The unit
+is a (matrix, RHS) **pair**: $i$ a matrix, $q$ one of its RHS, $n_i$ its planned RHS count.
 
-| Term | Meaning | Source of the number |
-|---|---|---|
-| **generation** | construction of the dataset a method was fit on; offline | dataset manifest, `HISTORICAL` |
-| **training** (drawn as "offline fit / training") | fit of a network or POD basis by a job, only for a method with a checkpoint; offline | wall time of the MLflow run the checkpoint was resolved from, `HISTORICAL` |
-| **offline** | generation plus training, paid once per method artifact | `OfflineStages.total()` |
-| **setup** | method preparation for one matrix; online | live event, `MEASURED` |
-| **solve** | one attempted RHS; online | live event, `MEASURED` |
-| **online** | setup plus solve for the workload (**workload online time**) | the setup and solve events |
-| **total** | offline plus online for one stated workload | `total_cost_seconds`; derived, never stored |
+Name grammar: `[scope_]stage[_amortized][_statistic]_s`. Figure stem grammar:
+`<figure kind>_<stage>[_amortized]`. `tests/architecture/test_cost_vocabulary.py` checks that every
+cost `MetricId` value, every workload-summary field and every cost-figure stem is composed of these
+keywords.
+
+| Keyword | Kind | Quantity | Paper symbol |
+|---|---|---|---|
+| `setup` | stage | Measured wall time to build method m's preconditioner for matrix i. It runs once per matrix. | $s_{m,i}$ |
+| `solve` | stage | Measured wall time of the PCG solve of pair (i, q). | $t_{m,i,q}$ |
+| `online` | stage | Setup plus solve of one pair: $s_{m,i} + t_{m,i,q}$. | $t^{\mathrm{online}}_{m,i,q}$ |
+| `generation` | stage | Dataset generation wall time × the share of snapshot rows in the folds the fit read. | $C^{\mathrm{gen}}_m$ |
+| `fit` | stage | Wall-clock span of the job that produced the method's artifact (POD fit or network training). | $C^{\mathrm{fit}}_m$ |
+| `offline` | stage | `generation + fit` | $C_m$ |
+| `full` | stage | `offline + workload_online` | $T_{\mathrm{full},m}$ |
+| `amortized` | modifier | The setup term is replaced by its per-RHS share $s_{m,i}/n_i$. It belongs only to the multi-RHS path; the paper never uses it. | (none) |
+| (no prefix) | scope | One pair. For `setup`, one matrix. | |
+| `matrix_` | scope | Sum over the pairs of one matrix. | |
+| `workload_` | scope | Sum over the attempted pairs of a cohort. | $T_{x,m}$ |
+| `failed_` | scope filter | Restricted to pairs that did not converge. | |
+| `converged_` | scope filter | Restricted to pairs that converged. | |
+| `_mean` | statistic | Mean over the pairs of the population. | $\overline T_{x,m}$ |
+| `breakeven_<stage>` | derived | The count at which method m's `<stage>` cost equals method h's. | $N^\star$ |
+
+So `matrix_online_s` $= n_i s_i + \sum_q t_{iq}$ and `matrix_online_amortized_s` $= s_i + \sum_q t_{iq}$
+(over a whole matrix), and `breakeven_online_amortized` is the multi-RHS count $n^*$ of RHS per
+matrix. `standalone`, `allocated`, `total` (as a cost), `training` (as a cost stage) and `time` as a
+figure-stem word naming a stage are not cost names.
+
+Where the numbers come from: `generation` from the dataset manifest (`HISTORICAL`), `fit` from the
+wall time of the MLflow run a checkpoint was resolved from (`HISTORICAL`), `setup` and `solve` from
+live events (`MEASURED`); `offline` is `OfflineStages.combined()` and `full` is
+`full_cost_seconds`, derived and never stored.
 
 A stage that does not apply to a method (a classical method has neither offline stage, and a POD basis
-fit inline has no separate training because that fit runs inside its measured setup) is `NotApplicable`
+fit inline has no separate fit stage because that fit runs inside its measured setup) is `NotApplicable`
 and adds nothing. A stage that applies but has no recorded number is `Unavailable` and is never read as
-zero: the total is then `OfflineUnavailable`, which carries only the online seconds, and the cost-breakdown
-figure states that the total is unknown. Offline cost is paid once and online cost once per workload, so
-a total names the workload it covers and neither is amortized into the other.
+zero: the full cost is then `OfflineUnavailable`, which carries only the online seconds, and the
+full-cost breakdown figure states that the full cost is unknown. Offline cost is paid once and online
+cost once per workload, so a full cost names the workload it covers and neither is amortized into the
+other.
 
-Training is not setup. Training seconds are the start-to-end wall time of the one MLflow run the
+The fit is not setup. Fit seconds are the start-to-end wall time of the one MLflow run the
 checkpoint was resolved from: the run dlkit opened around the job's `execute()` (for a `search` job the best
 trial's nested run, never the study run; for a `run.type = "fit"` POD job its own run), so they span the whole
 job lifecycle (building the data and model, data loading, epochs or the basis fit, checkpointing), not pure fit
 time. A run's span never includes sibling or parent runs, and the checkpoint is uploaded after the run has
 ended, so upload time is outside it. `OfflineStages.fit_origin()` states where a method's fit happened without
-a stored field: `FitJob` when a training stage applies, `InlineFit` when only generation applies (the POD fit
+a stored field: `FitJob` when a fit stage applies, `InlineFit` when only generation applies (the POD fit
 from `dataset_dir` is inside the measured setup, whereas a checkpoint-backed basis is loaded outside it,
 so the two origins are not combined in one cost table), `NoFit` when neither does. Two checkpoints trained in one run count that
 run once. Separating the fit from the rest of the job needs instrumentation in the dlkit fit path and is
 not done.
 
 Checkpoint and input-data loading, validation, staging, plotting, persistence, and MLflow work are
-excluded from online timing. **Amortized online time per RHS** is solve time plus that matrix setup
-divided by the planned RHS count. Thus no checkpoint or data-read cost is silently charged to a method.
+excluded from online timing: **online time per pair** is solve time plus that matrix's measured
+setup, so no checkpoint or data-read cost is silently charged to a method.
 
 The **success rate** is converged attempts divided by planned RHS systems;
 failures remain in the denominator and are never assigned a penalty time. An
@@ -386,7 +420,7 @@ fallback reference.
 ### Profiles, paired comparisons and break-even over the observation view
 
 These functions read the observation frame and take a `MetricId` with one value per system
-(`ITERATIONS`, `SOLVE_S`, `ONLINE_S`, `STANDALONE_S`, `TIME_PER_ITERATION_S`, `CONVERGENCE_FACTOR`); a per-matrix metric
+(`ITERATIONS`, `SOLVE_S`, `ONLINE_S`, `ONLINE_AMORTIZED_S`, `TIME_PER_ITERATION_S`, `CONVERGENCE_FACTOR`); a per-matrix metric
 raises `ValueError`. The failure rule is `select`'s, so "solved" means the metric is defined on the
 system's outcome.
 
@@ -423,11 +457,11 @@ solved has no row. `speed_ratio_summary(obs, reference, metric, seed=...)` has
 
 `speed_ratios(paired)` lists the per-system ratios behind the summary (`method`, `dataset`,
 `matrix_id`, `system_id`, `ratio`), so a ratio CDF and the summary count the same systems. Reports
-compare methods to the configured reference on `REFERENCE_METRIC` (`ONLINE_S`, amortized online
-time); `reference_among_methods(obs, selection)` gives the reference name only for a
+compare methods to the configured reference on `REFERENCE_METRIC` (`ONLINE_S`, online time per
+pair); the paired scatter and the speed-ratio CDF also draw an `_amortized` variant; `reference_among_methods(obs, selection)` gives the reference name only for a
 `ConfiguredReference` whose method has systems in the group.
 
-`break_even(obs, reference)` has `BREAK_EVEN_SCHEMA` (`method, setup_s_mean,
+`break_even(obs, reference)`, the multi-RHS `breakeven_online_amortized` count, has `BREAK_EVEN_SCHEMA` (`method, setup_s_mean,
 reference_setup_s_mean, solve_s_mean, reference_solve_s_mean, break_even_rhs`). The means are over
 the population common to the pair alone: `SETUP_S` over the matrices both set up, `SOLVE_S` over
 the systems both solved. Against the reference, on those populations,
@@ -436,9 +470,9 @@ $C_p(n) = \bar{t}^{\mathrm{setup}}_p + n\,\bar{t}^{\mathrm{solve},\mathrm{sys}}_
 $$n^{*} = \frac{\bar{t}^{\mathrm{setup}}_p - \bar{t}^{\mathrm{setup}}_{\mathrm{ref}}}{\bar{t}^{\mathrm{solve},\mathrm{sys}}_{\mathrm{ref}} - \bar{t}^{\mathrm{solve},\mathrm{sys}}_p}$$
 
 defined only when the denominator is positive. The projection covers online cost only
-(setup and solve): it omits generation and training, so it is not a full-cost break-even, and it
+(setup and solve): it omits generation and fit, so it is not a full-cost break-even, and it
 needs an explicit configured reference (no checked-in case configures one). The offline-plus-online
-totals are the separate `cost_breakdown` figure. Otherwise `break_even_rhs` is null (the method is
+full cost is the separate `full_cost_breakdown` figure. Otherwise `break_even_rhs` is null (the method is
 not faster per RHS and never breaks even). With a positive denominator and a setup no dearer than
 the reference's, `break_even_rhs` is 0.0: the method never costs more. A pair with no common unit
 has null means and a null `break_even_rhs`.
@@ -462,7 +496,7 @@ null) or `no_common_systems` (a mean is null, so `cost_s` is null too).
 must not be summed across them. The canonical setup event is counted once. The result's
 `offline_generation_time_seconds` exposes available historical generation
 cost separately. It does not aggregate generation, setup, and solve into an
-online total; setup-aware aggregate reporting derives totals only from linked
+online sum; setup-aware aggregate reporting derives sums only from linked
 benchmark events.
 
 Per-iteration residual and energy-error histories, timing samples, and memory
@@ -507,7 +541,7 @@ artifacts.
 ## Stage costs
 
 `models/cost.py::StageCost` is a closed sum for the cost of one offline stage:
-`NotApplicable` (the method has no such stage; reads as zero in totals and plots),
+`NotApplicable` (the method has no such stage; reads as zero in sums and plots),
 `Known(wall_time_seconds, peak_memory_bytes, provenance)` (`MEASURED` or `HISTORICAL`), and
 `Unavailable(reason)` (the cost applies but was never recorded; it carries no number, so it is never
 read as zero). The generation stage is a `GenerationCost`: `NotApplicable`, `Unavailable`, or a
@@ -516,11 +550,11 @@ read as zero). The generation stage is a `GenerationCost`: `NotApplicable`, `Una
 `FitFolds` of the pinned split the fit read (`train` for a POD fit, inline or by a job;
 `train_and_validation` for a neural training job, which selects its checkpoint on validation);
 `charged()` scales the seconds by the share. No fit reads the test fold, so a recorded generation
-is never charged whole. `OfflineStages(generation, training)` pairs the
+is never charged whole. `OfflineStages(generation, fit)` pairs the
 two offline stages of a method, `charged_generation()` is the generation as a `StageCost`, and
-`OfflineStages.total()` adds the charged stages: seconds sum, peak memory is the largest, and the total is
-`Unavailable` when either stage is. `composition/comparison/_offline_cost.py` chooses the variants
-from a validated method data origin (`resolve_generation_cost`, `resolve_training_cost`,
+`OfflineStages.combined()` adds the charged stages into the `offline` cost: seconds sum, peak memory is
+the largest, and the result is `Unavailable` when either stage is. `composition/comparison/_offline_cost.py` chooses the variants
+from a validated method data origin (`resolve_generation_cost`, `resolve_fit_cost`,
 `resolve_offline_cost`); an unverified checkpoint training dataset has unavailable generation cost.
 `recorded_seconds` returns the seconds of a `Known` cost and `None` otherwise.
 `MethodWorkload` also requires the resolved method's path-free data evidence; the artifact writer records it with the scientific presentation so a future reuse decision can compare provenance, not rendered text.

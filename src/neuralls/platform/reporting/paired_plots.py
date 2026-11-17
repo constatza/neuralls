@@ -175,11 +175,12 @@ def plot_speed_ratio_cdf(
     ratios: pl.DataFrame,
     summary: pl.DataFrame,
     *,
+    metric: MetricId,
     style: GroupStyle,
     reference_name: PreconditionerName,
     target: FigureTarget,
 ) -> FigureTarget | None:
-    """ECDF of per-system reference/method speed ratios.
+    """ECDF of per-system reference/method speed ratios of ``metric``.
 
     ``ratios`` holds the ``speed_ratios`` rows and ``summary`` the ``speed_ratio_summary`` rows
     of the same pairing, one per method. Only systems both methods solved enter. The median speed
@@ -221,8 +222,8 @@ def plot_speed_ratio_cdf(
     ax.set_xscale("log")
     ax.set_ylim(0.0, 1.02)
     ax.set_xlabel(
-        f"Speed ratio, {style.legend.label(reference_name)} (reference) / method"
-        "\n(slower < 1, faster > 1)"
+        f"Speed ratio of {METRICS[metric].label},"
+        f"\n{style.legend.label(reference_name)} (reference) / method (slower < 1, faster > 1)"
     )
     ax.set_ylabel("Fraction of paired systems")
     ax.grid(True, which="both", alpha=0.3)

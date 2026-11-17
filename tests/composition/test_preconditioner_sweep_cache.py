@@ -142,7 +142,7 @@ def test_the_offline_cost_is_resolved_once_per_method_and_shared_by_every_matrix
         generation=TrainShareOfGeneration(
             Known(8.5, 1024, CostProvenance.HISTORICAL), TrainShare(1.0, FitFolds.TRAIN)
         ),
-        training=Known(90.25, None, CostProvenance.HISTORICAL),
+        fit=Known(90.25, None, CostProvenance.HISTORICAL),
     )
     resolved: list[MlflowClient] = []
 

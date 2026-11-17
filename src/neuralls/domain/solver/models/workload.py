@@ -29,23 +29,29 @@ _DERIVED_SECONDS_ABS_TOLERANCE = 0.0
 class CompleteWorkloadSummary:
     """Online costs for a method that attempted every planned RHS system.
 
-    ``failed_solve_s`` is the part of ``solve_total_s`` spent on attempts that did not converge;
-    the rest is ``converged_solve_s``. Setup is not split: one matrix setup serves every RHS of
-    the matrix, converged or not.
+    The names follow the cost vocabulary of ``domain/solver/README.md``. ``workload_setup_s``
+    charges every planned (matrix, RHS) pair its matrix's whole setup and
+    ``workload_setup_amortized_s`` only the setup divided by the matrix's planned RHS;
+    ``workload_online_s`` and ``workload_online_amortized_s`` add ``workload_solve_s`` to each.
+    ``workload_failed_solve_s`` is the part of ``workload_solve_s`` spent on attempts that did
+    not converge; the rest is ``workload_converged_solve_s``. Setup is not split by outcome: one
+    matrix setup serves every RHS of the matrix, converged or not.
     """
 
     method: PreconditionerName
     n_planned_rhs: int
     n_attempted_rhs: int
     n_converged: int
-    allocated_setup_s: float
-    solve_total_s: float
-    failed_solve_s: float
+    workload_setup_s: float
+    workload_setup_amortized_s: float
+    workload_solve_s: float
+    workload_failed_solve_s: float
     workload_online_s: float
+    workload_online_amortized_s: float
     workload_peak_memory: PeakMemory
 
     @property
-    def converged_solve_s(self) -> float:
+    def workload_converged_solve_s(self) -> float:
         """Solve seconds of the attempts that converged."""
         return _converged_solve_s(self)
 
@@ -64,15 +70,17 @@ class IncompleteWorkloadSummary:
     n_planned_rhs: int
     n_attempted_rhs: int
     n_converged: int
-    allocated_setup_s: float
-    solve_total_s: float
-    failed_solve_s: float
+    workload_setup_s: float
+    workload_setup_amortized_s: float
+    workload_solve_s: float
+    workload_failed_solve_s: float
     workload_online_s: float
+    workload_online_amortized_s: float
     workload_peak_memory: PeakMemory
     missing_system_ids: tuple[SystemId, ...]
 
     @property
-    def converged_solve_s(self) -> float:
+    def workload_converged_solve_s(self) -> float:
         """Solve seconds of the attempts that converged."""
         return _converged_solve_s(self)
 
@@ -136,37 +144,44 @@ def _validate_summary_fields(summary: MethodWorkloadSummary) -> None:
     if not 0 <= summary.n_converged <= summary.n_attempted_rhs <= summary.n_planned_rhs:
         raise ValueError("workload counts must satisfy converged <= attempted <= planned")
     costs = (
-        summary.allocated_setup_s,
-        summary.solve_total_s,
-        summary.failed_solve_s,
+        summary.workload_setup_s,
+        summary.workload_setup_amortized_s,
+        summary.workload_solve_s,
+        summary.workload_failed_solve_s,
         summary.workload_online_s,
+        summary.workload_online_amortized_s,
     )
     if any(not isfinite(cost) or cost < 0 for cost in costs):
         raise ValueError("workload costs must be finite and non-negative")
     if not _derived_seconds_match(
-        summary.workload_online_s, summary.allocated_setup_s + summary.solve_total_s
+        summary.workload_online_s, summary.workload_setup_s + summary.workload_solve_s
     ):
         raise ValueError("workload online time must equal setup plus solve time")
-    if summary.failed_solve_s > summary.solve_total_s and not _derived_seconds_match(
-        summary.failed_solve_s, summary.solve_total_s
+    if not _derived_seconds_match(
+        summary.workload_online_amortized_s,
+        summary.workload_setup_amortized_s + summary.workload_solve_s,
     ):
-        raise ValueError("failed-attempt solve time cannot exceed the solve total")
+        raise ValueError("amortized workload online time must equal amortized setup plus solve")
+    if summary.workload_failed_solve_s > summary.workload_solve_s and not _derived_seconds_match(
+        summary.workload_failed_solve_s, summary.workload_solve_s
+    ):
+        raise ValueError("failed-attempt solve time cannot exceed the workload solve time")
 
 
 def _converged_solve_s(summary: MethodWorkloadSummary) -> float:
-    """The solve total less the failed attempts' time.
+    """The workload solve time less the failed attempts' time.
 
     When every attempt failed the two sums may differ in the last bit, so the difference is
     clamped at zero rather than reported as a negative time.
     """
-    return max(summary.solve_total_s - summary.failed_solve_s, 0.0)
+    return max(summary.workload_solve_s - summary.workload_failed_solve_s, 0.0)
 
 
 def _derived_seconds_match(left: float, right: float) -> bool:
     """Allow the bounded rounding from separately reduced non-negative costs.
 
-    ``matrix_online_s`` rounds each setup-plus-solve row before ``fsum`` reduces
-    it. Four machine epsilons cover that row-rounding total plus the separately
+    ``matrix_online_s`` and ``matrix_online_amortized_s`` round each setup-plus-solve row
+    before ``fsum`` reduces it. Four machine epsilons cover that row-rounding total plus the separately
     rounded setup, solve, and final addition, while excluding material errors.
     """
     return isclose(

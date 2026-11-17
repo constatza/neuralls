@@ -199,7 +199,7 @@ def _source_artifacts(metric: MetricId, artifacts: MethodBenchmarkArtifacts) -> 
             MetricId.ITERATIONS
             | MetricId.SOLVE_S
             | MetricId.ONLINE_S
-            | MetricId.STANDALONE_S
+            | MetricId.ONLINE_AMORTIZED_S
             | MetricId.SETUP_S
             | MetricId.TIME_PER_ITERATION_S
         ):
@@ -221,8 +221,8 @@ def _interval(
         case Statistic.MEAN_OVER_SYSTEMS | Statistic.MEAN_OVER_MATRICES | Statistic.MEAN_AND_MEDIAN:
             return intervals_of_means(observations, variant.metric, variant.population)
         case (
-            Statistic.WORKLOAD_TOTAL
-            | Statistic.OFFLINE_ONLINE_TOTAL
+            Statistic.WORKLOAD_SUM
+            | Statistic.FULL_COST
             | Statistic.ECDF
             | Statistic.PERFORMANCE_PROFILE
             | Statistic.PAIRED_VALUES

@@ -247,8 +247,9 @@ def unbalanced_events() -> Mapping[PreconditionerName, MethodEvents]:
 class SyntheticRow:
     """One hand-written observation: a method's outcome on one system.
 
-    ``seconds`` is the solve time. The online and standalone time of a solved system equal it
-    unless ``online_seconds`` is given, which stands for solve time plus a setup share.
+    ``seconds`` is the solve time. The online time of a solved system, pair and amortized alike
+    (one planned RHS per matrix), equals it unless ``online_seconds`` is given, which stands for
+    solve time plus a setup.
     """
 
     method: PreconditionerName
@@ -290,6 +291,11 @@ def unconverged_row(
     return SyntheticRow(method, system_id, matrix_id, Outcome.UNCONVERGED, dataset=dataset)
 
 
+def _online(row: SyntheticRow) -> float | None:
+    """With one planned RHS per matrix, a pair's online time and its amortized one coincide."""
+    return row.seconds if row.online_seconds is None else row.online_seconds
+
+
 def synthetic_observations(rows: Sequence[SyntheticRow]) -> pl.DataFrame:
     """Observation frame of ``rows`` for tests that need exact hand-chosen values.
 
@@ -310,8 +316,8 @@ def synthetic_observations(rows: Sequence[SyntheticRow]) -> pl.DataFrame:
                 "solve_s": row.seconds,
                 "setup_s": None,
                 "planned_rhs": 1,
-                "online_s": row.seconds if row.online_seconds is None else row.online_seconds,
-                "standalone_s": row.seconds,
+                "online_s": _online(row),
+                "online_amortized_s": _online(row),
             }
             for row in rows
         ],

@@ -284,6 +284,16 @@ def _validate_event_methods(setup: pl.DataFrame, solve: pl.DataFrame, method: st
             raise ValueError("event frame method does not match requested workload")
 
 
+_SUMMARY_ONLINE_KEYS = (
+    "workload_setup_s",
+    "workload_setup_amortized_s",
+    "workload_solve_s",
+    "workload_online_s",
+    "workload_online_amortized_s",
+)
+"""The ``[online]`` sums of a method's ``summary.toml``, named by the cost vocabulary."""
+
+
 def _validate_summary(
     summary: Mapping[str, object],
     setup: pl.DataFrame,
@@ -303,7 +313,7 @@ def _validate_summary(
         value = counts.get(key)
         if not isinstance(value, int) or isinstance(value, bool) or value < 0:
             raise ValueError(f"summary {key} must be a non-negative integer")
-    for key in ("setup_s", "solve_s", "workload_s"):
+    for key in _SUMMARY_ONLINE_KEYS:
         _validate_non_negative_number(online.get(key), f"summary {key}")
     expected_missing = [system_id for system_id in expected_ids if system_id not in solved_ids]
     if expected_missing:
@@ -318,12 +328,25 @@ def _validate_summary(
     if "missing_system_ids" in counts:
         raise ValueError("complete summary must not declare missing systems")
 
-    setup_total = math.fsum(float(value) for value in setup.get_column("setup_s").to_list())
-    solve_total = math.fsum(float(value) for value in solve.get_column("solve_s").to_list())
-    workload_total = setup_total + solve_total
-    _require_close(online.get("setup_s"), setup_total, "setup total")
-    _require_close(online.get("solve_s"), solve_total, "solve total")
-    _require_close(online.get("workload_s"), workload_total, "workload total")
+    # A reusable workload attempted every planned pair, so each matrix's setup is amortized over
+    # exactly its solve rows and each solve row is a pair charged its matrix's whole setup.
+    setup_amortized = math.fsum(float(value) for value in setup.get_column("setup_s").to_list())
+    pair_setups = solve.select("setup_event_id").join(
+        setup.select("setup_event_id", "setup_s"), on="setup_event_id", how="left"
+    )
+    setup_pairs = math.fsum(float(value) for value in pair_setups.get_column("setup_s").to_list())
+    solve_sum = math.fsum(float(value) for value in solve.get_column("solve_s").to_list())
+    _require_close(online.get("workload_setup_s"), setup_pairs, "workload setup")
+    _require_close(
+        online.get("workload_setup_amortized_s"), setup_amortized, "amortized workload setup"
+    )
+    _require_close(online.get("workload_solve_s"), solve_sum, "workload solve")
+    _require_close(online.get("workload_online_s"), setup_pairs + solve_sum, "workload online")
+    _require_close(
+        online.get("workload_online_amortized_s"),
+        setup_amortized + solve_sum,
+        "amortized workload online",
+    )
 
 
 def _validate_summary_memory(memory: object) -> None:

@@ -47,7 +47,7 @@ from neuralls.platform.reporting.figure_recipes import (
 from neuralls.platform.reporting.figure_summaries import figure_summaries
 from neuralls.platform.reporting.figure_table import (
     InvalidFigureTableError,
-    build_cost_breakdown_table,
+    build_full_cost_breakdown_table,
     build_group_table,
     read_group_table,
     write_group_table,
@@ -65,10 +65,10 @@ def table_frames(profile_report: RecipeProfileReport) -> dict[str, pl.DataFrame]
     observations = profile_report.observations
     return {
         "SUMMARY": summarize(observations, MetricId.ITERATIONS, Population.OWN),
-        "SERIES": ecdf_series(observations, MetricId.ONLINE_S).frame,
+        "SERIES": ecdf_series(observations, MetricId.ONLINE_AMORTIZED_S).frame,
         "PAIRED": paired_systems(observations, JACOBI, REFERENCE_METRIC),
         "SPEED_RATIO": speed_ratio_summary(observations, JACOBI, REFERENCE_METRIC),
-        "WORKLOAD_TOTALS": build_group_table(profile_report.summaries),
+        "WORKLOAD": build_group_table(profile_report.summaries),
         "COST_CURVES": break_even_curves(observations, JACOBI),
         "COHORT_SUMMARY": by_cohort(
             observations,
@@ -83,7 +83,7 @@ def table_frames(profile_report: RecipeProfileReport) -> dict[str, pl.DataFrame]
             schema=RATIO_OF_SUMS_SCHEMA,
         ),
         "MATRIX_BREAKDOWN": matrix_breakdown(observations, MetricId.ITERATIONS),
-        "COST_BREAKDOWN": build_cost_breakdown_table(
+        "FULL_COST_BREAKDOWN": build_full_cost_breakdown_table(
             profile_report.summaries, no_offline_cost(profile_report)
         ),
     }
@@ -102,12 +102,12 @@ def test_each_table_kind_has_the_schema_of_the_frame_it_stores() -> None:
     assert schemas[kind.SERIES] == PROFILE_SERIES_SCHEMA
     assert schemas[kind.PAIRED] == PAIRED_SCHEMA
     assert schemas[kind.SPEED_RATIO] == SPEED_RATIO_SCHEMA
-    assert schemas[kind.WORKLOAD_TOTALS] == dict(build_group_table(()).schema)
+    assert schemas[kind.WORKLOAD] == dict(build_group_table(()).schema)
     assert schemas[kind.COST_CURVES] == COST_CURVE_SCHEMA
     assert schemas[kind.COHORT_SUMMARY] == COHORT_SUMMARY_SCHEMA
     assert schemas[kind.COHORT_RATIO_OF_SUMS] == COHORT_RATIO_OF_SUMS_SCHEMA
     assert schemas[kind.MATRIX_BREAKDOWN] == MATRIX_BREAKDOWN_SCHEMA
-    assert schemas[kind.COST_BREAKDOWN] == dict(build_cost_breakdown_table((), {}).schema)
+    assert schemas[kind.FULL_COST_BREAKDOWN] == dict(build_full_cost_breakdown_table((), {}).schema)
 
 
 @pytest.mark.parametrize("name", TABLE_KINDS)

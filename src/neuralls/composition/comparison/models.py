@@ -149,7 +149,7 @@ class CompletedMethodWorkload:
     needs the released preconditioner; it has no systems when no setup succeeded. It must
     belong to ``method``.
 
-    ``offline_cost`` is the historical generation and training cost of the method's artifact
+    ``offline_cost`` is the historical generation and fit cost of the method's artifact
     (both stages `NotApplicable` for a method with nothing to generate or fit); checkpoint and
     data loading are I/O outside the benchmark cost model. Offline cost never contributes to
     setup, solve, or workload-online totals.

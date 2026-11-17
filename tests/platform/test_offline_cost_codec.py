@@ -63,14 +63,14 @@ def test_a_stage_is_stored_with_its_status_and_only_the_fields_of_that_status() 
             "provenance": "historical",
             "peak_bytes": 1024,
         },
-        "training": {"status": "unavailable", "reason": "no recorded training run"},
+        "fit": {"status": "unavailable", "reason": "no recorded training run"},
     }
 
 
 def test_a_stage_that_does_not_apply_stores_only_its_status() -> None:
     assert encode_offline_cost(NO_OFFLINE_COST) == {
         "generation": {"status": "not_applicable"},
-        "training": {"status": "not_applicable"},
+        "fit": {"status": "not_applicable"},
     }
 
 
@@ -80,8 +80,8 @@ def test_a_stage_that_does_not_apply_stores_only_its_status() -> None:
         None,
         {},
         {"generation": {"status": "not_applicable"}},
-        {"generation": {"status": "not_applicable"}, "training": "known"},
-        {"generation": {"status": "free"}, "training": {"status": "not_applicable"}},
+        {"generation": {"status": "not_applicable"}, "fit": "known"},
+        {"generation": {"status": "free"}, "fit": {"status": "not_applicable"}},
         {
             "generation": {
                 "status": "known",
@@ -90,7 +90,7 @@ def test_a_stage_that_does_not_apply_stores_only_its_status() -> None:
                 "fit_folds": "train",
                 "provenance": "guessed",
             },
-            "training": {"status": "not_applicable"},
+            "fit": {"status": "not_applicable"},
         },
         {
             "generation": {
@@ -99,7 +99,7 @@ def test_a_stage_that_does_not_apply_stores_only_its_status() -> None:
                 "fit_folds": "train",
                 "provenance": "historical",
             },
-            "training": {"status": "not_applicable"},
+            "fit": {"status": "not_applicable"},
         },
         {
             "generation": {
@@ -109,7 +109,7 @@ def test_a_stage_that_does_not_apply_stores_only_its_status() -> None:
                 "fit_folds": "train",
                 "provenance": "historical",
             },
-            "training": {"status": "not_applicable"},
+            "fit": {"status": "not_applicable"},
         },
         {
             "generation": {
@@ -119,7 +119,7 @@ def test_a_stage_that_does_not_apply_stores_only_its_status() -> None:
                 "fit_folds": "train",
                 "provenance": "historical",
             },
-            "training": {"status": "not_applicable"},
+            "fit": {"status": "not_applicable"},
         },
         {
             "generation": {
@@ -130,11 +130,11 @@ def test_a_stage_that_does_not_apply_stores_only_its_status() -> None:
                 "provenance": "historical",
                 "peak_bytes": -3,
             },
-            "training": {"status": "not_applicable"},
+            "fit": {"status": "not_applicable"},
         },
         {
             "generation": {"status": "known", "seconds": 1.0, "provenance": "historical"},
-            "training": {"status": "not_applicable"},
+            "fit": {"status": "not_applicable"},
         },
         {
             "generation": {
@@ -143,7 +143,7 @@ def test_a_stage_that_does_not_apply_stores_only_its_status() -> None:
                 "train_share": 0.9,
                 "provenance": "historical",
             },
-            "training": {"status": "not_applicable"},
+            "fit": {"status": "not_applicable"},
         },
         {
             "generation": {
@@ -153,7 +153,7 @@ def test_a_stage_that_does_not_apply_stores_only_its_status() -> None:
                 "fit_folds": "train",
                 "provenance": "historical",
             },
-            "training": {"status": "not_applicable"},
+            "fit": {"status": "not_applicable"},
         },
         {
             "generation": {
@@ -162,11 +162,11 @@ def test_a_stage_that_does_not_apply_stores_only_its_status() -> None:
                 "fit_folds": "train",
                 "provenance": "historical",
             },
-            "training": {"status": "not_applicable"},
+            "fit": {"status": "not_applicable"},
         },
         {
             "generation": {"status": "unavailable"},
-            "training": {"status": "not_applicable"},
+            "fit": {"status": "not_applicable"},
         },
     ],
 )

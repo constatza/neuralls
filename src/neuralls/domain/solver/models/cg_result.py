@@ -55,7 +55,7 @@ class CGComparisonResult:
         helper_iterations: Iterations where step helper was invoked.
         helper_norms: Residual norms after step helper application.
         error: Error message if solver failed.
-        offline_cost: Dataset-generation and training cost behind this preconditioner's
+        offline_cost: Dataset-generation and fit cost behind this preconditioner's
             artifact; nothing is charged when the method has no such stage.
         setup_cost: Representative setup time for this method and matrix. The
             same measured event is copied to sibling RHS diagnostic results;
@@ -140,7 +140,7 @@ class CGComparisonResult:
     """Whether the timed solve repeats reproduced the first one's iteration count."""
 
     offline_cost: OfflineStages = NO_OFFLINE_COST
-    """Dataset-generation and training cost behind this preconditioner's artifact. The solver
+    """Dataset-generation and fit cost behind this preconditioner's artifact. The solver
     layer knows nothing about either, so a fresh result has no offline cost; the composition
     layer replaces it with the method's resolved cost. A comparison run never generates a
     dataset or trains a model itself — those are separate, earlier pipeline stages."""
@@ -182,8 +182,8 @@ class CGComparisonResult:
 
     @property
     def offline_time_seconds(self) -> float | None:
-        """Historical generation plus training time, kept separate from online benchmark costs."""
-        return recorded_seconds(self.offline_cost.total())
+        """Historical generation plus fit time, kept separate from online benchmark costs."""
+        return recorded_seconds(self.offline_cost.combined())
 
     @property
     def has_unavailable_cost(self) -> bool:
@@ -192,7 +192,7 @@ class CGComparisonResult:
         ``setup_cost`` can no longer be unavailable — every preconditioner's
         `.setup()` call is always measured.
         """
-        return isinstance(self.offline_cost.total(), Unavailable)
+        return isinstance(self.offline_cost.combined(), Unavailable)
 
     @property
     def avg_iteration_time_seconds(self) -> float | None:

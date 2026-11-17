@@ -97,9 +97,11 @@ class MLflowBenchmarkMethodSink:
             "success_rate": (
                 summary.n_converged / summary.n_planned_rhs if summary.n_planned_rhs else 0.0
             ),
-            "setup_total_s": summary.allocated_setup_s,
-            "solve_total_s": summary.solve_total_s,
+            "workload_setup_s": summary.workload_setup_s,
+            "workload_setup_amortized_s": summary.workload_setup_amortized_s,
+            "workload_solve_s": summary.workload_solve_s,
             "workload_online_s": summary.workload_online_s,
+            "workload_online_amortized_s": summary.workload_online_amortized_s,
             "n_setup_failed": float(n_setup_failed),
             "n_solve_failed": float(n_solve_failed),
             "iterations_total": float(
@@ -113,8 +115,8 @@ class MLflowBenchmarkMethodSink:
         offline = workload.offline_cost
         for key, stage in (
             ("generation_s", offline.charged_generation()),
-            ("training_s", offline.training),
-            ("offline_s", offline.total()),
+            ("fit_s", offline.fit),
+            ("offline_s", offline.combined()),
         ):
             seconds = recorded_seconds(stage)
             if seconds is not None:

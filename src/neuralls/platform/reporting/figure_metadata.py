@@ -59,7 +59,7 @@ class FigureKind(StrEnum):
     ITERATION_DISTRIBUTION = "iteration_distribution"
     TIME_DISTRIBUTION = "time_distribution"
     MATRIX_HEATMAP = "matrix_heatmap"
-    COST_BREAKDOWN = "cost_breakdown"
+    FULL_COST_BREAKDOWN = "full_cost_breakdown"
     RESIDUAL_HISTORY = "residual_history"
     ENERGY_HISTORY = "energy_history"
 
@@ -79,72 +79,78 @@ class TableKind(StrEnum):
 
     ``PAIRED`` holds the per-system pairs of a scatter, ``SUMMARY`` one row of statistics per
     method, ``SERIES`` the points of a step curve, ``SPEED_RATIO`` one row of ratio statistics per
-    compared method, ``WORKLOAD_TOTALS`` one row of workload sums per method and ``COST_CURVES``
+    compared method, ``WORKLOAD`` one row of workload sums per method and ``COST_CURVES``
     the cumulative cost of each side of a method/reference pair by RHS count.
     ``COHORT_SUMMARY`` and ``COHORT_RATIO_OF_SUMS`` hold per-method statistics by cohort: one block
     per recipe, and at a mixture level the pooled block too (``domain/solver/reporting/cohorts.py``).
     ``MATRIX_BREAKDOWN`` holds one row per method and matrix, exactly the cells of a heatmap.
-    ``COST_BREAKDOWN`` holds one row per method: its offline stages beside its online totals.
+    ``FULL_COST_BREAKDOWN`` holds one row per method: its offline stages beside its online
+    workload sums.
     """
 
     SUMMARY = "summary"
     SERIES = "series"
     PAIRED = "paired"
     SPEED_RATIO = "speed_ratio"
-    WORKLOAD_TOTALS = "workload_totals"
+    WORKLOAD = "workload"
     COST_CURVES = "cost_curves"
     COHORT_SUMMARY = "cohort_summary"
     COHORT_RATIO_OF_SUMS = "cohort_ratio_of_sums"
     MATRIX_BREAKDOWN = "matrix_breakdown"
-    COST_BREAKDOWN = "cost_breakdown"
+    FULL_COST_BREAKDOWN = "full_cost_breakdown"
 
 
 type TableSchema = Mapping[str, pl.DataType | type[pl.DataType]]
 
-WORKLOAD_TOTALS_SCHEMA: TableSchema = {
+WORKLOAD_SCHEMA: TableSchema = {
     "method_id": pl.String,
     "n_planned_rhs": pl.Int64,
     "n_attempted_rhs": pl.Int64,
     "n_converged": pl.Int64,
-    "allocated_setup_s": pl.Float64,
-    "converged_solve_s": pl.Float64,
-    "failed_solve_s": pl.Float64,
-    "solve_total_s": pl.Float64,
+    "workload_setup_s": pl.Float64,
+    "workload_setup_amortized_s": pl.Float64,
+    "workload_converged_solve_s": pl.Float64,
+    "workload_failed_solve_s": pl.Float64,
+    "workload_solve_s": pl.Float64,
     "workload_online_s": pl.Float64,
+    "workload_online_amortized_s": pl.Float64,
 }
-"""One row per method: workload totals, summed over its attempted systems.
+"""One row per method: workload sums over its pairs, named by the vocabulary of
+``domain/solver/README.md``.
 
-``converged_solve_s + failed_solve_s`` is ``solve_total_s`` and adding ``allocated_setup_s`` gives
-``workload_online_s``; setup is one event per matrix shared by all its RHS, so it is not split by
-outcome.
+``workload_converged_solve_s + workload_failed_solve_s`` is ``workload_solve_s``; adding
+``workload_setup_s`` (every pair charged its matrix's setup) gives ``workload_online_s`` and adding
+``workload_setup_amortized_s`` (the setup shared by the RHS of its matrix) gives
+``workload_online_amortized_s``. Setup is one event per matrix serving all its RHS, so it is not
+split by outcome.
 """
 
-COST_BREAKDOWN_SCHEMA: TableSchema = {
+FULL_COST_BREAKDOWN_SCHEMA: TableSchema = {
     "method_id": pl.String,
     "generation_s": pl.Float64,
     "generation_status": pl.String,
     "generation_dataset_s": pl.Float64,
     "generation_share": pl.Float64,
     "generation_folds": pl.String,
-    "training_s": pl.Float64,
-    "training_status": pl.String,
+    "fit_s": pl.Float64,
+    "fit_status": pl.String,
     "fit_origin": pl.String,
-    "allocated_setup_s": pl.Float64,
-    "solve_total_s": pl.Float64,
-    "total_s": pl.Float64,
-    "total_status": pl.String,
+    "workload_setup_s": pl.Float64,
+    "workload_solve_s": pl.Float64,
+    "full_s": pl.Float64,
+    "full_status": pl.String,
 }
-"""One row per method: its offline stages and the online totals of the report's workload.
+"""One row per method: its offline stages and the pair workload sums of the report's workload.
 
 A stage's seconds are null unless its status is ``known``, so a stage that does not apply and one
 that is unavailable both carry no number and are told apart by the status. A known
 ``generation_s`` is ``generation_share`` of the dataset's whole ``generation_dataset_s``: the share
 of its rows in the ``generation_folds`` the fit read of the pinned split, ``train`` for a POD fit
 (a fit job or inline) and ``train_and_validation`` for a neural training job. ``fit_origin`` is
-``none``, ``inline`` (fit during setup, so its time is in ``allocated_setup_s``) or ``job`` (fit
-ahead of time, its time is ``training_s``). ``total_s`` is the
-sum of the known offline seconds, ``allocated_setup_s`` and ``solve_total_s``, and is null when
-the status is ``offline_unavailable``: an unknown stage is never read as zero.
+``none``, ``inline`` (fit during setup, so its time is in ``workload_setup_s``) or ``job`` (fit
+ahead of time, its time is ``fit_s``). ``full_s`` is the sum of the known offline seconds,
+``workload_setup_s`` and ``workload_solve_s``, and is null when the status is
+``offline_unavailable``: an unknown stage is never read as zero.
 """
 
 TABLE_SCHEMAS: Mapping[TableKind, TableSchema] = {
@@ -152,12 +158,12 @@ TABLE_SCHEMAS: Mapping[TableKind, TableSchema] = {
     TableKind.SERIES: PROFILE_SERIES_SCHEMA,
     TableKind.PAIRED: PAIRED_SCHEMA,
     TableKind.SPEED_RATIO: SPEED_RATIO_SCHEMA,
-    TableKind.WORKLOAD_TOTALS: WORKLOAD_TOTALS_SCHEMA,
+    TableKind.WORKLOAD: WORKLOAD_SCHEMA,
     TableKind.COST_CURVES: COST_CURVE_SCHEMA,
     TableKind.COHORT_SUMMARY: COHORT_SUMMARY_SCHEMA,
     TableKind.COHORT_RATIO_OF_SUMS: COHORT_RATIO_OF_SUMS_SCHEMA,
     TableKind.MATRIX_BREAKDOWN: MATRIX_BREAKDOWN_SCHEMA,
-    TableKind.COST_BREAKDOWN: COST_BREAKDOWN_SCHEMA,
+    TableKind.FULL_COST_BREAKDOWN: FULL_COST_BREAKDOWN_SCHEMA,
 }
 """The columns and dtypes, in order, of the table each kind stores; the frames come from the
 domain statistics, so a schema change there reaches the stored tables through this mapping."""
@@ -184,12 +190,12 @@ class Statistic(StrEnum):
 
     The values of the bar statistics are also the summary-table columns their bars are read from.
     ``QUANTILES`` draws a distribution whose box and whiskers are the summary's ``q05`` to ``q95``;
-    ``MEAN_PER_MATRIX`` draws one mean per method and matrix; ``OFFLINE_ONLINE_TOTAL`` stacks a
-    method's offline generation and training, paid once per artifact, on its setup and solve
-    totals over the report's workload.
+    ``MEAN_PER_MATRIX`` draws one mean per method and matrix; ``FULL_COST`` stacks a method's
+    offline generation and fit, paid once per artifact, on its pair setup and solve sums over the
+    report's workload.
     """
 
-    WORKLOAD_TOTAL = "workload_total"
+    WORKLOAD_SUM = "workload_sum"
     ECDF = "ecdf"
     PERFORMANCE_PROFILE = "performance_profile"
     PAIRED_VALUES = "paired_values"
@@ -201,7 +207,7 @@ class Statistic(StrEnum):
     RATIO_OF_SUMS = "ratio_of_sums"
     QUANTILES = "quantiles"
     MEAN_PER_MATRIX = "mean_per_matrix"
-    OFFLINE_ONLINE_TOTAL = "offline_online_total"
+    FULL_COST = "full_cost"
 
 
 class FailureTreatment(StrEnum):

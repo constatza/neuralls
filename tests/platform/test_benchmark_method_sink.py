@@ -79,9 +79,11 @@ EXPECTED_METRIC_KEYS = [
     "n_attempted_rhs",
     "n_converged",
     "success_rate",
-    "setup_total_s",
-    "solve_total_s",
+    "workload_setup_s",
+    "workload_setup_amortized_s",
+    "workload_solve_s",
     "workload_online_s",
+    "workload_online_amortized_s",
     "n_setup_failed",
     "n_solve_failed",
     "iterations_total",
@@ -206,7 +208,7 @@ def test_method_sink_logs_the_recorded_offline_seconds_of_each_stage(
         generation=TrainShareOfGeneration(
             Known(8.5, None, CostProvenance.HISTORICAL), TrainShare(1.0, FitFolds.TRAIN)
         ),
-        training=Known(90.25, None, CostProvenance.HISTORICAL),
+        fit=Known(90.25, None, CostProvenance.HISTORICAL),
     )
 
     method_sink.record_method(
@@ -216,9 +218,9 @@ def test_method_sink_logs_the_recorded_offline_seconds_of_each_stage(
     offline_metrics = {
         key: value
         for key, value in writer.runs[RUN_ID].metrics.items()
-        if key in {"generation_s", "training_s", "offline_s"}
+        if key in {"generation_s", "fit_s", "offline_s"}
     }
-    assert offline_metrics == {"generation_s": 8.5, "training_s": 90.25, "offline_s": 98.75}
+    assert offline_metrics == {"generation_s": 8.5, "fit_s": 90.25, "offline_s": 98.75}
 
 
 def test_method_sink_logs_no_number_for_an_unavailable_stage(
@@ -232,7 +234,7 @@ def test_method_sink_logs_no_number_for_an_unavailable_stage(
         generation=TrainShareOfGeneration(
             Known(8.5, None, CostProvenance.HISTORICAL), TrainShare(1.0, FitFolds.TRAIN)
         ),
-        training=Unavailable("no recorded training run"),
+        fit=Unavailable("no recorded training run"),
     )
 
     method_sink.record_method(
@@ -242,7 +244,7 @@ def test_method_sink_logs_no_number_for_an_unavailable_stage(
     offline_metrics = {
         key: value
         for key, value in writer.runs[RUN_ID].metrics.items()
-        if key in {"generation_s", "training_s", "offline_s"}
+        if key in {"generation_s", "fit_s", "offline_s"}
     }
     assert offline_metrics == {"generation_s": 8.5}
 

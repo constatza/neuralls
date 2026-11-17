@@ -1,4 +1,4 @@
-"""The tables stored beside group figures: the workload totals builder and per-kind validation."""
+"""The tables stored beside group figures: the workload and full-cost builders and per-kind validation."""
 
 from __future__ import annotations
 
@@ -18,15 +18,15 @@ from neuralls.domain.solver.models.cost import (
     recorded_seconds,
 )
 from neuralls.domain.solver.models.workload import MethodWorkloadSummary
-from neuralls.domain.solver.reporting.total_cost import (
+from neuralls.domain.solver.reporting.full_cost import (
     Complete,
     OfflineUnavailable,
-    total_cost_seconds,
+    full_cost_seconds,
 )
 from neuralls.platform.reporting.figure_metadata import (
-    COST_BREAKDOWN_SCHEMA,
+    FULL_COST_BREAKDOWN_SCHEMA,
     TABLE_SCHEMAS,
-    WORKLOAD_TOTALS_SCHEMA,
+    WORKLOAD_SCHEMA,
     TableKind,
 )
 from neuralls.platform.reporting.offline_cost_codec import fit_origin_kind, stage_status
@@ -38,7 +38,7 @@ class InvalidFigureTableError(ValueError):
 
 
 def build_group_table(summaries: Iterable[MethodWorkloadSummary]) -> pl.DataFrame:
-    """The workload-totals table: one row per method drawn, ordered by method id."""
+    """The workload table: one row per method drawn, ordered by method id."""
     rows = sorted(
         (
             {
@@ -46,50 +46,52 @@ def build_group_table(summaries: Iterable[MethodWorkloadSummary]) -> pl.DataFram
                 "n_planned_rhs": summary.n_planned_rhs,
                 "n_attempted_rhs": summary.n_attempted_rhs,
                 "n_converged": summary.n_converged,
-                "allocated_setup_s": summary.allocated_setup_s,
-                "converged_solve_s": summary.converged_solve_s,
-                "failed_solve_s": summary.failed_solve_s,
-                "solve_total_s": summary.solve_total_s,
+                "workload_setup_s": summary.workload_setup_s,
+                "workload_setup_amortized_s": summary.workload_setup_amortized_s,
+                "workload_converged_solve_s": summary.workload_converged_solve_s,
+                "workload_failed_solve_s": summary.workload_failed_solve_s,
+                "workload_solve_s": summary.workload_solve_s,
                 "workload_online_s": summary.workload_online_s,
+                "workload_online_amortized_s": summary.workload_online_amortized_s,
             }
             for summary in summaries
         ),
         key=lambda row: row["method_id"],
     )
-    return pl.DataFrame(rows, schema=WORKLOAD_TOTALS_SCHEMA)
+    return pl.DataFrame(rows, schema=WORKLOAD_SCHEMA)
 
 
-class TotalStatus(StrEnum):
-    """Whether a method's total cost is known: every offline stage is, or does not apply."""
+class FullStatus(StrEnum):
+    """Whether a method's full cost is known: every offline stage is, or does not apply."""
 
     COMPLETE = "complete"
     OFFLINE_UNAVAILABLE = "offline_unavailable"
 
 
-def build_cost_breakdown_table(
+def build_full_cost_breakdown_table(
     summaries: Iterable[MethodWorkloadSummary],
     offline: Mapping[PreconditionerName, OfflineStages],
 ) -> pl.DataFrame:
-    """The cost-breakdown table: one row per method drawn, ordered by method id.
+    """The full-cost breakdown table: one row per method drawn, ordered by method id.
 
     ``offline`` holds the offline stages of every method of ``summaries``; the online columns are
-    the workload totals of the summary, and the total is `total_cost_seconds` of the two.
+    the pair workload sums of the summary, and the full cost is `full_cost_seconds` of the two.
     """
     ordered = sorted(summaries, key=lambda summary: str(summary.method))
-    rows = [_cost_breakdown_row(summary, offline[summary.method]) for summary in ordered]
-    return pl.DataFrame(rows, schema=COST_BREAKDOWN_SCHEMA)
+    rows = [_full_cost_breakdown_row(summary, offline[summary.method]) for summary in ordered]
+    return pl.DataFrame(rows, schema=FULL_COST_BREAKDOWN_SCHEMA)
 
 
-def _cost_breakdown_row(
+def _full_cost_breakdown_row(
     summary: MethodWorkloadSummary, offline: OfflineStages
 ) -> dict[str, str | float | None]:
-    match total_cost_seconds(offline, summary.workload_online_s):
-        case Complete(seconds=total_s):
-            total_status = TotalStatus.COMPLETE
-            total: float | None = total_s
+    match full_cost_seconds(offline, summary.workload_online_s):
+        case Complete(seconds=seconds):
+            full_status = FullStatus.COMPLETE
+            full_s: float | None = seconds
         case OfflineUnavailable():
-            total_status = TotalStatus.OFFLINE_UNAVAILABLE
-            total = None
+            full_status = FullStatus.OFFLINE_UNAVAILABLE
+            full_s = None
         case unreachable:
             assert_never(unreachable)
     return {
@@ -97,13 +99,13 @@ def _cost_breakdown_row(
         "generation_s": recorded_seconds(offline.charged_generation()),
         "generation_status": stage_status(offline.charged_generation()).value,
         **_generation_charge(offline.generation),
-        "training_s": recorded_seconds(offline.training),
-        "training_status": stage_status(offline.training).value,
+        "fit_s": recorded_seconds(offline.fit),
+        "fit_status": stage_status(offline.fit).value,
         "fit_origin": fit_origin_kind(offline.fit_origin()).value,
-        "allocated_setup_s": summary.allocated_setup_s,
-        "solve_total_s": summary.solve_total_s,
-        "total_s": total,
-        "total_status": total_status.value,
+        "workload_setup_s": summary.workload_setup_s,
+        "workload_solve_s": summary.workload_solve_s,
+        "full_s": full_s,
+        "full_status": full_status.value,
     }
 
 

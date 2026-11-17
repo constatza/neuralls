@@ -159,7 +159,7 @@ def comparison_result_with_offline_cost() -> CGComparisonResult:
                 ),
                 TrainShare(1.0, FitFolds.TRAIN),
             ),
-            training=NotApplicable(),
+            fit=NotApplicable(),
         ),
         setup_cost=2.0,
         setup_peak_memory_bytes=1000,

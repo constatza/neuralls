@@ -161,7 +161,7 @@ def test_group_observations_are_the_systems_of_the_group_with_their_outcome(meth
     assert isinstance(group, RecipeProfileReport)
     # setup 2.0 over the 2 planned RHS adds 1.0 to a solve time of 0.5
     assert group.observations.select(
-        "system_id", "outcome", "iterations", "solve_s", "online_s"
+        "system_id", "outcome", "iterations", "solve_s", "online_amortized_s"
     ).rows() == [
         (tags[0].system_id, "converged", 3, 0.5, 1.5),
         (tags[1].system_id, "unconverged", 100, 0.5, 1.5),
@@ -193,9 +193,12 @@ def test_matrix_set_rhs_type_summary_allocates_setup_using_complete_matrix_membe
     assert all(isinstance(report, RecipeProfileReport) for report in reports)
 
     rhs_type_reports = [report for report in reports if isinstance(report, RecipeProfileReport)]
-    assert [report.summaries[0].allocated_setup_s for report in rhs_type_reports] == [1.0, 1.0]
+    assert [report.summaries[0].workload_setup_amortized_s for report in rhs_type_reports] == [
+        1.0,
+        1.0,
+    ]
     assert sum(
-        report.summaries[0].allocated_setup_s for report in rhs_type_reports
+        report.summaries[0].workload_setup_amortized_s for report in rhs_type_reports
     ) == pytest.approx(2.0)
     assert [report.observations["planned_rhs"].to_list() for report in rhs_type_reports] == [
         [2],

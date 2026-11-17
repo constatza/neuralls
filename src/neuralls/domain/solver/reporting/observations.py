@@ -127,7 +127,7 @@ OBSERVATION_SCHEMA: dict[str, pl.DataType | type[pl.DataType]] = {
     "setup_s": pl.Float64,
     "planned_rhs": pl.Int64,
     "online_s": pl.Float64,
-    "standalone_s": pl.Float64,
+    "online_amortized_s": pl.Float64,
     "time_per_iteration_s": pl.Float64,
     "convergence_factor": pl.Float64,
     "true_residual_rel": pl.Float64,
@@ -179,8 +179,8 @@ def observations(
     """Join one method's stored frames into one row per planned system.
 
     ``planned_rhs`` counts the planned systems of a system's ``(dataset, matrix_id)`` over every
-    recipe in ``planned_systems``, which is the count the amortized online time divides the
-    matrix setup by. ``convergence_factor`` is the system's ``convergence_factors`` value, null
+    recipe in ``planned_systems``, which is the count ``online_amortized_s`` divides the matrix
+    setup by; ``online_s`` charges each (matrix, RHS) pair its matrix's whole setup. ``convergence_factor`` is the system's ``convergence_factors`` value, null
     without a stored history.
 
     Raises:
@@ -223,8 +223,8 @@ def observations(
             iterations=pl.when(has_iterations).then(pl.col("iterations")),
         )
         .with_columns(
-            online_s=pl.col("solve_s") + pl.col("setup_s") / pl.col("planned_rhs"),
-            standalone_s=pl.col("solve_s") + pl.col("setup_s"),
+            online_s=pl.col("setup_s") + pl.col("solve_s"),
+            online_amortized_s=pl.col("setup_s") / pl.col("planned_rhs") + pl.col("solve_s"),
             time_per_iteration_s=pl.when(pl.col("iterations") >= 1).then(
                 pl.col("solve_s") / pl.col("iterations")
             ),

@@ -21,7 +21,7 @@ from neuralls.domain.solver.reporting.metrics import MetricId
 from neuralls.platform.reporting.figure_evidence import intervals_of_speed_ratios
 from neuralls.shared.rhs_recipe import recipe_key
 
-_PROFILE_METRICS = (MetricId.ITERATIONS, MetricId.SOLVE_S, MetricId.ONLINE_S)
+_PROFILE_METRICS = (MetricId.ITERATIONS, MetricId.SOLVE_S, MetricId.ONLINE_AMORTIZED_S)
 
 
 def _by_recipe(observations: pl.DataFrame) -> list[pl.DataFrame]:
@@ -84,7 +84,7 @@ def test_a_failure_of_one_recipe_keeps_the_pooled_curve_below_one(pooled: pl.Dat
     ]
 
 
-@pytest.mark.parametrize("metric", [MetricId.SOLVE_S, MetricId.ONLINE_S])
+@pytest.mark.parametrize("metric", [MetricId.SOLVE_S, MetricId.ONLINE_AMORTIZED_S])
 def test_the_pooled_performance_ratios_are_the_recipes_ratios_taken_together(
     pooled: pl.DataFrame, metric: MetricId
 ) -> None:
@@ -110,21 +110,26 @@ def test_the_pooled_performance_ratio_is_taken_against_the_best_method_of_each_s
 
 
 def test_the_pooled_pairs_are_the_recipes_pairs_taken_together(pooled: pl.DataFrame) -> None:
-    parts = [paired_systems(part, JACOBI, MetricId.ONLINE_S) for part in _by_recipe(pooled)]
+    parts = [
+        paired_systems(part, JACOBI, MetricId.ONLINE_AMORTIZED_S) for part in _by_recipe(pooled)
+    ]
 
     assert_frame_equal(
-        paired_systems(pooled, JACOBI, MetricId.ONLINE_S),
+        paired_systems(pooled, JACOBI, MetricId.ONLINE_AMORTIZED_S),
         pl.concat(parts).sort("method", "dataset", "matrix_id", "system_id"),
     )
 
 
 def test_the_pooled_speed_ratio_counts_the_systems_of_every_recipe(pooled: pl.DataFrame) -> None:
     parts = pl.concat(
-        [speed_ratio_summary(part, JACOBI, MetricId.ONLINE_S) for part in _by_recipe(pooled)]
+        [
+            speed_ratio_summary(part, JACOBI, MetricId.ONLINE_AMORTIZED_S)
+            for part in _by_recipe(pooled)
+        ]
     )
     columns = ["n_systems_both_solved", "n_ratio", "n_reference_only", "n_method_only"]
 
-    summary = speed_ratio_summary(pooled, JACOBI, MetricId.ONLINE_S)
+    summary = speed_ratio_summary(pooled, JACOBI, MetricId.ONLINE_AMORTIZED_S)
 
     expected = parts.group_by("method").agg(pl.col(columns).sum())
     assert_frame_equal(summary.select("method", *columns).sort("method"), expected.sort("method"))
@@ -133,11 +138,11 @@ def test_the_pooled_speed_ratio_counts_the_systems_of_every_recipe(pooled: pl.Da
 def test_the_speed_ratio_interval_clusters_by_matrix_across_the_recipes_that_share_it(
     pooled: pl.DataFrame, shared_matrices: pl.DataFrame
 ) -> None:
-    separate = speed_ratio_summary(pooled, JACOBI, MetricId.ONLINE_S)
-    interleaved = speed_ratio_summary(shared_matrices, JACOBI, MetricId.ONLINE_S)
+    separate = speed_ratio_summary(pooled, JACOBI, MetricId.ONLINE_AMORTIZED_S)
+    interleaved = speed_ratio_summary(shared_matrices, JACOBI, MetricId.ONLINE_AMORTIZED_S)
     per_recipe = pl.concat(
         [
-            speed_ratio_summary(part, JACOBI, MetricId.ONLINE_S)
+            speed_ratio_summary(part, JACOBI, MetricId.ONLINE_AMORTIZED_S)
             for part in _by_recipe(shared_matrices)
         ]
     )
@@ -149,5 +154,7 @@ def test_the_speed_ratio_interval_clusters_by_matrix_across_the_recipes_that_sha
     )
     assert [
         entry.interval.matrices
-        for entry in intervals_of_speed_ratios(shared_matrices, JACOBI, MetricId.ONLINE_S).methods
+        for entry in intervals_of_speed_ratios(
+            shared_matrices, JACOBI, MetricId.ONLINE_AMORTIZED_S
+        ).methods
     ] == interleaved["n_matrices"].to_list()

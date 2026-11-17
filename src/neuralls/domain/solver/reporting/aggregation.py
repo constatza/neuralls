@@ -49,39 +49,47 @@ def build_matrix_bundle_frame(
     """Build one setup-aware online-cost row per method and matrix.
 
     ``planned`` selects the report membership; ``allocation_planned`` keeps a
-    matrix-set-and-RHS-type group's setup share tied to the complete matrix RHS bundle.
+    matrix-set-and-RHS-type group's amortized setup share tied to the complete matrix RHS
+    bundle. ``matrix_setup_s`` charges each planned pair of the group its matrix's whole setup;
+    ``matrix_setup_amortized_s`` charges it the setup divided by the matrix's planned RHS.
     """
     _validate_event_links(planned, setup_events, attempts)
     planned_counts = _planned_matrix_counts(planned)
     allocation_counts = _planned_matrix_counts(allocation_planned or planned).rename(
         {"planned_rhs_count": "allocation_rhs_count"}
     )
-    solve_totals = (
+    solve_sums = (
         build_solve_frame(attempts)
         .group_by("setup_event_id")
         .agg(
             attempted_rhs_count=pl.len(),
             converged_rhs_count=(pl.col("solve_status") == "converged").sum(),
-            solve_total_s=pl.col("solve_s").sum(),
-            failed_solve_s=pl.col("solve_s").filter(pl.col("solve_status") != "converged").sum(),
+            matrix_solve_s=pl.col("solve_s").sum(),
+            matrix_failed_solve_s=pl.col("solve_s")
+            .filter(pl.col("solve_status") != "converged")
+            .sum(),
         )
     )
     return (
         build_setup_frame(setup_events)
         .join(allocation_counts, on=["dataset", "matrix_id"], how="left", validate="m:1")
         .join(planned_counts, on=["dataset", "matrix_id"], how="left", validate="m:1")
-        .join(solve_totals, on="setup_event_id", how="left", validate="1:1")
+        .join(solve_sums, on="setup_event_id", how="left", validate="1:1")
         .with_columns(
             pl.col("attempted_rhs_count").fill_null(0),
             pl.col("converged_rhs_count").fill_null(0),
-            pl.col("solve_total_s").fill_null(0.0),
-            pl.col("failed_solve_s").fill_null(0.0),
+            pl.col("matrix_solve_s").fill_null(0.0),
+            pl.col("matrix_failed_solve_s").fill_null(0.0),
         )
         .with_columns(
-            allocated_setup_s=pl.col("setup_s")
+            matrix_setup_s=pl.col("setup_s") * pl.col("planned_rhs_count"),
+            matrix_setup_amortized_s=pl.col("setup_s")
             * pl.col("planned_rhs_count")
             / pl.col("allocation_rhs_count"),
-            matrix_online_s=pl.col("setup_s") + pl.col("solve_total_s"),
+        )
+        .with_columns(
+            matrix_online_s=pl.col("matrix_setup_s") + pl.col("matrix_solve_s"),
+            matrix_online_amortized_s=pl.col("matrix_setup_amortized_s") + pl.col("matrix_solve_s"),
         )
     )
 
@@ -106,15 +114,6 @@ def summarize_method_workload(
     )
     attempted_ids = {attempt.system_id for attempt in method_attempts}
     missing_ids = tuple(tag.system_id for tag in planned if tag.system_id not in attempted_ids)
-    allocated_setup_s = fsum(bundles["allocated_setup_s"])
-    solve_total_s = fsum(bundles["solve_total_s"])
-    failed_solve_s = fsum(bundles["failed_solve_s"])
-    workload_online_s = fsum(
-        setup_s + solve_s
-        for setup_s, solve_s in zip(
-            bundles["allocated_setup_s"], bundles["solve_total_s"], strict=True
-        )
-    )
     n_attempted_rhs = len(method_attempts)
     n_converged = sum(isinstance(attempt.outcome, SolveConverged) for attempt in method_attempts)
     summary_fields = {
@@ -122,10 +121,12 @@ def summarize_method_workload(
         "n_planned_rhs": len(planned),
         "n_attempted_rhs": n_attempted_rhs,
         "n_converged": n_converged,
-        "allocated_setup_s": allocated_setup_s,
-        "solve_total_s": solve_total_s,
-        "failed_solve_s": failed_solve_s,
-        "workload_online_s": workload_online_s,
+        "workload_setup_s": fsum(bundles["matrix_setup_s"]),
+        "workload_setup_amortized_s": fsum(bundles["matrix_setup_amortized_s"]),
+        "workload_solve_s": fsum(bundles["matrix_solve_s"]),
+        "workload_failed_solve_s": fsum(bundles["matrix_failed_solve_s"]),
+        "workload_online_s": fsum(bundles["matrix_online_s"]),
+        "workload_online_amortized_s": fsum(bundles["matrix_online_amortized_s"]),
         "workload_peak_memory": workload_peak_memory,
     }
     if missing_ids:

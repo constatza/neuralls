@@ -91,7 +91,7 @@ def test_a_method_with_nothing_defined_has_no_violin_but_keeps_its_counts(
     profile_report: RecipeProfileReport,
 ) -> None:
     summary = figure_summaries(profile_report, no_offline_cost(profile_report))[
-        "time_distribution_online"
+        "time_distribution_online_amortized"
     ]
 
     panel = distribution_panel(summary)

@@ -27,8 +27,8 @@ from tests.observation_support import AMG, BROKEN, DATASET, JACOBI
 SYSTEM_METRICS = (
     MetricId.ITERATIONS,
     MetricId.SOLVE_S,
+    MetricId.ONLINE_AMORTIZED_S,
     MetricId.ONLINE_S,
-    MetricId.STANDALONE_S,
 )
 CONVERGED_AMG_SYSTEMS = ["m1-0", "m1-1", "m1-2", "m2-0"]
 STATISTICS = [

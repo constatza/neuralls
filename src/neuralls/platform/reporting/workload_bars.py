@@ -1,7 +1,8 @@
-"""Workload-total bars: all matrix setups plus all solves per method, stacked by outcome.
+"""Workload bars: the setup and solve seconds of a method's pairs, summed and stacked by outcome.
 
-The bars show totals, not a per-system share, stacked so the seconds spent on attempts that
-failed are not read as cheap converged solves.
+The bars show workload sums, not a per-pair share, stacked so the seconds spent on attempts that
+failed are not read as cheap converged solves. The column names are the cost vocabulary of
+``domain/solver/README.md``.
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ import numpy as np
 import polars as pl
 from matplotlib.patches import Patch
 
+from neuralls.domain.solver.reporting.metrics import MetricId
 from neuralls.platform.reporting.figure_annotations import ColumnAnnotation, annotate_columns
 from neuralls.platform.reporting.figure_formats import FigureTarget
 from neuralls.platform.reporting.figure_sizing import bar_columns_figure_size
@@ -27,18 +29,57 @@ from neuralls.platform.reporting.stacked_segments import segment_key
 
 
 class WorkloadTotal(StrEnum):
-    """The workload total a bar figure draws, named by its workload-totals column."""
+    """The workload sum a bar figure draws, named by its workload-table column."""
 
-    SOLVE = "solve_total_s"
+    SOLVE = "workload_solve_s"
     ONLINE = "workload_online_s"
+    ONLINE_AMORTIZED = "workload_online_amortized_s"
 
 
 class BarSegment(StrEnum):
-    """One stacked part of a workload bar, named by the workload-totals column it draws."""
+    """One stacked part of a workload bar, named by the workload-table column it draws."""
 
-    SETUP = "allocated_setup_s"
-    CONVERGED = "converged_solve_s"
-    FAILED = "failed_solve_s"
+    SETUP = "workload_setup_s"
+    SETUP_AMORTIZED = "workload_setup_amortized_s"
+    CONVERGED = "workload_converged_solve_s"
+    FAILED = "workload_failed_solve_s"
+
+
+def workload_total(metric: MetricId) -> WorkloadTotal:
+    """The workload sum of the per-pair time ``metric``.
+
+    Raises:
+        ValueError: ``metric`` is not a per-pair time with a workload sum.
+    """
+    match metric:
+        case MetricId.SOLVE_S:
+            return WorkloadTotal.SOLVE
+        case MetricId.ONLINE_S:
+            return WorkloadTotal.ONLINE
+        case MetricId.ONLINE_AMORTIZED_S:
+            return WorkloadTotal.ONLINE_AMORTIZED
+        case (
+            MetricId.ITERATIONS
+            | MetricId.SETUP_S
+            | MetricId.TIME_PER_ITERATION_S
+            | MetricId.CONVERGENCE_FACTOR
+        ):
+            raise ValueError(f"metric {metric} has no workload sum")
+        case unreachable:
+            assert_never(unreachable)
+
+
+def workload_ylabel(total: WorkloadTotal) -> str:
+    """The y label of a bar of ``total``."""
+    match total:
+        case WorkloadTotal.SOLVE:
+            return "Solve-only workload sum, incl. failed solves [s]"
+        case WorkloadTotal.ONLINE:
+            return "Online workload sum, setup charged to each pair, incl. failed solves [s]"
+        case WorkloadTotal.ONLINE_AMORTIZED:
+            return "Amortized online workload sum, setup once per matrix, incl. failed solves [s]"
+        case unreachable:
+            assert_never(unreachable)
 
 
 def workload_segments(total: WorkloadTotal) -> tuple[BarSegment, ...]:
@@ -52,6 +93,8 @@ def workload_segments(total: WorkloadTotal) -> tuple[BarSegment, ...]:
             return (BarSegment.CONVERGED, BarSegment.FAILED)
         case WorkloadTotal.ONLINE:
             return (BarSegment.SETUP, BarSegment.CONVERGED, BarSegment.FAILED)
+        case WorkloadTotal.ONLINE_AMORTIZED:
+            return (BarSegment.SETUP_AMORTIZED, BarSegment.CONVERGED, BarSegment.FAILED)
         case unreachable:
             assert_never(unreachable)
 
@@ -68,7 +111,9 @@ class _SegmentLook:
 def _segment_look(segment: BarSegment) -> _SegmentLook:
     match segment:
         case BarSegment.SETUP:
-            return _SegmentLook("matrix setup", 0.35, None)
+            return _SegmentLook("matrix setup, charged to each pair", 0.35, None)
+        case BarSegment.SETUP_AMORTIZED:
+            return _SegmentLook("matrix setup, shared by the RHS of its matrix", 0.35, None)
         case BarSegment.CONVERGED:
             return _SegmentLook("solves that converged", 1.0, None)
         case BarSegment.FAILED:
@@ -89,14 +134,13 @@ def plot_workload_bars(
     totals: pl.DataFrame,
     *,
     total: WorkloadTotal,
-    ylabel: str,
     style: GroupStyle,
     target: FigureTarget,
 ) -> FigureTarget | None:
-    """Draw one workload total per method, stacked by ``workload_segments``.
+    """Draw one workload sum per method, stacked by ``workload_segments``.
 
-    ``totals`` is the workload-totals table and every segment is one of its columns. A total is
-    not a per-system amortized share. The seconds of failed attempts are a hatched segment and
+    ``totals`` is the workload table and every segment is one of its columns. A sum is not a
+    per-pair share. The seconds of failed attempts are a hatched segment and
     the count above each bar says how many planned RHS converged, so a method that fails fast
     is not read as a cheap one.
     """
@@ -148,7 +192,7 @@ def plot_workload_bars(
         bbox_to_anchor=(1.01, 1.0),
         fontsize=LEGEND_FONT_SIZE,
     )
-    ax.set_ylabel(ylabel)
+    ax.set_ylabel(workload_ylabel(total))
     ax.set_xlabel("Method")
     finish_group_figure(
         fig,

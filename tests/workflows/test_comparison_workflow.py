@@ -1035,7 +1035,7 @@ def test_preparation_keeps_checkpoint_when_training_data_config_is_unavailable(
         assert offline.generation == Unavailable(
             "training dataset config is unavailable or invalid"
         )
-        assert offline.training == Known(3.0, None, CostProvenance.HISTORICAL)
+        assert offline.fit == Known(3.0, None, CostProvenance.HISTORICAL)
         tracking.client.return_value.get_run.assert_called_once_with("training-run")
     finally:
         prepared.cleanup.close()

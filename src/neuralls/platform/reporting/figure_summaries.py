@@ -35,7 +35,10 @@ from neuralls.platform.reporting.figure_recipes import (
     drawn_reference,
     drawn_variants,
 )
-from neuralls.platform.reporting.figure_table import build_cost_breakdown_table, build_group_table
+from neuralls.platform.reporting.figure_table import (
+    build_full_cost_breakdown_table,
+    build_group_table,
+)
 from neuralls.shared.types import PreconditionerName
 
 
@@ -64,10 +67,10 @@ def _summary(
 ) -> pl.DataFrame:
     observations = outcome.observations
     match variant.statistic:
-        case Statistic.WORKLOAD_TOTAL:
+        case Statistic.WORKLOAD_SUM:
             return build_group_table(outcome.summaries)
-        case Statistic.OFFLINE_ONLINE_TOTAL:
-            return build_cost_breakdown_table(outcome.summaries, offline)
+        case Statistic.FULL_COST:
+            return build_full_cost_breakdown_table(outcome.summaries, offline)
         case Statistic.ECDF:
             return ecdf_series(observations, variant.metric).frame
         case Statistic.PERFORMANCE_PROFILE:

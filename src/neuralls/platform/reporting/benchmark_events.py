@@ -312,9 +312,11 @@ def _write_summary(workload: MethodWorkload, summary: MethodWorkloadSummary, pat
             "converged": summary.n_converged,
         },
         "online": {
-            "setup_s": summary.allocated_setup_s,
-            "solve_s": summary.solve_total_s,
-            "workload_s": summary.workload_online_s,
+            "workload_setup_s": summary.workload_setup_s,
+            "workload_setup_amortized_s": summary.workload_setup_amortized_s,
+            "workload_solve_s": summary.workload_solve_s,
+            "workload_online_s": summary.workload_online_s,
+            "workload_online_amortized_s": summary.workload_online_amortized_s,
         },
         "memory": {"status": peak_status},
     }

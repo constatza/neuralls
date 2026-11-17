@@ -33,7 +33,7 @@ ECDF_BUDGETS: tuple[tuple[MetricId, CurveValues], ...] = (
     (
         # solve time plus the setup of the matrix over its planned RHS: amg m1 +6/3, m2 +12/3;
         # jacobi m1 +1/3, m2 +2/3, m3 +0.1/2, m4 +0.2/1
-        MetricId.ONLINE_S,
+        MetricId.ONLINE_AMORTIZED_S,
         {
             AMG: [3.0, 4.0, 5.0, 8.0],
             JACOBI: [0.15, 0.25, 0.5, 0.5 + 1 / 3, 0.6 + 1 / 3, 0.7 + 1 / 3]
@@ -59,7 +59,7 @@ PROFILE_RATIOS: tuple[tuple[MetricId, CurveValues], ...] = (
     (
         # jacobi is fastest everywhere; amg has ratios 3/(0.5+1/3), 4/(0.6+1/3), 5/(0.7+1/3),
         # 8/(0.8+2/3)
-        MetricId.ONLINE_S,
+        MetricId.ONLINE_AMORTIZED_S,
         {
             AMG: [3 / (0.5 + 1 / 3), 4 / (0.6 + 1 / 3), 5 / (0.7 + 1 / 3), 8 / (0.8 + 2 / 3)],
             JACOBI: [1.0] * 9,

@@ -33,12 +33,12 @@ VALUE_COLUMNS = [
     "solve_s",
     "setup_s",
     "planned_rhs",
+    "online_amortized_s",
     "online_s",
-    "standalone_s",
     "time_per_iteration_s",
 ]
 AMG_ROWS = {
-    # outcome, iterations, solve_s, setup_s, planned_rhs, online_s, standalone_s, time/iteration
+    # outcome, iterations, solve_s, setup_s, planned_rhs, online_amortized_s, online_s, time/iteration
     "m1-0": ("converged", 2, 1.0, 6.0, 3, 3.0, 7.0, 0.5),
     "m1-1": ("converged", 5, 2.0, 6.0, 3, 4.0, 8.0, 0.4),
     "m1-2": ("converged", 3, 3.0, 6.0, 3, 5.0, 9.0, 1.0),
@@ -64,6 +64,23 @@ CORRUPTIONS = (
 @pytest.fixture
 def amg_observations(unbalanced_observations: pl.DataFrame) -> pl.DataFrame:
     return unbalanced_observations.filter(pl.col("method") == AMG)
+
+
+@pytest.fixture
+def one_rhs_observations(
+    unbalanced_frames: Mapping[PreconditionerName, MethodFrames],
+) -> pl.DataFrame:
+    """The ``amg`` view with only the first RHS of each matrix planned, so ``planned_rhs`` is 1."""
+    frames = unbalanced_frames[AMG]
+    planned = frames.planned_systems.filter(pl.col("rhs_ordinal") == 0)
+    kept = pl.col("system_id").is_in(planned["system_id"].implode())
+    return observations(
+        AMG,
+        planned,
+        frames.setup_events,
+        frames.solve_attempts.filter(kept),
+        frames.convergence.filter(kept),
+    )
 
 
 @pytest.fixture
@@ -196,13 +213,29 @@ def test_online_time_is_solve_time_plus_the_setup_share_of_the_planned_rhs(
     unbalanced_observations: pl.DataFrame, method: PreconditionerName
 ) -> None:
     observed = {
-        row["system_id"]: row["online_s"]
+        row["system_id"]: row["online_amortized_s"]
         for row in unbalanced_observations.filter(
             (pl.col("method") == method) & (pl.col("outcome") == "converged")
         ).iter_rows(named=True)
     }
 
     assert observed == pytest.approx(ONLINE_SECONDS[method])
+
+
+@pytest.mark.parametrize(
+    ("view", "one_rhs_per_matrix"),
+    [("unbalanced_observations", False), ("one_rhs_observations", True)],
+)
+def test_a_pair_is_charged_its_whole_setup_which_the_amortized_time_shares(
+    request: pytest.FixtureRequest, view: str, one_rhs_per_matrix: bool
+) -> None:
+    """With one planned RHS per matrix the amortized share is the whole setup."""
+    solved = request.getfixturevalue(view).filter(pl.col("outcome") == "converged")
+
+    assert solved["online_s"].to_list() == pytest.approx(
+        (solved["setup_s"] + solved["solve_s"]).to_list()
+    )
+    assert (solved["online_s"] == solved["online_amortized_s"]).all() is one_rhs_per_matrix
 
 
 def test_residual_threshold_and_timing_spread_follow_the_solve_rows(

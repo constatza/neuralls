@@ -245,10 +245,12 @@ def group(group_observations: pl.DataFrame) -> RecipeProfileReport:
                 n_planned_rhs=4,
                 n_attempted_rhs=4,
                 n_converged=3,
-                allocated_setup_s=2.0,
-                solve_total_s=7.0,
-                failed_solve_s=1.0,
+                workload_setup_s=2.0,
+                workload_setup_amortized_s=2.0,
+                workload_solve_s=7.0,
+                workload_failed_solve_s=1.0,
                 workload_online_s=9.0,
+                workload_online_amortized_s=9.0,
                 workload_peak_memory=UnknownPeakMemory(),
             ),
         ),
@@ -399,26 +401,31 @@ _COHORT_STEMS = (
     "iteration_means",
     "time_means_solve_own",
     "time_means_solve_common",
+    "time_means_online_amortized_own",
+    "time_means_online_amortized_common",
     "time_means_online_own",
     "time_means_online_common",
-    "time_means_standalone_own",
-    "time_means_standalone_common",
     "setup_means",
     "time_per_iteration",
     "iteration_distribution",
     "time_distribution_solve",
     "time_distribution_online",
+    "time_distribution_online_amortized",
 )
 """The figures drawn once per cohort: means, time per iteration, distributions and factors."""
 
 _POOLED_STEMS = (
     "ecdf_iterations",
-    "ecdf_time_solve",
-    "ecdf_time_online",
+    "ecdf_solve",
+    "ecdf_online",
+    "ecdf_online_amortized",
     "performance_profile_solve",
     "performance_profile_online",
-    "paired_time_scatter",
-    "speed_ratio_cdf",
+    "performance_profile_online_amortized",
+    "paired_online_scatter",
+    "paired_online_amortized_scatter",
+    "speed_ratio_online_cdf",
+    "speed_ratio_online_amortized_cdf",
 )
 """The profile, paired and speed-ratio figures, pooled over every system of a mixture."""
 
@@ -436,9 +443,10 @@ def test_mixture_sink_pools_the_profiles_and_omits_the_recipe_level_figures(
     key = _GROUP_FILE_STEM
     run = _scope_run(runs, writer, ReportLevelName.MATRIX_SET)
     assert _figures(_artifacts(run)) == {
-        f"solve_time_bars_{key}.png",
-        f"online_time_bars_{key}.png",
-        f"cost_breakdown_{key}.png",
+        f"workload_solve_bars_{key}.png",
+        f"workload_online_bars_{key}.png",
+        f"workload_online_amortized_bars_{key}.png",
+        f"full_cost_breakdown_{key}.png",
         *(f"{stem}_{key}__mixture.png" for stem in _COHORT_STEMS),
         *(f"{stem}_{key}__mixture.png" for stem in _POOLED_STEMS),
     }
@@ -469,21 +477,21 @@ def test_mixture_figure_plans_use_literal_population_and_metric_semantics(
     )
 
     plans = figure_plans(mixture, presentation, "all", {})
-    online = next(plan for plan in plans if plan.stem.startswith("online_time"))
-    solve = next(plan for plan in plans if plan.stem.startswith("solve_time"))
+    online = next(plan for plan in plans if plan.stem.startswith("workload_online_amortized"))
+    solve = next(plan for plan in plans if plan.stem.startswith("workload_solve"))
 
     assert online.metadata.dataset_ids == ("first", "second")
     assert online.metadata.recipes == (ALPHA, BETA)
     assert online.metadata.recipe_counts == (1, 3)
     assert online.metadata.recipe_weights == (0.25, 0.75)
     assert online.metadata.metric_definition == (
-        "sum of matrix setup seconds once and solve-only seconds across attempted RHS systems"
+        "sum of matrix setup seconds once per matrix and solve-only seconds across attempted pairs"
     )
-    assert online.metadata.metric is MetricId.ONLINE_S
+    assert online.metadata.metric is MetricId.ONLINE_AMORTIZED_S
     assert online.metadata.failure_treatment is FailureTreatment.NONE
     assert online.metadata.solver_contexts == (context,)
     assert solve.metadata.metric_definition == (
-        "sum of solve-only seconds across attempted RHS systems, including failures"
+        "sum of solve-only seconds across attempted pairs, including failures"
     )
     assert solve.metadata.metric is MetricId.SOLVE_S
 
@@ -505,12 +513,13 @@ def test_figure_plans_name_solve_and_online_ecdfs_by_metric(
     online = next(
         plan
         for plan in plans
-        if plan.metadata.kind.value == "ecdf_time" and plan.metadata.metric is MetricId.ONLINE_S
+        if plan.metadata.kind.value == "ecdf_time"
+        and plan.metadata.metric is MetricId.ONLINE_AMORTIZED_S
     )
 
     scope = RecipeScope(dataset_presentation, GAUSSIAN)
-    assert (solve.title, solve.metadata.scope) == ("Solve-only Time per System", scope)
-    assert (online.title, online.metadata.scope) == ("Amortized Online Time per System", scope)
+    assert (solve.title, solve.metadata.scope) == ("Solve-only Time per Pair", scope)
+    assert (online.title, online.metadata.scope) == ("Amortized Online Time per Pair", scope)
 
 
 def test_paired_scatter_manifest_describes_axis_censored_pairs(
@@ -689,16 +698,21 @@ def test_sink_uploads_only_failure_aware_group_artifacts(
     expected = {
         f"{stem}_{key}.png"
         for stem in (
-            "solve_time_bars",
-            "online_time_bars",
-            "cost_breakdown",
-            "paired_time_scatter",
-            "speed_ratio_cdf",
+            "workload_solve_bars",
+            "workload_online_bars",
+            "workload_online_amortized_bars",
+            "full_cost_breakdown",
+            "paired_online_scatter",
+            "paired_online_amortized_scatter",
+            "speed_ratio_online_cdf",
+            "speed_ratio_online_amortized_cdf",
             "performance_profile_solve",
             "performance_profile_online",
+            "performance_profile_online_amortized",
             "ecdf_iterations",
-            "ecdf_time_solve",
-            "ecdf_time_online",
+            "ecdf_solve",
+            "ecdf_online",
+            "ecdf_online_amortized",
             "matrix_heatmap_iterations",
             "convergence_factor",
             *_COHORT_STEMS,
@@ -727,9 +741,7 @@ def test_sink_skips_the_reference_figures_without_a_configured_reference(
 
     run = _scope_run(runs, writer, ReportLevelName.MATRIX_SET_RHS_TYPE)
     assert not [
-        name
-        for name in _artifacts(run)
-        if name.startswith(("speed_ratio_cdf", "paired_time_scatter", "breakeven"))
+        name for name in _artifacts(run) if name.startswith(("speed_ratio", "paired", "breakeven"))
     ]
     assert not [key for key in run.metrics if key.startswith("speed_ratio")]
 
@@ -746,7 +758,7 @@ def test_group_figures_carry_cards_with_methods_parameters_and_sources(
     )
 
     run = _scope_run(runs, writer, ReportLevelName.MATRIX_SET_RHS_TYPE)
-    card = _cards(_texts(run))[f"solve_time_bars_{_GROUP_FILE_STEM}.toml"]
+    card = _cards(_texts(run))[f"workload_solve_bars_{_GROUP_FILE_STEM}.toml"]
 
     assert card.metadata.report_level.value == "matrix_set_rhs_type"
     assert [method.method_id for method in card.metadata.methods] == ["amg", "jacobi", "never"]
@@ -757,7 +769,7 @@ def test_group_figures_carry_cards_with_methods_parameters_and_sources(
     ]
     assert card.session_run_id == "session-run"
     assert card.table == SiblingTable(
-        f"solve_time_bars_{_GROUP_FILE_STEM}.parquet", TableKind.WORKLOAD_TOTALS
+        f"workload_solve_bars_{_GROUP_FILE_STEM}.parquet", TableKind.WORKLOAD
     )
 
 

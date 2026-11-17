@@ -369,8 +369,10 @@ def test_summary_is_reconciled_from_canonical_frames_and_versioned(
     solves = read_solve_attempts(tmp_path / artifacts.solve_attempts)
     payload = tomllib.loads((tmp_path / artifacts.summary).read_text(encoding="utf-8"))
 
-    setup_total = sum(setup.get_column("setup_s").to_list())
-    solve_total = sum(solves.get_column("solve_s").to_list())
+    setup_amortized = sum(setup.get_column("setup_s").to_list())
+    setup_of_event = dict(zip(setup["setup_event_id"], setup["setup_s"], strict=True))
+    setup_pairs = sum(setup_of_event[event] for event in solves["setup_event_id"])
+    solve_sum = sum(solves.get_column("solve_s").to_list())
     attempted = solves.height
     converged = solves.filter(pl.col("solve_status") == "converged").height
     measured_peaks = [
@@ -381,7 +383,6 @@ def test_summary_is_reconciled_from_canonical_frames_and_versioned(
         )
         if value is not None
     ]
-    workload_total = setup_total + solve_total
 
     assert "schema_version" not in payload
     assert payload["method"] == {"name": "jacobi", "config_digest": "sha256:" + "a" * 64}
@@ -391,9 +392,11 @@ def test_summary_is_reconciled_from_canonical_frames_and_versioned(
         "converged": converged,
     }
     assert payload["online"] == {
-        "setup_s": setup_total,
-        "solve_s": solve_total,
-        "workload_s": workload_total,
+        "workload_setup_s": setup_pairs,
+        "workload_setup_amortized_s": setup_amortized,
+        "workload_solve_s": solve_sum,
+        "workload_online_s": setup_pairs + solve_sum,
+        "workload_online_amortized_s": setup_amortized + solve_sum,
     }
     assert max(measured_peaks) == 256
     assert isinstance(summary.workload_peak_memory, MeasuredPeakMemory)
@@ -403,7 +406,7 @@ def test_summary_is_reconciled_from_canonical_frames_and_versioned(
     }
     assert payload["offline"] == {
         "generation": {"status": "not_applicable"},
-        "training": {"status": "not_applicable"},
+        "fit": {"status": "not_applicable"},
     }
 
 
@@ -433,7 +436,7 @@ def test_offline_stages_are_stored_with_their_status_and_provenance(
         generation=TrainShareOfGeneration(
             Known(8.5, 1024, CostProvenance.HISTORICAL), TrainShare(0.9, FitFolds.TRAIN)
         ),
-        training=Known(90.25, None, CostProvenance.HISTORICAL),
+        fit=Known(90.25, None, CostProvenance.HISTORICAL),
     )
     artifacts = write(
         workload=replace(workload, offline_cost=offline), summary=summary, root=tmp_path
@@ -449,7 +452,7 @@ def test_offline_stages_are_stored_with_their_status_and_provenance(
             "provenance": "historical",
             "peak_bytes": 1024,
         },
-        "training": {"status": "known", "seconds": 90.25, "provenance": "historical"},
+        "fit": {"status": "known", "seconds": 90.25, "provenance": "historical"},
     }
 
 
@@ -459,9 +462,7 @@ def test_an_unavailable_offline_stage_persists_its_reason_and_no_number(
     workload: CompletedMethodWorkload,
     summary: CompleteWorkloadSummary,
 ) -> None:
-    offline = OfflineStages(
-        generation=Unavailable("manifest has no duration"), training=NotApplicable()
-    )
+    offline = OfflineStages(generation=Unavailable("manifest has no duration"), fit=NotApplicable())
     artifacts = write(
         workload=replace(workload, offline_cost=offline), summary=summary, root=tmp_path
     )
@@ -469,7 +470,7 @@ def test_an_unavailable_offline_stage_persists_its_reason_and_no_number(
 
     assert payload["offline"] == {
         "generation": {"status": "unavailable", "reason": "manifest has no duration"},
-        "training": {"status": "not_applicable"},
+        "fit": {"status": "not_applicable"},
     }
 
 

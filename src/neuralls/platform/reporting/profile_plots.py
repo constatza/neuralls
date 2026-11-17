@@ -3,7 +3,7 @@
 A failed run (iteration cap or breakdown) has no time-to-solution, so a profile gives it no value
 and leaves it unsolved (Dolan & Moré 2002, Math. Program. 91; Hansen et al. 2016,
 arXiv:1605.03560). The curves are frames from ``domain.benchmarking.profiles``; this module only
-draws them. Each performance-profile variant names the solve-only or amortized
+draws them. Each performance-profile variant names the solve-only, online or amortized
 online metric that supplies its ratios.
 """
 
@@ -28,7 +28,10 @@ _PROFILE_SIZE_IN = (8.0, 5.0)
 
 _PERFORMANCE_XLABELS = {
     MetricId.SOLVE_S: r"Solve-only time relative to the best method, $\tau$",
-    MetricId.ONLINE_S: r"Amortized online time relative to the best method, $\tau$",
+    MetricId.ONLINE_S: r"Online time per pair relative to the best method, $\tau$",
+    MetricId.ONLINE_AMORTIZED_S: (
+        r"Amortized online time per pair relative to the best method, $\tau$"
+    ),
 }
 
 

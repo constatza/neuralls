@@ -74,9 +74,13 @@ def test_speed_ratio_summary_of_the_online_time_of_each_pairing(
     counts: SummaryCounts,
     statistics: RatioStatistics | None,
 ) -> None:
-    per_system = speed_ratios(paired_systems(unbalanced_observations, reference, MetricId.ONLINE_S))
+    per_system = speed_ratios(
+        paired_systems(unbalanced_observations, reference, MetricId.ONLINE_AMORTIZED_S)
+    )
     row = _summary_row(
-        speed_ratio_summary(unbalanced_observations, reference, MetricId.ONLINE_S, seed=SEED),
+        speed_ratio_summary(
+            unbalanced_observations, reference, MetricId.ONLINE_AMORTIZED_S, seed=SEED
+        ),
         method,
     )
 

@@ -77,7 +77,9 @@ def test_observations_allocate_the_matrix_setup_over_its_planned_rhs() -> None:
     obs = observations_of_events(planned, (_setup(method),), attempts)
 
     # setup 6.0 over 3 planned RHS adds 2.0 to each solve time
-    assert obs.select("system_id", "iterations", "solve_s", "online_s", "dataset").rows() == [
+    assert obs.select(
+        "system_id", "iterations", "solve_s", "online_amortized_s", "dataset"
+    ).rows() == [
         (planned[0].system_id, 2, 1.0, 3.0, "ds"),
         (planned[1].system_id, 3, 2.0, 4.0, "ds"),
         (planned[2].system_id, 4, 3.0, 5.0, "ds"),

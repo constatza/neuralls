@@ -17,7 +17,6 @@ from tests.recipe_support import GAUSSIAN, SINE
 
 from neuralls.domain.benchmarking.cost_curves import break_even_curves
 from neuralls.domain.benchmarking.paired import (
-    REFERENCE_METRIC,
     paired_systems,
     speed_ratio_summary,
 )
@@ -66,7 +65,10 @@ from neuralls.platform.reporting.figure_recipes import (
     history_variant,
 )
 from neuralls.platform.reporting.figure_summaries import figure_summaries
-from neuralls.platform.reporting.figure_table import build_cost_breakdown_table, build_group_table
+from neuralls.platform.reporting.figure_table import (
+    build_full_cost_breakdown_table,
+    build_group_table,
+)
 from neuralls.shared.rhs_recipe import recipe_key
 from neuralls.shared.types import CostProvenance, PreconditionerName
 
@@ -74,10 +76,10 @@ JACOBI = PreconditionerName("jacobi")
 _MEAN_STEMS = (
     "iteration_means",
     "setup_means",
-    "time_means_online_common",
+    "time_means_online_amortized_common",
     "time_per_iteration",
     "iteration_distribution",
-    "time_distribution_online",
+    "time_distribution_online_amortized",
     "convergence_factor",
 )
 
@@ -112,42 +114,59 @@ _MIXTURE_VARIANTS = _variants_planned_for(WorkloadMixtureReport)
 _PROFILE_STEMS = {variant.stem for _, variant in _PROFILE_VARIANTS}
 _MIXTURE_STEMS = {variant.stem for _, variant in _MIXTURE_VARIANTS}
 
+_TIMES = (
+    ("solve", MetricId.SOLVE_S),
+    ("online", MetricId.ONLINE_S),
+    ("online_amortized", MetricId.ONLINE_AMORTIZED_S),
+)
+_ONLINE_TIMES = _TIMES[1:]
+
 _EXPECTED_SUMMARY: dict[str, SummaryOf] = {
-    "paired_time_scatter": lambda report: paired_systems(
-        report.observations, JACOBI, REFERENCE_METRIC
-    ),
-    "solve_time_bars": lambda report: build_group_table(report.summaries),
-    "online_time_bars": lambda report: build_group_table(report.summaries),
-    "cost_breakdown": lambda report: build_cost_breakdown_table(
+    **{
+        f"paired_{word}_scatter": (
+            lambda report, metric=metric: paired_systems(report.observations, JACOBI, metric)
+        )
+        for word, metric in _ONLINE_TIMES
+    },
+    **{
+        f"speed_ratio_{word}_cdf": (
+            lambda report, metric=metric: speed_ratio_summary(report.observations, JACOBI, metric)
+        )
+        for word, metric in _ONLINE_TIMES
+    },
+    **{
+        stem: lambda report: build_group_table(report.summaries)
+        for stem in (
+            "workload_solve_bars",
+            "workload_online_bars",
+            "workload_online_amortized_bars",
+        )
+    },
+    "full_cost_breakdown": lambda report: build_full_cost_breakdown_table(
         report.summaries, no_offline_cost(report)
     ),
     "ecdf_iterations": lambda report: ecdf_series(report.observations, MetricId.ITERATIONS).frame,
-    "ecdf_time_solve": lambda report: ecdf_series(report.observations, MetricId.SOLVE_S).frame,
-    "ecdf_time_online": lambda report: ecdf_series(report.observations, MetricId.ONLINE_S).frame,
-    "performance_profile_solve": lambda report: (
-        performance_series(report.observations, MetricId.SOLVE_S).frame
-    ),
-    "performance_profile_online": lambda report: (
-        performance_series(report.observations, MetricId.ONLINE_S).frame
-    ),
-    "speed_ratio_cdf": lambda report: speed_ratio_summary(
-        report.observations, JACOBI, REFERENCE_METRIC
-    ),
-    "breakeven": lambda report: break_even_curves(report.observations, JACOBI),
+    **{
+        f"ecdf_{word}": lambda report, metric=metric: ecdf_series(report.observations, metric).frame
+        for word, metric in _TIMES
+    },
+    **{
+        f"performance_profile_{word}": (
+            lambda report, metric=metric: performance_series(report.observations, metric).frame
+        )
+        for word, metric in _TIMES
+    },
+    "breakeven_online_amortized": lambda report: break_even_curves(report.observations, JACOBI),
     "convergence_factor": lambda report: _recipe_summaries(report, MetricId.CONVERGENCE_FACTOR),
     "iteration_means": lambda report: _recipe_summaries(report, MetricId.ITERATIONS),
     "setup_means": lambda report: _recipe_summaries(report, MetricId.SETUP_S),
     **{
-        f"time_means_{name}_{population}": (
+        f"time_means_{word}_{population}": (
             lambda report, metric=metric, population=population: _recipe_summaries(
                 report, metric, population
             )
         )
-        for name, metric in (
-            ("solve", MetricId.SOLVE_S),
-            ("online", MetricId.ONLINE_S),
-            ("standalone", MetricId.STANDALONE_S),
-        )
+        for word, metric in _TIMES
         for population in Population
     },
     "time_per_iteration": lambda report: by_cohort(
@@ -157,8 +176,10 @@ _EXPECTED_SUMMARY: dict[str, SummaryOf] = {
         schema=RATIO_OF_SUMS_SCHEMA,
     ),
     "iteration_distribution": lambda report: _recipe_summaries(report, MetricId.ITERATIONS),
-    "time_distribution_solve": lambda report: _recipe_summaries(report, MetricId.SOLVE_S),
-    "time_distribution_online": lambda report: _recipe_summaries(report, MetricId.ONLINE_S),
+    **{
+        f"time_distribution_{word}": lambda report, metric=metric: _recipe_summaries(report, metric)
+        for word, metric in _TIMES
+    },
     "matrix_heatmap_iterations": lambda report: matrix_breakdown(
         report.observations, MetricId.ITERATIONS
     ),
@@ -221,7 +242,7 @@ def test_a_variant_summary_is_the_domain_statistic_its_figure_draws(
     assert_frame_equal(summary, _EXPECTED_SUMMARY[stem](profile_report))
 
 
-@pytest.mark.parametrize("stem", ["solve_time_bars", "online_time_bars"])
+@pytest.mark.parametrize("stem", ["workload_solve_bars", "workload_online_amortized_bars"])
 def test_a_mixture_report_summarizes_the_workload_totals_of_its_methods(
     mixture_report: WorkloadMixtureReport, stem: str
 ) -> None:
@@ -240,15 +261,15 @@ def test_the_cost_breakdown_stacks_the_offline_cost_of_each_method_on_its_worklo
             generation=TrainShareOfGeneration(
                 Known(10.0, None, CostProvenance.HISTORICAL), TrainShare(1.0, FitFolds.TRAIN)
             ),
-            training=Unavailable("1 of 1 checkpoints have no recorded training run"),
+            fit=Unavailable("1 of 1 checkpoints have no recorded training run"),
         )
         for summary in report.summaries
     }
 
-    table = figure_summaries(report, offline)["cost_breakdown"]
+    table = figure_summaries(report, offline)["full_cost_breakdown"]
 
-    assert_frame_equal(table, build_cost_breakdown_table(report.summaries, offline))
-    assert set(table["total_status"]) == {"offline_unavailable"}
+    assert_frame_equal(table, build_full_cost_breakdown_table(report.summaries, offline))
+    assert set(table["full_status"]) == {"offline_unavailable"}
 
 
 def test_a_report_without_a_reference_plans_no_figure_that_compares_against_one(
@@ -257,9 +278,11 @@ def test_a_report_without_a_reference_plans_no_figure_that_compares_against_one(
     unreferenced = replace(profile_report, reference_selection=NoReferenceConfigured())
 
     assert set(figure_summaries(unreferenced, no_offline_cost(unreferenced))) == _PROFILE_STEMS - {
-        "paired_time_scatter",
-        "speed_ratio_cdf",
-        "breakeven",
+        "paired_online_scatter",
+        "paired_online_amortized_scatter",
+        "speed_ratio_online_cdf",
+        "speed_ratio_online_amortized_cdf",
+        "breakeven_online_amortized",
     }
 
 
@@ -273,14 +296,14 @@ def test_planning_without_a_reference_plans_no_figure_that_compares_against_one(
     assert [plan.stem for plan in plans] == [
         variant.figure_stem("key")
         for _, variant in _PROFILE_VARIANTS
-        if variant.stem not in {"paired_time_scatter", "speed_ratio_cdf", "breakeven"}
+        if not variant.stem.startswith(("paired_", "speed_ratio_", "breakeven_"))
     ]
 
 
 def test_workload_bars_write_the_workload_totals_table() -> None:
     recipes = (group_recipe(kind) for kind in (FigureKind.SOLVE_TIME, FigureKind.ONLINE_TIME))
 
-    assert {recipe.table for recipe in recipes} == {TableKind.WORKLOAD_TOTALS}
+    assert {recipe.table for recipe in recipes} == {TableKind.WORKLOAD}
 
 
 def test_profiles_and_ecdfs_write_the_series_table() -> None:

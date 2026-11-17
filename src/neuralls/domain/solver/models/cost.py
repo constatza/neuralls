@@ -126,7 +126,7 @@ class InlineFit:
 
 @dataclass(frozen=True, slots=True)
 class FitJob:
-    """The method's artifact was fit ahead of time by a job whose MLflow run is the training stage."""
+    """The method's artifact was fit ahead of time by a job whose MLflow run is the fit stage."""
 
 
 type FitOrigin = NoFit | InlineFit | FitJob
@@ -137,15 +137,16 @@ class OfflineStages:
     """The one-off costs paid once per method artifact, before any workload runs.
 
     ``generation`` is building the dataset the artifact was fit on (only the share of it in the
-    folds the fit read) and ``training`` is fitting the network or basis.
+    folds the fit read) and ``fit`` is the job that fit the network or basis; together they are
+    the ``offline`` cost of the vocabulary in ``domain/solver/README.md``.
     A stage the method does not have is `NotApplicable` (a classical
-    method has neither; a method fit inline during setup has no separate training, because
+    method has neither; a method fit inline during setup has no separate fit stage, because
     that fit is already part of its measured setup), so a method's stages are always both
     stated and a missing number is `Unavailable`, never an absent field.
     """
 
     generation: GenerationCost
-    training: StageCost
+    fit: StageCost
 
     def charged_generation(self) -> StageCost:
         """The generation cost charged to the artifact, as a plain stage cost."""
@@ -160,12 +161,12 @@ class OfflineStages:
     def fit_origin(self) -> FitOrigin:
         """Where the method's fit happened, read from which stages apply.
 
-        Any applicable training stage (`Known` or `Unavailable`) is a fit job, since training is
+        Any applicable fit stage (`Known` or `Unavailable`) is a fit job, since the fit stage is
         the wall time of the job that produced the checkpoint. Without one, a dataset to
         generate means the method is fit inline from it, and that fit is part of its measured
         setup, not of an offline stage. With neither stage the method has nothing to fit.
         """
-        match self.training, self.charged_generation():
+        match self.fit, self.charged_generation():
             case ((Known() | Unavailable()), _):
                 return FitJob()
             case NotApplicable(), (Known() | Unavailable()):
@@ -175,7 +176,7 @@ class OfflineStages:
             case unreachable:
                 assert_never(unreachable)
 
-    def total(self) -> StageCost:
+    def combined(self) -> StageCost:
         """Both stages as one cost: seconds add, peak memory is the largest, any unknown stage wins.
 
         The result is `Unavailable` when either stage is, naming each such stage, because a sum
@@ -183,7 +184,7 @@ class OfflineStages:
         (`MEASURED` only if every one of them was timed live) or `NotApplicable` when neither
         applies. Peak memory takes the maximum because the stages never shared a process.
         """
-        named = (("generation", self.charged_generation()), ("training", self.training))
+        named = (("generation", self.charged_generation()), ("fit", self.fit))
         reasons: list[str] = []
         recorded: list[Known] = []
         for name, stage in named:
@@ -209,5 +210,5 @@ class OfflineStages:
         )
 
 
-NO_OFFLINE_COST = OfflineStages(generation=NotApplicable(), training=NotApplicable())
-"""A method with nothing to generate or fit: its total cost is its online cost."""
+NO_OFFLINE_COST = OfflineStages(generation=NotApplicable(), fit=NotApplicable())
+"""A method with nothing to generate or fit: its full cost is its online cost."""

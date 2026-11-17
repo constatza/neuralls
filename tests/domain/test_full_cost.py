@@ -1,4 +1,4 @@
-"""`total_cost_seconds` adds offline to online, and states when offline is not known."""
+"""`full_cost_seconds` adds offline to online, and states when offline is not known."""
 
 from __future__ import annotations
 
@@ -14,11 +14,11 @@ from neuralls.domain.solver.models.cost import (
     TrainShareOfGeneration,
     Unavailable,
 )
-from neuralls.domain.solver.reporting.total_cost import (
+from neuralls.domain.solver.reporting.full_cost import (
     Complete,
+    FullCost,
     OfflineUnavailable,
-    TotalCost,
-    total_cost_seconds,
+    full_cost_seconds,
 )
 from neuralls.shared.types import CostProvenance
 
@@ -33,20 +33,20 @@ def _generated(seconds: float) -> TrainShareOfGeneration:
     return TrainShareOfGeneration(_known(seconds), TrainShare(1.0, FitFolds.TRAIN))
 
 
-def test_total_is_offline_plus_online() -> None:
-    offline = OfflineStages(generation=_generated(10.0), training=_known(90.0))
+def test_full_cost_is_offline_plus_online() -> None:
+    offline = OfflineStages(generation=_generated(10.0), fit=_known(90.0))
 
-    assert total_cost_seconds(offline, ONLINE_S) == Complete(107.5)
+    assert full_cost_seconds(offline, ONLINE_S) == Complete(107.5)
 
 
 def test_a_method_with_no_offline_stage_costs_its_online_time() -> None:
-    assert total_cost_seconds(NO_OFFLINE_COST, ONLINE_S) == Complete(ONLINE_S)
+    assert full_cost_seconds(NO_OFFLINE_COST, ONLINE_S) == Complete(ONLINE_S)
 
 
 def test_a_stage_that_does_not_apply_is_zero_not_unavailable() -> None:
-    offline = OfflineStages(generation=_generated(10.0), training=NotApplicable())
+    offline = OfflineStages(generation=_generated(10.0), fit=NotApplicable())
 
-    assert total_cost_seconds(offline, ONLINE_S) == Complete(17.5)
+    assert full_cost_seconds(offline, ONLINE_S) == Complete(17.5)
 
 
 @pytest.mark.parametrize(
@@ -58,6 +58,6 @@ def test_a_stage_that_does_not_apply_is_zero_not_unavailable() -> None:
     ],
 )
 def test_an_unavailable_stage_is_never_read_as_zero(offline: OfflineStages) -> None:
-    total: TotalCost = total_cost_seconds(offline, ONLINE_S)
+    full: FullCost = full_cost_seconds(offline, ONLINE_S)
 
-    assert total == OfflineUnavailable(online_s=ONLINE_S)
+    assert full == OfflineUnavailable(online_s=ONLINE_S)

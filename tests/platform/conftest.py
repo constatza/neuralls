@@ -201,7 +201,7 @@ def metadata_of(
             cohort=WholeGroup(),
             kind=FigureKind.PERFORMANCE_PROFILE,
             metric_definition="amortized online seconds",
-            metric=MetricId.ONLINE_S,
+            metric=MetricId.ONLINE_AMORTIZED_S,
             population=Population.OWN,
             statistic=Statistic.PERFORMANCE_PROFILE,
             report_level=ReportLevelName.MATRIX_SET_RHS_TYPE,

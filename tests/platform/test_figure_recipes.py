@@ -67,7 +67,7 @@ def test_mixture_reports_plan_every_kind_but_the_recipe_level_ones() -> None:
         FigureKind.ITERATION_DISTRIBUTION,
         FigureKind.TIME_DISTRIBUTION,
         FigureKind.CONVERGENCE_FACTOR,
-        FigureKind.COST_BREAKDOWN,
+        FigureKind.FULL_COST_BREAKDOWN,
         FigureKind.ECDF_ITERATIONS,
         FigureKind.ECDF_TIME,
         FigureKind.PERFORMANCE_PROFILE,
@@ -78,20 +78,20 @@ def test_mixture_reports_plan_every_kind_but_the_recipe_level_ones() -> None:
 
 
 def test_the_cost_breakdown_is_one_figure_of_offline_plus_online_totals() -> None:
-    recipe = group_recipe(FigureKind.COST_BREAKDOWN)
+    recipe = group_recipe(FigureKind.FULL_COST_BREAKDOWN)
 
     assert [
         (variant.stem, variant.metric, variant.population, variant.statistic)
         for variant in recipe.variants
     ] == [
         (
-            "cost_breakdown",
+            "full_cost_breakdown",
             MetricId.ONLINE_S,
             Population.OWN,
-            Statistic.OFFLINE_ONLINE_TOTAL,
+            Statistic.FULL_COST,
         )
     ]
-    assert recipe.table is TableKind.COST_BREAKDOWN
+    assert recipe.table is TableKind.FULL_COST_BREAKDOWN
     assert recipe.failure_treatment is FailureTreatment.NONE
 
 
@@ -115,8 +115,8 @@ def test_a_variant_is_found_by_the_metric_it_summarizes() -> None:
 
     assert [
         recipe.variant(metric, Population.OWN).stem
-        for metric in (MetricId.SOLVE_S, MetricId.ONLINE_S)
-    ] == ["ecdf_time_solve", "ecdf_time_online"]
+        for metric in (MetricId.SOLVE_S, MetricId.ONLINE_AMORTIZED_S)
+    ] == ["ecdf_solve", "ecdf_online_amortized"]
 
 
 def test_time_mean_variants_are_found_by_metric_and_population() -> None:
@@ -124,15 +124,15 @@ def test_time_mean_variants_are_found_by_metric_and_population() -> None:
 
     assert {
         (metric, population): recipe.variant(metric, population).stem
-        for metric in (MetricId.SOLVE_S, MetricId.ONLINE_S, MetricId.STANDALONE_S)
+        for metric in (MetricId.SOLVE_S, MetricId.ONLINE_AMORTIZED_S, MetricId.ONLINE_S)
         for population in Population
     } == {
         (MetricId.SOLVE_S, Population.OWN): "time_means_solve_own",
         (MetricId.SOLVE_S, Population.COMMON): "time_means_solve_common",
+        (MetricId.ONLINE_AMORTIZED_S, Population.OWN): "time_means_online_amortized_own",
+        (MetricId.ONLINE_AMORTIZED_S, Population.COMMON): "time_means_online_amortized_common",
         (MetricId.ONLINE_S, Population.OWN): "time_means_online_own",
         (MetricId.ONLINE_S, Population.COMMON): "time_means_online_common",
-        (MetricId.STANDALONE_S, Population.OWN): "time_means_standalone_own",
-        (MetricId.STANDALONE_S, Population.COMMON): "time_means_standalone_common",
     }
 
 

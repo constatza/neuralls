@@ -25,7 +25,8 @@ from neuralls.shared.constants import DEFAULT_RANDOM_SEED
 from neuralls.shared.types import MatrixId, PreconditionerName
 
 REFERENCE_METRIC = MetricId.ONLINE_S
-"""The metric methods are compared to the configured reference on: amortized online time."""
+"""The metric methods are compared to the configured reference on: the online time of a pair,
+its matrix's whole setup plus its solve."""
 
 
 class PairKind(StrEnum):
@@ -232,6 +233,9 @@ def _ratio_statistics(ratios: pl.DataFrame, seed: int) -> dict[str, float | None
 
 def break_even(obs: pl.DataFrame, reference: PreconditionerName) -> pl.DataFrame:
     r"""Per non-reference method, the RHS count after which it costs less than the reference.
+
+    This is the multi-RHS ``breakeven_online_amortized`` count of the cost vocabulary
+    (``domain/solver/README.md``): one setup is shared by the $n$ right-hand sides of a matrix.
 
     With the mean per-matrix setup $\bar{t}^{\mathrm{setup}}$ and the mean per-system solve time
     $\bar{t}^{\mathrm{solve},\mathrm{sys}}$ of each side, a method $p$ costs

@@ -54,9 +54,12 @@ def test_the_table_beside_a_figure_is_the_one_its_card_names(
     plan = next(
         plan
         for plan in figure_plans(profile_report, repeated_timing_presentation, "key", {})
-        if plan.metadata.kind is FigureKind.ECDF_TIME and plan.metadata.metric is MetricId.ONLINE_S
+        if plan.metadata.kind is FigureKind.ECDF_TIME
+        and plan.metadata.metric is MetricId.ONLINE_AMORTIZED_S
     )
-    table = figure_summaries(profile_report, no_offline_cost(profile_report))["ecdf_time_online"]
+    table = figure_summaries(profile_report, no_offline_cost(profile_report))[
+        "ecdf_online_amortized"
+    ]
     target = _written_target(tmp_path, plan.stem)
     writer = RecordingRunWriter()
     uploader = FigureUploader("session-run", notation, SESSION_ENVIRONMENT, writer, ROOT_RUN)
@@ -104,7 +107,7 @@ def test_a_table_of_another_kind_than_the_cards_is_not_uploaded(
         "session-run", notation, SESSION_ENVIRONMENT, RecordingRunWriter(), ROOT_RUN
     )
     other_kind = figure_summaries(profile_report, no_offline_cost(profile_report))[
-        "solve_time_bars"
+        "workload_solve_bars"
     ]
 
     with pytest.raises(InvalidFigureTableError):

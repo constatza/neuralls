@@ -58,7 +58,7 @@ class StoredMethod:
             content digests, not the paths used at compute time; it serves plot-style
             derivation, never a rebuild.
         presentation: The method's scientific presentation with its realized facts.
-        offline: The generation and training cost of the method's artifact, as recorded when it
+        offline: The generation and fit cost of the method's artifact, as recorded when it
             ran; paid once per artifact, not per workload.
         systems: Every planned system with its solver settings and reference state, in plan order.
         setup_events: Setup-event table.

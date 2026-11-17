@@ -21,9 +21,9 @@ from neuralls.domain.solver.models.cost import (
 )
 from neuralls.domain.solver.models.workload import CompleteWorkloadSummary, MethodWorkloadSummary
 from neuralls.platform.reporting.figure_metadata import (
-    COST_BREAKDOWN_SCHEMA,
+    FULL_COST_BREAKDOWN_SCHEMA,
     GROUP_FIGURE_KINDS,
-    WORKLOAD_TOTALS_SCHEMA,
+    WORKLOAD_SCHEMA,
     FigureKind,
     NoTable,
     SiblingTable,
@@ -33,7 +33,7 @@ from neuralls.platform.reporting.figure_planning import table_of
 from neuralls.platform.reporting.figure_recipes import group_recipe
 from neuralls.platform.reporting.figure_table import (
     InvalidFigureTableError,
-    build_cost_breakdown_table,
+    build_full_cost_breakdown_table,
     build_group_table,
     read_group_table,
     write_group_table,
@@ -44,15 +44,18 @@ from neuralls.shared.types import CostProvenance, PreconditionerName
 def _summary(
     name: str, converged: int, setup: float, solve: float, failed: float
 ) -> MethodWorkloadSummary:
+    """Four RHS on two matrices: each pair is charged twice the amortized setup share."""
     return CompleteWorkloadSummary(
         method=PreconditionerName(name),
         n_planned_rhs=4,
         n_attempted_rhs=4,
         n_converged=converged,
-        allocated_setup_s=setup,
-        solve_total_s=solve,
-        failed_solve_s=failed,
-        workload_online_s=setup + solve,
+        workload_setup_s=2 * setup,
+        workload_setup_amortized_s=setup,
+        workload_solve_s=solve,
+        workload_failed_solve_s=failed,
+        workload_online_s=2 * setup + solve,
+        workload_online_amortized_s=setup + solve,
         workload_peak_memory=UnknownPeakMemory(),
     )
 
@@ -74,29 +77,33 @@ def test_table_has_one_row_per_method_ordered_by_id(
 ) -> None:
     table = build_group_table(summaries)
 
-    assert dict(table.schema) == WORKLOAD_TOTALS_SCHEMA
+    assert dict(table.schema) == WORKLOAD_SCHEMA
     assert table.to_dicts() == [
         {
             "method_id": "amg",
             "n_planned_rhs": 4,
             "n_attempted_rhs": 4,
             "n_converged": 4,
-            "allocated_setup_s": 1.0,
-            "converged_solve_s": 1.5,
-            "failed_solve_s": 0.0,
-            "solve_total_s": 1.5,
-            "workload_online_s": 2.5,
+            "workload_setup_s": 2.0,
+            "workload_setup_amortized_s": 1.0,
+            "workload_converged_solve_s": 1.5,
+            "workload_failed_solve_s": 0.0,
+            "workload_solve_s": 1.5,
+            "workload_online_s": 3.5,
+            "workload_online_amortized_s": 2.5,
         },
         {
             "method_id": "pcg_jacobi",
             "n_planned_rhs": 4,
             "n_attempted_rhs": 4,
             "n_converged": 3,
-            "allocated_setup_s": 0.5,
-            "converged_solve_s": 1.25,
-            "failed_solve_s": 0.75,
-            "solve_total_s": 2.0,
-            "workload_online_s": 2.5,
+            "workload_setup_s": 1.0,
+            "workload_setup_amortized_s": 0.5,
+            "workload_converged_solve_s": 1.25,
+            "workload_failed_solve_s": 0.75,
+            "workload_solve_s": 2.0,
+            "workload_online_s": 3.0,
+            "workload_online_amortized_s": 2.5,
         },
     ]
 
@@ -106,12 +113,19 @@ def test_the_converged_and_failed_solve_times_sum_to_the_totals(
 ) -> None:
     table = build_group_table((*summaries, only_failures))
 
+    solve = pl.col("workload_converged_solve_s") + pl.col("workload_failed_solve_s")
     split = table.select(
         "method_id",
-        solve=pl.col("converged_solve_s") + pl.col("failed_solve_s"),
-        online=pl.col("allocated_setup_s") + pl.col("converged_solve_s") + pl.col("failed_solve_s"),
+        solve=solve,
+        online=pl.col("workload_setup_s") + solve,
+        online_amortized=pl.col("workload_setup_amortized_s") + solve,
     )
-    totals = table.select("method_id", solve="solve_total_s", online="workload_online_s")
+    totals = table.select(
+        "method_id",
+        solve="workload_solve_s",
+        online="workload_online_s",
+        online_amortized="workload_online_amortized_s",
+    )
     assert_frame_equal(split, totals)
 
 
@@ -120,9 +134,9 @@ def test_a_method_with_only_failures_has_no_converged_solve_time(
 ) -> None:
     table = build_group_table((only_failures,))
 
-    assert table.select("n_converged", "converged_solve_s", "failed_solve_s").rows() == [
-        (0, 0.0, 3.0)
-    ]
+    assert table.select(
+        "n_converged", "workload_converged_solve_s", "workload_failed_solve_s"
+    ).rows() == [(0, 0.0, 3.0)]
 
 
 def test_cost_breakdown_stacks_each_methods_offline_stages_on_its_online_totals(
@@ -134,13 +148,13 @@ def test_cost_breakdown_stacks_each_methods_offline_stages_on_its_online_totals(
             generation=TrainShareOfGeneration(
                 Known(20.0, None, CostProvenance.HISTORICAL), TrainShare(0.5, FitFolds.TRAIN)
             ),
-            training=Known(90.0, None, CostProvenance.HISTORICAL),
+            fit=Known(90.0, None, CostProvenance.HISTORICAL),
         ),
     }
 
-    table = build_cost_breakdown_table(summaries, offline)
+    table = build_full_cost_breakdown_table(summaries, offline)
 
-    assert dict(table.schema) == COST_BREAKDOWN_SCHEMA
+    assert dict(table.schema) == FULL_COST_BREAKDOWN_SCHEMA
     assert table.to_dicts() == [
         {
             "method_id": "amg",
@@ -149,13 +163,13 @@ def test_cost_breakdown_stacks_each_methods_offline_stages_on_its_online_totals(
             "generation_dataset_s": 20.0,
             "generation_share": 0.5,
             "generation_folds": "train",
-            "training_s": 90.0,
-            "training_status": "known",
+            "fit_s": 90.0,
+            "fit_status": "known",
             "fit_origin": "job",
-            "allocated_setup_s": 1.0,
-            "solve_total_s": 1.5,
-            "total_s": 102.5,
-            "total_status": "complete",
+            "workload_setup_s": 2.0,
+            "workload_solve_s": 1.5,
+            "full_s": 103.5,
+            "full_status": "complete",
         },
         {
             "method_id": "pcg_jacobi",
@@ -164,13 +178,13 @@ def test_cost_breakdown_stacks_each_methods_offline_stages_on_its_online_totals(
             "generation_dataset_s": None,
             "generation_share": None,
             "generation_folds": None,
-            "training_s": None,
-            "training_status": "not_applicable",
+            "fit_s": None,
+            "fit_status": "not_applicable",
             "fit_origin": "none",
-            "allocated_setup_s": 0.5,
-            "solve_total_s": 2.0,
-            "total_s": 2.5,
-            "total_status": "complete",
+            "workload_setup_s": 1.0,
+            "workload_solve_s": 2.0,
+            "full_s": 3.0,
+            "full_status": "complete",
         },
     ]
 
@@ -184,16 +198,16 @@ def test_cost_breakdown_states_a_method_fit_inline_by_its_generation_alone(
             generation=TrainShareOfGeneration(
                 Known(10.0, None, CostProvenance.HISTORICAL), TrainShare(1.0, FitFolds.TRAIN)
             ),
-            training=NotApplicable(),
+            fit=NotApplicable(),
         ),
     }
 
-    (amg, _) = build_cost_breakdown_table(summaries, offline).to_dicts()
+    (amg, _) = build_full_cost_breakdown_table(summaries, offline).to_dicts()
 
-    assert (amg["training_status"], amg["fit_origin"]) == ("not_applicable", "inline")
+    assert (amg["fit_status"], amg["fit_origin"]) == ("not_applicable", "inline")
 
 
-def test_cost_breakdown_has_no_total_when_an_offline_stage_is_unavailable(
+def test_cost_breakdown_has_no_full_cost_when_an_offline_stage_is_unavailable(
     summaries: tuple[MethodWorkloadSummary, ...],
 ) -> None:
     offline = {
@@ -202,11 +216,11 @@ def test_cost_breakdown_has_no_total_when_an_offline_stage_is_unavailable(
             generation=TrainShareOfGeneration(
                 Known(10.0, None, CostProvenance.HISTORICAL), TrainShare(1.0, FitFolds.TRAIN)
             ),
-            training=Unavailable("1 of 1 checkpoints have no recorded training run"),
+            fit=Unavailable("1 of 1 checkpoints have no recorded training run"),
         ),
     }
 
-    (amg, _) = build_cost_breakdown_table(summaries, offline).to_dicts()
+    (amg, _) = build_full_cost_breakdown_table(summaries, offline).to_dicts()
 
     assert amg == {
         "method_id": "amg",
@@ -215,13 +229,13 @@ def test_cost_breakdown_has_no_total_when_an_offline_stage_is_unavailable(
         "generation_dataset_s": 10.0,
         "generation_share": 1.0,
         "generation_folds": "train",
-        "training_s": None,
-        "training_status": "unavailable",
+        "fit_s": None,
+        "fit_status": "unavailable",
         "fit_origin": "job",
-        "allocated_setup_s": 1.0,
-        "solve_total_s": 1.5,
-        "total_s": None,
-        "total_status": "offline_unavailable",
+        "workload_setup_s": 2.0,
+        "workload_solve_s": 1.5,
+        "full_s": None,
+        "full_status": "offline_unavailable",
     }
 
 
@@ -234,25 +248,25 @@ def test_cost_breakdown_table_round_trips_through_parquet(
         ),
         PreconditionerName("amg"): NO_OFFLINE_COST,
     }
-    table = build_cost_breakdown_table(summaries, offline)
+    table = build_full_cost_breakdown_table(summaries, offline)
     path = tmp_path / "table.parquet"
     write_group_table(path, table)
 
-    assert_frame_equal(read_group_table(path, TableKind.COST_BREAKDOWN), table)
+    assert_frame_equal(read_group_table(path, TableKind.FULL_COST_BREAKDOWN), table)
 
 
 def test_empty_cost_breakdown_has_the_schema() -> None:
-    table = build_cost_breakdown_table((), {})
+    table = build_full_cost_breakdown_table((), {})
 
     assert table.height == 0
-    assert dict(table.schema) == COST_BREAKDOWN_SCHEMA
+    assert dict(table.schema) == FULL_COST_BREAKDOWN_SCHEMA
 
 
 def test_empty_summaries_give_an_empty_table_with_the_schema() -> None:
     table = build_group_table(())
 
     assert table.height == 0
-    assert dict(table.schema) == WORKLOAD_TOTALS_SCHEMA
+    assert dict(table.schema) == WORKLOAD_SCHEMA
 
 
 def test_table_round_trips_through_parquet(
@@ -263,7 +277,7 @@ def test_table_round_trips_through_parquet(
 
     write_group_table(path, table)
 
-    assert read_group_table(path, TableKind.WORKLOAD_TOTALS).equals(table)
+    assert read_group_table(path, TableKind.WORKLOAD).equals(table)
 
 
 def test_a_table_with_another_schema_is_rejected(tmp_path: Path) -> None:
@@ -271,7 +285,7 @@ def test_a_table_with_another_schema_is_rejected(tmp_path: Path) -> None:
     pl.DataFrame({"method_id": ["a"]}).write_parquet(path)
 
     with pytest.raises(InvalidFigureTableError):
-        read_group_table(path, TableKind.WORKLOAD_TOTALS)
+        read_group_table(path, TableKind.WORKLOAD)
 
 
 @pytest.mark.parametrize("kind", sorted(FigureKind))

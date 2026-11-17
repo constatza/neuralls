@@ -71,10 +71,12 @@ _PROFILE_VARIANTS = [
 _BY_STEM = {variant.stem: variant for variant in _PROFILE_VARIANTS}
 _RECIPE_OF_STEM = {variant.stem: recipe for recipe in _GROUP_RECIPES for variant in recipe.variants}
 _ONLINE_STEMS = sorted(
-    variant.stem for variant in _PROFILE_VARIANTS if variant.metric is MetricId.ONLINE_S
+    variant.stem for variant in _PROFILE_VARIANTS if variant.metric is MetricId.ONLINE_AMORTIZED_S
 )
 _NOT_ONLINE_STEMS = sorted(
-    variant.stem for variant in _PROFILE_VARIANTS if variant.metric is not MetricId.ONLINE_S
+    variant.stem
+    for variant in _PROFILE_VARIANTS
+    if variant.metric is not MetricId.ONLINE_AMORTIZED_S
 )
 _MEAN_STEMS = sorted(
     variant.stem
@@ -83,7 +85,15 @@ _MEAN_STEMS = sorted(
 )
 _OWN_MEAN_STEMS = [stem for stem in _MEAN_STEMS if _BY_STEM[stem].population is Population.OWN]
 _COMMON_MEAN_STEMS = [stem for stem in _MEAN_STEMS if stem not in _OWN_MEAN_STEMS]
-_NO_INTERVAL_STEMS = sorted(set(_BY_STEM) - {"speed_ratio_cdf", "convergence_factor", *_MEAN_STEMS})
+_NO_INTERVAL_STEMS = sorted(
+    set(_BY_STEM)
+    - {
+        "speed_ratio_online_cdf",
+        "speed_ratio_online_amortized_cdf",
+        "convergence_factor",
+        *_MEAN_STEMS,
+    }
+)
 _WHISKER_STEMS = [*_OWN_MEAN_STEMS, "convergence_factor"]
 """Figures whose whiskers are matrix-cluster intervals of per-method means over their own systems."""
 
@@ -207,7 +217,7 @@ def test_a_card_names_the_statistic_it_draws(payloads: dict[str, Payload], stem:
 def test_the_cost_breakdown_card_names_its_statistic_table_and_failure_rule(
     payloads: dict[str, Payload],
 ) -> None:
-    card = payloads["cost_breakdown"]
+    card = payloads["full_cost_breakdown"]
 
     assert (
         card["kind"],
@@ -216,11 +226,11 @@ def test_the_cost_breakdown_card_names_its_statistic_table_and_failure_rule(
         card["table"],
         card["table_kind"],
     ) == (
-        "cost_breakdown",
-        "offline_online_total",
+        "full_cost_breakdown",
+        "full_cost",
         "none",
-        "cost_breakdown_key.parquet",
-        "cost_breakdown",
+        "full_cost_breakdown_key.parquet",
+        "full_cost_breakdown",
     )
 
 
@@ -231,7 +241,7 @@ def test_the_speed_ratio_card_states_each_methods_interval_as_its_table_counts_i
         profile_report.observations, PreconditionerName("jacobi"), REFERENCE_METRIC
     )
 
-    assert _method_matrices(payloads["speed_ratio_cdf"]) == _expected_matrices(summary)
+    assert _method_matrices(payloads["speed_ratio_online_cdf"]) == _expected_matrices(summary)
 
 
 def test_a_drawn_interval_entry_states_its_bootstrap_with_toml_types(
@@ -239,7 +249,7 @@ def test_a_drawn_interval_entry_states_its_bootstrap_with_toml_types(
 ) -> None:
     drawn = [
         entry
-        for entry in _method_entries(payloads["speed_ratio_cdf"])
+        for entry in _method_entries(payloads["speed_ratio_online_cdf"])
         if entry["kind"] == BOOTSTRAP_KIND
     ]
 
@@ -268,10 +278,10 @@ def test_mean_figures_exist_for_every_mean_kind() -> None:
             ),
         ),
         (
-            "time_distribution_online",
+            "time_distribution_online_amortized",
             (
-                "distribution of amortized online time per system [s] over systems, own population; box at "
-                "q25, q50, q75 and whiskers from q05 to q95 of the systems, a distribution "
+                "distribution of amortized online time per pair (setup shared by the RHS of its "
+                "matrix) [s] over systems, own population; box at q25, q50, q75 and whiskers from q05 to q95 of the systems, a distribution "
                 "summary and not a confidence interval; points are per-matrix means"
             ),
         ),
@@ -540,7 +550,7 @@ _BOOT = {"method": "amg", "kind": "matrix_cluster_bootstrap", "level": 0.95, "re
 def test_a_card_with_a_malformed_interval_is_rejected(
     payloads: dict[str, Payload], interval: object, reason: InvalidFigureCardReason
 ) -> None:
-    payload = {**payloads["speed_ratio_cdf"], "interval": interval}
+    payload = {**payloads["speed_ratio_online_cdf"], "interval": interval}
 
     with pytest.raises(InvalidFigureCardError) as error:
         decode_figure_card(payload)

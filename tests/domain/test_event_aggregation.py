@@ -402,10 +402,12 @@ def duplicate_missing_summary_factory(
             n_planned_rhs=2,
             n_attempted_rhs=0,
             n_converged=0,
-            allocated_setup_s=0.0,
-            solve_total_s=0.0,
-            failed_solve_s=0.0,
+            workload_setup_s=0.0,
+            workload_setup_amortized_s=0.0,
+            workload_solve_s=0.0,
+            workload_failed_solve_s=0.0,
             workload_online_s=0.0,
+            workload_online_amortized_s=0.0,
             workload_peak_memory=unknown_workload_peak_memory,
             missing_system_ids=(SystemId("missing"), SystemId("missing")),
         )
@@ -426,10 +428,12 @@ def inconsistent_complete_summary_factory(
             n_planned_rhs=1,
             n_attempted_rhs=1,
             n_converged=1,
-            allocated_setup_s=1.0,
-            solve_total_s=2.0,
-            failed_solve_s=0.0,
+            workload_setup_s=1.0,
+            workload_setup_amortized_s=1.0,
+            workload_solve_s=2.0,
+            workload_failed_solve_s=0.0,
             workload_online_s=3.01,
+            workload_online_amortized_s=3.01,
             workload_peak_memory=unknown_workload_peak_memory,
         )
 
@@ -496,7 +500,7 @@ def test_matrix_bundle_costs_charge_setup_once(
 
     assert bundles["planned_rhs_count"].to_list() == [3, 3]
     assert bundles["attempted_rhs_count"].to_list() == [3, 3]
-    assert bundles["matrix_online_s"].to_list() == pytest.approx((12.0, 27.0))
+    assert bundles["matrix_online_amortized_s"].to_list() == pytest.approx((12.0, 27.0))
     assert bundles["setup_s"].sum() == pytest.approx(18.0)
 
 
@@ -535,7 +539,7 @@ def test_matrix_bundle_retains_failed_setup_without_attempts(
     assert row["setup_status"] == "failed"
     assert row["failure_reason"] == "factorization failed"
     assert row["attempted_rhs_count"] == 0
-    assert row["solve_total_s"] == 0.0
+    assert row["matrix_solve_s"] == 0.0
 
 
 def test_complete_workload_summary_reconciles_raw_events(
@@ -556,9 +560,11 @@ def test_complete_workload_summary_reconciles_raw_events(
 
     assert isinstance(summary, CompleteWorkloadSummary)
     assert (summary.n_planned_rhs, summary.n_attempted_rhs, summary.n_converged) == (6, 6, 6)
-    assert summary.allocated_setup_s == pytest.approx(18.0)
-    assert summary.solve_total_s == pytest.approx(21.0)
-    assert summary.workload_online_s == pytest.approx(39.0)
+    assert summary.workload_setup_amortized_s == pytest.approx(18.0)
+    assert summary.workload_setup_s == pytest.approx(54.0)
+    assert summary.workload_solve_s == pytest.approx(21.0)
+    assert summary.workload_online_amortized_s == pytest.approx(39.0)
+    assert summary.workload_online_s == pytest.approx(75.0)
 
 
 def test_workload_totals_are_derived_from_matrix_bundles(
@@ -588,8 +594,9 @@ def test_workload_totals_are_derived_from_matrix_bundles(
         workload_peak_memory,
     )
 
-    assert summary.allocated_setup_s == bundles["setup_s"].sum()
-    assert summary.solve_total_s == bundles["solve_total_s"].sum()
+    assert summary.workload_setup_amortized_s == bundles["setup_s"].sum()
+    assert summary.workload_solve_s == bundles["matrix_solve_s"].sum()
+    assert summary.workload_online_amortized_s == bundles["matrix_online_amortized_s"].sum()
     assert summary.workload_online_s == bundles["matrix_online_s"].sum()
 
 
@@ -611,9 +618,9 @@ def test_workload_totals_use_stable_matrix_bundle_reductions(
         workload_peak_memory,
     )
 
-    assert summary.allocated_setup_s == fsum(ten_matrix_setup_seconds)
-    assert summary.solve_total_s == fsum(ten_matrix_solve_seconds)
-    assert summary.workload_online_s == fsum(
+    assert summary.workload_setup_amortized_s == fsum(ten_matrix_setup_seconds)
+    assert summary.workload_solve_s == fsum(ten_matrix_solve_seconds)
+    assert summary.workload_online_amortized_s == fsum(
         setup_s + solve_s
         for setup_s, solve_s in zip(ten_matrix_setup_seconds, ten_matrix_solve_seconds, strict=True)
     )
@@ -656,8 +663,8 @@ def test_solve_time_splits_into_converged_systems_and_failed_attempts(
         unknown_workload_peak_memory,
     )
 
-    assert (summary.converged_solve_s, summary.failed_solve_s) == (7.0, 3.0)
-    assert summary.solve_total_s == 10.0
+    assert (summary.workload_converged_solve_s, summary.workload_failed_solve_s) == (7.0, 3.0)
+    assert summary.workload_solve_s == 10.0
 
 
 def test_a_failed_time_above_the_solve_total_is_rejected(
@@ -671,10 +678,12 @@ def test_a_failed_time_above_the_solve_total_is_rejected(
             n_planned_rhs=1,
             n_attempted_rhs=1,
             n_converged=0,
-            allocated_setup_s=1.0,
-            solve_total_s=2.0,
-            failed_solve_s=2.5,
+            workload_setup_s=1.0,
+            workload_setup_amortized_s=1.0,
+            workload_solve_s=2.0,
+            workload_failed_solve_s=2.5,
             workload_online_s=3.0,
+            workload_online_amortized_s=3.0,
             workload_peak_memory=unknown_workload_peak_memory,
         )
 
@@ -696,8 +705,8 @@ def test_unattempted_workload_has_zero_solve_total(
     )
 
     assert isinstance(summary, IncompleteWorkloadSummary)
-    assert isinstance(summary.solve_total_s, float)
-    assert summary.solve_total_s == 0.0
+    assert isinstance(summary.workload_solve_s, float)
+    assert summary.workload_solve_s == 0.0
 
 
 def test_incomplete_summary_rejects_duplicate_missing_system_ids(

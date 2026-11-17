@@ -65,7 +65,7 @@ def test_a_methods_offline_cost_is_read_back_from_its_summary(
         generation=TrainShareOfGeneration(
             Known(8.5, 1024, CostProvenance.HISTORICAL), TrainShare(1.0, FitFolds.TRAIN)
         ),
-        training=Unavailable("1 of 1 checkpoints have no recorded training run"),
+        fit=Unavailable("1 of 1 checkpoints have no recorded training run"),
     )
     jacobi = write_method(PreconditionerType.JACOBI, tmp_path / "jacobi", offline=offline)
 

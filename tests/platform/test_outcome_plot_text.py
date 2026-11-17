@@ -53,7 +53,11 @@ def profile_target() -> FigureTarget:
     ("metric", "expected"),
     [
         (MetricId.SOLVE_S, r"Solve-only time relative to the best method, $\tau$"),
-        (MetricId.ONLINE_S, r"Amortized online time relative to the best method, $\tau$"),
+        (MetricId.ONLINE_S, r"Online time per pair relative to the best method, $\tau$"),
+        (
+            MetricId.ONLINE_AMORTIZED_S,
+            r"Amortized online time per pair relative to the best method, $\tau$",
+        ),
     ],
 )
 def test_performance_profile_axis_names_its_timing_metric(
@@ -129,6 +133,10 @@ def test_profile_step_curve_of_a_method_that_solved_nothing_is_flat_zero() -> No
     [
         (WorkloadTotal.SOLVE, (BarSegment.CONVERGED, BarSegment.FAILED)),
         (WorkloadTotal.ONLINE, (BarSegment.SETUP, BarSegment.CONVERGED, BarSegment.FAILED)),
+        (
+            WorkloadTotal.ONLINE_AMORTIZED,
+            (BarSegment.SETUP_AMORTIZED, BarSegment.CONVERGED, BarSegment.FAILED),
+        ),
     ],
 )
 def test_a_workload_bar_stacks_the_table_columns_that_sum_to_its_total(

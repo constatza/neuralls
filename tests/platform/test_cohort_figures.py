@@ -61,25 +61,30 @@ _GAUSSIAN_SLUG = "gaussian_m0.0_s1.0"
 _SINE_SLUG = "sinusoidal_w6.28319"
 
 _AGGREGATE_BARS = (
-    "solve_time_bars",
-    "online_time_bars",
-    "cost_breakdown",
+    "workload_solve_bars",
+    "workload_online_bars",
+    "workload_online_amortized_bars",
+    "full_cost_breakdown",
 )
 """Pooled single figures at every level."""
 
 _POOLED_FIGURES = (
-    "paired_time_scatter",
-    "speed_ratio_cdf",
+    "paired_online_scatter",
+    "paired_online_amortized_scatter",
+    "speed_ratio_online_cdf",
+    "speed_ratio_online_amortized_cdf",
     "performance_profile_solve",
     "performance_profile_online",
+    "performance_profile_online_amortized",
     "ecdf_iterations",
-    "ecdf_time_solve",
-    "ecdf_time_online",
+    "ecdf_solve",
+    "ecdf_online",
+    "ecdf_online_amortized",
 )
 """Figures with one unsuffixed figure at recipe level and one pooled figure at mixture levels."""
 
 _RECIPE_LEVEL_ONLY = (
-    "breakeven",
+    "breakeven_online_amortized",
     "matrix_heatmap_iterations",
 )
 """Figures drawn only for a single recipe of a matrix set."""
@@ -89,15 +94,16 @@ _COHORT_FIGURES = (
     "iteration_means",
     "time_means_solve_own",
     "time_means_solve_common",
+    "time_means_online_amortized_own",
+    "time_means_online_amortized_common",
     "time_means_online_own",
     "time_means_online_common",
-    "time_means_standalone_own",
-    "time_means_standalone_common",
     "setup_means",
     "time_per_iteration",
     "iteration_distribution",
     "time_distribution_solve",
     "time_distribution_online",
+    "time_distribution_online_amortized",
 )
 """Figures drawn once per cohort."""
 
@@ -162,7 +168,7 @@ def test_a_cohort_figure_records_its_cohort_and_the_evidence_of_its_systems(
 
     sine = plans[f"iteration_means_{KEY}__{_SINE_SLUG}"]
     pooled = plans[f"iteration_means_{KEY}__mixture"]
-    bars = plans[f"solve_time_bars_{KEY}"]
+    bars = plans[f"workload_solve_bars_{KEY}"]
 
     assert sine.cohort == RecipeCohort(SINE)
     assert (sine.recipes, sine.recipe_counts, sine.recipe_weights) == (
@@ -200,7 +206,10 @@ def test_the_variant_of_a_suffixed_figure_is_found_from_its_metadata(
         for plan in plans
     }
 
-    assert found[f"time_means_online_common_{KEY}__{_SINE_SLUG}"] == "time_means_online_common"
+    assert (
+        found[f"time_means_online_amortized_common_{KEY}__{_SINE_SLUG}"]
+        == "time_means_online_amortized_common"
+    )
     assert found[f"time_distribution_solve_{KEY}__mixture"] == "time_distribution_solve"
 
 
@@ -324,7 +333,7 @@ def test_a_cohort_figure_names_its_recipe_and_the_pooled_figure_the_mixture(
     assert subtitles[f"iteration_means_{KEY}__mixture"] == (
         f"All comparison matrix sets\n{MIXTURE_NOTE}"
     )
-    assert len(subtitles[f"solve_time_bars_{KEY}"].splitlines()) == 1
+    assert len(subtitles[f"workload_solve_bars_{KEY}"].splitlines()) == 1
 
 
 _SETUP_SHARING_LINE = (
@@ -337,7 +346,8 @@ _SETUP_SHARING_LINE = (
     [
         ("ecdf_iterations", []),
         ("performance_profile_solve", []),
-        ("speed_ratio_cdf", [_SETUP_SHARING_LINE]),
+        ("speed_ratio_online_cdf", []),
+        ("speed_ratio_online_amortized_cdf", [_SETUP_SHARING_LINE]),
     ],
 )
 def test_a_pooled_profile_figure_is_a_mixture_figure_drawn_whole(

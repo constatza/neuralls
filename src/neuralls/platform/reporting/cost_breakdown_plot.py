@@ -1,10 +1,10 @@
-"""The total-cost figure: each method's offline stages stacked on its online workload totals.
+"""The full-cost figure: each method's offline stages stacked on its pair workload sums.
 
-Offline cost (dataset generation and the offline fit or training) is paid once per method
-artifact and online cost (matrix setups and solves) once per workload, so a bar is the total cost
-of serving the report's workload from a fresh artifact. Colour encodes the stage and the method
+Offline cost (dataset generation and the offline fit) is paid once per method artifact and online
+cost (each pair's matrix setup and solve) once per workload, so a bar is the full cost of serving
+the report's pairs from a fresh artifact. Colour encodes the stage and the method
 is the x tick label, so one fixed colour means one stage in every bar. A stage with no recorded
-number draws no segment and the bar says so instead of ending at a total that would read the
+number draws no segment and the bar says so instead of ending at a full cost that would read the
 unknown stage as free; a method fit inline has no offline fit segment because that fit is part of
 its setup segment, which the text above the bar says.
 """
@@ -24,7 +24,7 @@ from neuralls.platform.reporting.figure_annotations import ColumnAnnotation, ann
 from neuralls.platform.reporting.figure_formats import FigureTarget
 from neuralls.platform.reporting.figure_sizing import bar_columns_figure_size
 from neuralls.platform.reporting.figure_style import rotate_x_labels
-from neuralls.platform.reporting.figure_table import TotalStatus
+from neuralls.platform.reporting.figure_table import FullStatus
 from neuralls.platform.reporting.figure_text import LEGEND_FONT_SIZE
 from neuralls.platform.reporting.figure_writer import finish_group_figure
 from neuralls.platform.reporting.group_style import GroupStyle
@@ -35,35 +35,35 @@ from neuralls.platform.reporting.stacked_segments import segment_key
 type CostRow = Mapping[str, object]
 
 GENERATION_LABEL = "dataset generation (offline)"
-TRAINING_LABEL = "offline fit / training"
-SETUP_LABEL = "matrix setup"
+FIT_LABEL = "offline fit"
+SETUP_LABEL = "matrix setup, charged to each pair"
 SOLVE_LABEL = "solves"
-"""Words of the four stages in the legend; the unknown-total note reuses the offline two."""
+"""Words of the four stages in the legend; the unknown-full-cost note reuses the offline two."""
 
 _OKABE_ITO_SLOTS = 8
 """Size of the colour-blind-safe palette the stage colours are picked from."""
 
 
 class CostSegment(StrEnum):
-    """One stacked part of a cost bar, named by the cost-breakdown column it draws."""
+    """One stacked part of a cost bar, named by the full-cost breakdown column it draws."""
 
     GENERATION = "generation_s"
-    TRAINING = "training_s"
-    SETUP = "allocated_setup_s"
-    SOLVE = "solve_total_s"
+    FIT = "fit_s"
+    SETUP = "workload_setup_s"
+    SOLVE = "workload_solve_s"
 
 
 def cost_segments() -> tuple[CostSegment, ...]:
     """The segments stacked, bottom to top: offline stages first, then the online ones."""
-    return (CostSegment.GENERATION, CostSegment.TRAINING, CostSegment.SETUP, CostSegment.SOLVE)
+    return (CostSegment.GENERATION, CostSegment.FIT, CostSegment.SETUP, CostSegment.SOLVE)
 
 
 def _segment_label(segment: CostSegment) -> str:
     match segment:
         case CostSegment.GENERATION:
             return GENERATION_LABEL
-        case CostSegment.TRAINING:
-            return TRAINING_LABEL
+        case CostSegment.FIT:
+            return FIT_LABEL
         case CostSegment.SETUP:
             return SETUP_LABEL
         case CostSegment.SOLVE:
@@ -77,7 +77,7 @@ def _palette_slot(segment: CostSegment) -> int:
     match segment:
         case CostSegment.GENERATION:
             return 1
-        case CostSegment.TRAINING:
+        case CostSegment.FIT:
             return 0
         case CostSegment.SETUP:
             return 2
@@ -93,20 +93,20 @@ def segment_color(segment: CostSegment) -> str:
 
 
 def cost_bar_label(row: CostRow) -> str:
-    """The total in seconds, or which offline stages leave it unknown."""
-    match TotalStatus(row["total_status"]):
-        case TotalStatus.COMPLETE:
-            return f"{row['total_s']:.4g} s"
-        case TotalStatus.OFFLINE_UNAVAILABLE:
+    """The full cost in seconds, or which offline stages leave it unknown."""
+    match FullStatus(row["full_status"]):
+        case FullStatus.COMPLETE:
+            return f"{row['full_s']:.4g} s"
+        case FullStatus.OFFLINE_UNAVAILABLE:
             unavailable = [
                 label
                 for label, status in (
                     ("generation", row["generation_status"]),
-                    (TRAINING_LABEL, row["training_status"]),
+                    (FIT_LABEL, row["fit_status"]),
                 )
                 if status == StageStatus.UNAVAILABLE.value
             ]
-            return f"total unknown: {' and '.join(unavailable)} unavailable"
+            return f"full cost unknown: {' and '.join(unavailable)} unavailable"
         case unreachable:
             assert_never(unreachable)
 
@@ -125,14 +125,14 @@ def fit_origin_note(row: CostRow) -> tuple[str, ...]:
 
 
 def cost_bar_text(row: CostRow) -> str:
-    """The text above a bar: the total (or why it is unknown), then the fit origin line."""
+    """The text above a bar: the full cost (or why it is unknown), then the fit origin line."""
     return "\n".join((cost_bar_label(row), *fit_origin_note(row)))
 
 
-def plot_cost_breakdown(
+def plot_full_cost_breakdown(
     table: pl.DataFrame, *, style: GroupStyle, target: FigureTarget
 ) -> FigureTarget | None:
-    """Draw one stacked bar per method of the cost-breakdown ``table``."""
+    """Draw one stacked bar per method of the full-cost breakdown ``table``."""
     if table.height == 0:
         return None
     rows = list(table.iter_rows(named=True))
@@ -168,7 +168,7 @@ def plot_cost_breakdown(
     )
     # The stage legend already names the offline and online parts; a longer label would run
     # past the axes' height into the subtitle.
-    ax.set_ylabel("Total cost [s]")
+    ax.set_ylabel("Full cost [s]")
     ax.set_xlabel("Method")
     finish_group_figure(
         fig,
@@ -178,7 +178,7 @@ def plot_cost_breakdown(
         show_titles=style.show_titles,
         target=target,
         show=False,
-        saved_message="Saved cost breakdown to",
+        saved_message="Saved full cost breakdown to",
     )
     return target
 

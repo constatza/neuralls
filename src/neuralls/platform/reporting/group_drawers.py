@@ -28,7 +28,7 @@ from neuralls.domain.benchmarking.paired import (
 from neuralls.domain.benchmarking.profiles import ProfileSeries, ecdf_series, performance_series
 from neuralls.domain.benchmarking.selection import ReferenceSelection
 from neuralls.domain.solver.reporting.metrics import METRICS, MetricId
-from neuralls.platform.reporting.cost_breakdown_plot import plot_cost_breakdown
+from neuralls.platform.reporting.cost_breakdown_plot import plot_full_cost_breakdown
 from neuralls.platform.reporting.figure_formats import FigureTarget
 from neuralls.platform.reporting.figure_metadata import Statistic
 from neuralls.platform.reporting.group_style import GroupStyle
@@ -43,7 +43,7 @@ from neuralls.platform.reporting.seaborn_distributions import (
     plot_matrix_heatmap,
 )
 from neuralls.platform.reporting.seaborn_means import plot_mean_bars, plot_time_per_iteration
-from neuralls.platform.reporting.workload_bars import WorkloadTotal, plot_workload_bars
+from neuralls.platform.reporting.workload_bars import plot_workload_bars, workload_total
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,7 +74,8 @@ type _SeriesOf = Callable[[pl.DataFrame, MetricId], ProfileSeries]
 
 _ITERATIONS_XLABEL: Mapping[MetricId, str] = {MetricId.ITERATIONS: "Iterations"}
 _TIME_XLABELS: Mapping[MetricId, str] = {
-    metric: METRICS[metric].label.capitalize() for metric in (MetricId.SOLVE_S, MetricId.ONLINE_S)
+    metric: METRICS[metric].label.capitalize()
+    for metric in (MetricId.SOLVE_S, MetricId.ONLINE_S, MetricId.ONLINE_AMORTIZED_S)
 }
 
 
@@ -87,23 +88,9 @@ def _profile_series(data: FigureData, series_of: _SeriesOf) -> ProfileSeries:
     return replace(series_of(data.observations, data.metric), frame=data.summary)
 
 
-def solve_time_bars(data: FigureData, target: FigureTarget) -> FigureTarget | None:
+def workload_bars(data: FigureData, target: FigureTarget) -> FigureTarget | None:
     return plot_workload_bars(
-        data.summary,
-        total=WorkloadTotal.SOLVE,
-        ylabel="Solve-only workload total, incl. failed solves [s]",
-        style=data.style,
-        target=target,
-    )
-
-
-def online_time_bars(data: FigureData, target: FigureTarget) -> FigureTarget | None:
-    return plot_workload_bars(
-        data.summary,
-        total=WorkloadTotal.ONLINE,
-        ylabel="Total online workload time, incl. failed solves [s]",
-        style=data.style,
-        target=target,
+        data.summary, total=workload_total(data.metric), style=data.style, target=target
     )
 
 
@@ -134,8 +121,8 @@ def performance_profile(data: FigureData, target: FigureTarget) -> FigureTarget 
     )
 
 
-def cost_breakdown(data: FigureData, target: FigureTarget) -> FigureTarget | None:
-    return plot_cost_breakdown(data.summary, style=data.style, target=target)
+def full_cost_breakdown(data: FigureData, target: FigureTarget) -> FigureTarget | None:
+    return plot_full_cost_breakdown(data.summary, style=data.style, target=target)
 
 
 def paired_time_scatter(data: FigureData, target: FigureTarget) -> FigureTarget | None:
@@ -161,6 +148,7 @@ def speed_ratio_cdf(data: FigureData, target: FigureTarget) -> FigureTarget | No
             return plot_speed_ratio_cdf(
                 speed_ratios(paired),
                 data.summary,
+                metric=data.metric,
                 style=data.style,
                 reference_name=reference,
                 target=target,
