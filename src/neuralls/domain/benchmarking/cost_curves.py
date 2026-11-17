@@ -19,7 +19,7 @@ BREAK_EVEN_HORIZON_LIMIT = 1_000
 
 A per-RHS saving close to zero puts $n^*$ arbitrarily far away; sampling up to it would make the
 table as long as $n^*$ for a line that is already fixed by two numbers. $n^*$ itself is stored
-exactly in ``break_even_rhs``.
+exactly in ``breakeven_online_amortized``.
 """
 
 
@@ -33,8 +33,8 @@ class CostSide(StrEnum):
 class BreakEvenState(StrEnum):
     """Whether a compared method's curve meets the reference's.
 
-    ``BREAKS_EVEN``: the method is faster per RHS, so from ``break_even_rhs`` on it costs less
-    (0.0 when its setup is no dearer either). ``NEVER``: it is not faster per RHS, so the
+    ``BREAKS_EVEN``: the method is faster per RHS, so from ``breakeven_online_amortized`` on it
+    costs less (0.0 when its setup is no dearer either). ``NEVER``: it is not faster per RHS, so the
     reference stays cheaper for every RHS count. ``NO_COMMON_SYSTEMS``: the pair shares no
     matrix both set up or no system both solved, so there is no mean to draw a curve from.
     """
@@ -48,17 +48,19 @@ COST_CURVE_SCHEMA: dict[str, pl.DataType | type[pl.DataType]] = {
     "method": pl.String,
     "side": pl.String,
     "n_rhs": pl.Int64,
-    "cost_s": pl.Float64,
+    "matrix_online_amortized_s": pl.Float64,
     "break_even": pl.String,
-    "break_even_rhs": pl.Float64,
-    "break_even_cost_s": pl.Float64,
+    "breakeven_online_amortized": pl.Float64,
+    "breakeven_matrix_online_amortized_s": pl.Float64,
 }
 """One row per compared method, side and RHS count $n = 1..N$. ``side`` holds ``CostSide`` values
-and ``break_even`` a ``BreakEvenState``; ``cost_s`` is null without common systems, and
-``break_even_rhs`` and ``break_even_cost_s`` (the cost of either side at $n^*$) are null unless the
+and ``break_even`` a ``BreakEvenState``. ``matrix_online_amortized_s`` is the online amortized cost
+of one matrix with $n$ RHS, its setup mean plus $n$ solve means, and is null without common
+systems. ``breakeven_online_amortized`` ($n^*$, in RHS per matrix) and
+``breakeven_matrix_online_amortized_s`` (the cost of either side at $n^*$) are null unless the
 method breaks even. The break-even columns repeat on every row of a method."""
 
-_MEANS = ["setup_s_mean", "reference_setup_s_mean", "solve_s_mean", "reference_solve_s_mean"]
+_MEANS = ["setup_mean_s", "reference_setup_mean_s", "solve_mean_s", "reference_solve_mean_s"]
 _ORDER = ["method", "side", "n_rhs"]
 
 
@@ -76,30 +78,35 @@ def break_even_curves(obs: pl.DataFrame, reference: PreconditionerName) -> pl.Da
     """
     means = break_even(obs, reference).with_columns(
         break_even=_state(),
-        break_even_cost_s=pl.col("setup_s_mean")
-        + pl.col("break_even_rhs") * pl.col("solve_s_mean"),
+        breakeven_matrix_online_amortized_s=pl.col("setup_mean_s")
+        + pl.col("breakeven_online_amortized") * pl.col("solve_mean_s"),
     )
-    marks = ["method", "break_even", "break_even_rhs", "break_even_cost_s"]
+    marks = [
+        "method",
+        "break_even",
+        "breakeven_online_amortized",
+        "breakeven_matrix_online_amortized_s",
+    ]
     sides = pl.concat(
         [
             means.select(
                 *marks,
                 side=pl.lit(CostSide.METHOD.value),
-                setup=pl.col("setup_s_mean"),
-                solve=pl.col("solve_s_mean"),
+                setup=pl.col("setup_mean_s"),
+                solve=pl.col("solve_mean_s"),
             ),
             means.select(
                 *marks,
                 side=pl.lit(CostSide.REFERENCE.value),
-                setup=pl.col("reference_setup_s_mean"),
-                solve=pl.col("reference_solve_s_mean"),
+                setup=pl.col("reference_setup_mean_s"),
+                solve=pl.col("reference_solve_mean_s"),
             ),
         ]
     )
     counts = pl.DataFrame({"n_rhs": range(1, _horizon(obs, means) + 1)}, schema={"n_rhs": pl.Int64})
     return (
         sides.join(counts, how="cross")
-        .with_columns(cost_s=pl.col("setup") + pl.col("n_rhs") * pl.col("solve"))
+        .with_columns(matrix_online_amortized_s=pl.col("setup") + pl.col("n_rhs") * pl.col("solve"))
         .select(list(COST_CURVE_SCHEMA))
         .cast(pl.Schema(COST_CURVE_SCHEMA))
         .sort(_ORDER)
@@ -110,7 +117,7 @@ def _state() -> pl.Expr:
     return (
         pl.when(pl.any_horizontal(pl.col(_MEANS).is_null()))
         .then(pl.lit(BreakEvenState.NO_COMMON_SYSTEMS.value))
-        .when(pl.col("break_even_rhs").is_null())
+        .when(pl.col("breakeven_online_amortized").is_null())
         .then(pl.lit(BreakEvenState.NEVER.value))
         .otherwise(pl.lit(BreakEvenState.BREAKS_EVEN.value))
     )
@@ -119,7 +126,7 @@ def _state() -> pl.Expr:
 def _horizon(obs: pl.DataFrame, means: pl.DataFrame) -> int:
     """The planned RHS of the largest matrix, or the furthest break-even count up to the limit."""
     planned = int(obs.select(pl.col("planned_rhs").max()).item())
-    match means.select(pl.col("break_even_rhs").max()).item():
+    match means.select(pl.col("breakeven_online_amortized").max()).item():
         case None:
             return planned
         case furthest:

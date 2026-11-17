@@ -209,7 +209,8 @@ FIGURE_RECIPES: Mapping[FigureKind, FigureRecipe] = {
                 FigureVariant(
                     "workload_solve_bars",
                     "Solve-only Workload Sum",
-                    "sum of solve-only seconds across attempted pairs, including failures",
+                    "sum over planned pairs of solve-only seconds, including failures; a pair "
+                    "with no solve adds none",
                     MetricId.SOLVE_S,
                     Population.OWN,
                     Statistic.WORKLOAD_SUM,
@@ -226,8 +227,9 @@ FIGURE_RECIPES: Mapping[FigureKind, FigureRecipe] = {
                 FigureVariant(
                     "workload_online_bars",
                     "Online Workload Sum",
-                    "sum over attempted pairs of the matrix setup seconds charged to each pair "
-                    "plus its solve-only seconds",
+                    "sum over planned pairs of the matrix setup seconds charged to each pair "
+                    "plus its solve-only seconds; a failed setup is still charged to each "
+                    "planned pair of its matrix, so this exceeds the sum of pair online times",
                     MetricId.ONLINE_S,
                     Population.OWN,
                     Statistic.WORKLOAD_SUM,
@@ -235,8 +237,8 @@ FIGURE_RECIPES: Mapping[FigureKind, FigureRecipe] = {
                 FigureVariant(
                     "workload_online_amortized_bars",
                     "Amortized Online Workload Sum",
-                    "sum of matrix setup seconds once per matrix and solve-only seconds across "
-                    "attempted pairs",
+                    "sum over planned pairs of each pair's share of its matrix setup seconds "
+                    "(setup over the matrix's planned RHS) plus its solve-only seconds",
                     MetricId.ONLINE_AMORTIZED_S,
                     Population.OWN,
                     Statistic.WORKLOAD_SUM,

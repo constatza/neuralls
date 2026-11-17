@@ -63,11 +63,11 @@ SPEED_RATIO_SCHEMA: dict[str, pl.DataType | type[pl.DataType]] = {
 
 BREAK_EVEN_SCHEMA: dict[str, pl.DataType | type[pl.DataType]] = {
     "method": pl.String,
-    "setup_s_mean": pl.Float64,
-    "reference_setup_s_mean": pl.Float64,
-    "solve_s_mean": pl.Float64,
-    "reference_solve_s_mean": pl.Float64,
-    "break_even_rhs": pl.Float64,
+    "setup_mean_s": pl.Float64,
+    "reference_setup_mean_s": pl.Float64,
+    "solve_mean_s": pl.Float64,
+    "reference_solve_mean_s": pl.Float64,
+    "breakeven_online_amortized": pl.Float64,
 }
 
 _SYSTEM_KEYS = ["dataset", "system_id"]
@@ -246,9 +246,9 @@ def break_even(obs: pl.DataFrame, reference: PreconditionerName) -> pl.DataFrame
     {\bar{t}^{\mathrm{solve},\mathrm{sys}}_{\mathrm{ref}} - \bar{t}^{\mathrm{solve},\mathrm{sys}}_p}$$
 
     is defined only when the denominator is positive; otherwise the method is not faster per RHS,
-    never breaks even, and ``break_even_rhs`` is null. When the denominator is positive and the
-    method's setup is no dearer than the reference's, it never costs more and ``break_even_rhs``
-    is 0.0.
+    never breaks even, and ``breakeven_online_amortized`` is null. When the denominator is positive
+    and the method's setup is no dearer than the reference's, it never costs more and
+    ``breakeven_online_amortized`` is 0.0.
 
     The means are taken over the population common to the pair alone (not to every method):
     ``SETUP_S`` over the matrices both set up, ``SOLVE_S`` over the systems both solved, so
@@ -260,12 +260,12 @@ def break_even(obs: pl.DataFrame, reference: PreconditionerName) -> pl.DataFrame
     """
     _require_reference(obs, reference)
     rows = [_common_means(obs, reference, method) for method in compared_methods(obs, reference)]
-    saving_per_rhs = pl.col("reference_solve_s_mean") - pl.col("solve_s_mean")
-    extra_setup = pl.col("setup_s_mean") - pl.col("reference_setup_s_mean")
+    saving_per_rhs = pl.col("reference_solve_mean_s") - pl.col("solve_mean_s")
+    extra_setup = pl.col("setup_mean_s") - pl.col("reference_setup_mean_s")
     return (
         pl.DataFrame(rows, schema=BREAK_EVEN_SCHEMA)
         .with_columns(
-            break_even_rhs=pl.when(saving_per_rhs > 0.0).then(
+            breakeven_online_amortized=pl.when(saving_per_rhs > 0.0).then(
                 pl.when(extra_setup > 0.0).then(extra_setup / saving_per_rhs).otherwise(0.0)
             )
         )
@@ -282,11 +282,11 @@ def _common_means(
     solve = _means_by_method(pair, MetricId.SOLVE_S)
     return {
         "method": method,
-        "setup_s_mean": setup.get(method),
-        "reference_setup_s_mean": setup.get(reference),
-        "solve_s_mean": solve.get(method),
-        "reference_solve_s_mean": solve.get(reference),
-        "break_even_rhs": None,
+        "setup_mean_s": setup.get(method),
+        "reference_setup_mean_s": setup.get(reference),
+        "solve_mean_s": solve.get(method),
+        "reference_solve_mean_s": solve.get(reference),
+        "breakeven_online_amortized": None,
     }
 
 

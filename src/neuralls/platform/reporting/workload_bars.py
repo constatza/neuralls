@@ -77,7 +77,7 @@ def workload_ylabel(total: WorkloadTotal) -> str:
         case WorkloadTotal.ONLINE:
             return "Online workload sum, setup charged to each pair, incl. failed solves [s]"
         case WorkloadTotal.ONLINE_AMORTIZED:
-            return "Amortized online workload sum, setup once per matrix, incl. failed solves [s]"
+            return "Amortized online workload sum, setup shared by planned RHS, incl. failed solves [s]"
         case unreachable:
             assert_never(unreachable)
 

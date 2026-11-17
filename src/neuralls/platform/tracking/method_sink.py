@@ -27,6 +27,18 @@ from neuralls.platform.reporting.benchmark_events import (
 from neuralls.platform.tracking.run_writer import RunWriter
 from neuralls.shared.types import DatasetId, SystemId
 
+WORKLOAD_COST_KEYS = (
+    "workload_setup_s",
+    "workload_setup_amortized_s",
+    "workload_solve_s",
+    "workload_online_s",
+    "workload_online_amortized_s",
+)
+"""The MLflow metric keys of the workload sums, each logged from the summary field of its name."""
+
+OFFLINE_COST_KEYS = ("generation_s", "fit_s", "offline_s")
+"""The MLflow metric keys of the offline stages: charged generation, fit and their combination."""
+
 
 @dataclass(frozen=True, slots=True)
 class MLflowBenchmarkMethodSink:
@@ -97,11 +109,7 @@ class MLflowBenchmarkMethodSink:
             "success_rate": (
                 summary.n_converged / summary.n_planned_rhs if summary.n_planned_rhs else 0.0
             ),
-            "workload_setup_s": summary.workload_setup_s,
-            "workload_setup_amortized_s": summary.workload_setup_amortized_s,
-            "workload_solve_s": summary.workload_solve_s,
-            "workload_online_s": summary.workload_online_s,
-            "workload_online_amortized_s": summary.workload_online_amortized_s,
+            **{key: float(getattr(summary, key)) for key in WORKLOAD_COST_KEYS},
             "n_setup_failed": float(n_setup_failed),
             "n_solve_failed": float(n_solve_failed),
             "iterations_total": float(
@@ -113,10 +121,10 @@ class MLflowBenchmarkMethodSink:
         if isinstance(summary.workload_peak_memory, MeasuredPeakMemory):
             metrics["workload_peak_memory_bytes"] = float(summary.workload_peak_memory.bytes)
         offline = workload.offline_cost
-        for key, stage in (
-            ("generation_s", offline.charged_generation()),
-            ("fit_s", offline.fit),
-            ("offline_s", offline.combined()),
+        for key, stage in zip(
+            OFFLINE_COST_KEYS,
+            (offline.charged_generation(), offline.fit, offline.combined()),
+            strict=True,
         ):
             seconds = recorded_seconds(stage)
             if seconds is not None:

@@ -158,8 +158,8 @@ matrix and one right-hand side. The report uses these time names consistently:
 | **Solve-only time per pair** (`solve_s`) | Representative solve time for one RHS after setup; excludes setup and offline work | Measured |
 | **Online time per pair** (`online_s`) | Solve-only time plus its matrix's whole setup | Derived, not a separately timed operation |
 | **Amortized online time per pair** (`online_amortized_s`) | Solve-only time plus its matrix's setup divided by its full planned RHS count, across recipes | Derived allocation, not a separately timed operation |
-| **Solve-only workload sum** (`workload_solve_s`) | Sum of representative solve-only times of attempted pairs, including failed attempts | Derived sum; not an end-to-end wall-clock timer |
-| **Online workload sum** (`workload_online_s`) | Every pair's matrix setup plus the solve-only workload sum | Derived sum; not an end-to-end wall-clock timer |
+| **Solve-only workload sum** (`workload_solve_s`) | Sum of representative solve-only times over the planned pairs, including failed attempts; a pair with no solve adds none | Derived sum; not an end-to-end wall-clock timer |
+| **Online workload sum** (`workload_online_s`) | Every planned pair's matrix setup, a failed setup included, plus the solve-only workload sum | Derived sum; not an end-to-end wall-clock timer |
 | **Amortized online workload sum** (`workload_online_amortized_s`) | One representative setup per matrix plus the solve-only workload sum; for a report subgroup, its proportional share of each matrix setup | Derived sum; not an end-to-end wall-clock timer |
 | **Full cost** (`full_cost_seconds`) | Online workload sum plus known offline generation and fit costs | Derived; unavailable when an applicable offline cost is unknown |
 
@@ -169,13 +169,15 @@ that setup is excluded; **amortized** marks every quantity that shares a setup o
 matrix.
 `mean_over_systems` pools selected systems; `mean_over_matrices` averages their per-matrix means.
 
-Notation. Method $p$; matrix $m \in \mathcal{M}$, $K = |\mathcal{M}|$; system $s$ = (matrix, RHS), $m(s)$ its matrix; $r_m$ the planned RHS count of $m$; $\mathcal{A}_p$ attempted systems, $\mathcal{C}_p \subseteq \mathcal{A}_p$ converged systems of $p$; $k_{p,s}$ iterations. $\tau_{p,s,j}$ is the wall time of **timing repeat** $j = 1..R$ of the same solve; $\operatorname{stat}$ is the configured `TimingStatistic` (median default).
+Notation. Method $p$; matrix $m \in \mathcal{M}$, $K = |\mathcal{M}|$; system $s$ = (matrix, RHS), $m(s)$ its matrix; $r_m$ the planned RHS count of $m$; $\mathcal{S}$ the planned systems, $\mathcal{A}_p \subseteq \mathcal{S}$ attempted systems, $\mathcal{C}_p \subseteq \mathcal{A}_p$ converged systems of $p$; $k_{p,s}$ iterations. $\tau_{p,s,j}$ is the wall time of **timing repeat** $j = 1..R$ of the same solve; $\operatorname{stat}$ is the configured `TimingStatistic` (median default).
 
 $$t^{\mathrm{solve}}_{p,s} = \operatorname{stat}_{j}\,\tau^{\mathrm{solve}}_{p,s,j}, \quad t^{\mathrm{setup}}_{p,m} = \operatorname{stat}_{j}\,\tau^{\mathrm{setup}}_{p,m,j}$$
 
 $$t^{\mathrm{online}}_{p,s} = t^{\mathrm{setup}}_{p,m(s)} + t^{\mathrm{solve}}_{p,s}\ \text{(every pair pays its matrix's whole setup)}, \qquad t^{\mathrm{online,amortized}}_{p,s} = \frac{t^{\mathrm{setup}}_{p,m(s)}}{r_{m(s)}} + t^{\mathrm{solve}}_{p,s}\ \text{(setup shared by the matrix's planned RHS)}$$
 
-$$T^{\mathrm{solve}}_p = \sum_{s \in \mathcal{A}_p} t^{\mathrm{solve}}_{p,s}, \qquad T^{\mathrm{online}}_p = \sum_{s \in \mathcal{A}_p} t^{\mathrm{setup}}_{p,m(s)} + T^{\mathrm{solve}}_p, \qquad T^{\mathrm{online,amortized}}_p = \sum_{m} t^{\mathrm{setup}}_{p,m} + T^{\mathrm{solve}}_p \quad\text{(workload sums; failed attempts keep their time)}$$
+$$T^{\mathrm{solve}}_p = \sum_{s \in \mathcal{A}_p} t^{\mathrm{solve}}_{p,s}, \qquad T^{\mathrm{online}}_p = \sum_{s \in \mathcal{S}} t^{\mathrm{setup}}_{p,m(s)} + T^{\mathrm{solve}}_p, \qquad T^{\mathrm{online,amortized}}_p = \sum_{m} t^{\mathrm{setup}}_{p,m} + T^{\mathrm{solve}}_p \quad\text{(workload sums; failed attempts keep their time)}$$
+
+The online workload sum charges the setup per **planned** pair: each pair would need its own setup to be solved alone, so a matrix whose setup failed is still charged that setup once per planned pair. Such pairs have no solve and a null `online_s`, so when a setup fails `workload_online_s` exceeds the sum of the pairs' `online_s`. In a cohort subgroup $r_m$ counts the cohort's planned RHS of $m$, and the amortized sum takes the cohort's proportional share $r_m / r^{\mathrm{all}}_m$ of each matrix's setup, where $r^{\mathrm{all}}_m$ counts the RHS planned for $m$ over every recipe.
 
 $$T^{\mathrm{solve}}_p = \underbrace{\sum_{s \in \mathcal{C}_p} t^{\mathrm{solve}}_{p,s}}_{\texttt{workload\_converged\_solve\_s}} + \underbrace{\sum_{s \in \mathcal{A}_p \setminus \mathcal{C}_p} t^{\mathrm{solve}}_{p,s}}_{\texttt{workload\_failed\_solve\_s}}$$
 
@@ -295,10 +297,16 @@ tables, MLflow metric keys, figure stems) and in the paper; other docs point her
 denotes exactly one measured or derived quantity and means the same wherever it appears. The unit
 is a (matrix, RHS) **pair**: $i$ a matrix, $q$ one of its RHS, $n_i$ its planned RHS count.
 
-Name grammar: `[scope_]stage[_amortized][_statistic]_s`. Figure stem grammar:
-`<figure kind>_<stage>[_amortized]`. `tests/architecture/test_cost_vocabulary.py` checks that every
-cost `MetricId` value, every workload-summary field and every cost-figure stem is composed of these
-keywords.
+Name grammar: `[scope_][filter_]stage[_amortized][_statistic]_s`, each slot filled from the rows of
+its kind, in that order. A `breakeven_` prefix makes the rest of the name the cost two methods
+share at their break-even: without `_s` the name is the count of that break-even, with `_s` the
+seconds of that cost at it. A figure stem is a cost name without `_s`, optionally wrapped in a
+figure-form prefix and suffix that name what is drawn or its population (`ecdf_`, `paired_`,
+`_bars`, `_scatter`, `_own`, ...) and never a quantity. `tests/architecture/test_cost_vocabulary.py`
+builds the grammar from this table and checks every cost `MetricId` value, every workload-summary
+field, the seconds and break-even columns of the stored workload, break-even, cost-curve and
+full-cost tables, the MLflow cost keys of `platform/tracking/method_sink.py` and every cost-figure
+stem against it.
 
 | Keyword | Kind | Quantity | Paper symbol |
 |---|---|---|---|
@@ -310,17 +318,20 @@ keywords.
 | `offline` | stage | `generation + fit` | $C_m$ |
 | `full` | stage | `offline + workload_online` | $T_{\mathrm{full},m}$ |
 | `amortized` | modifier | The setup term is replaced by its per-RHS share $s_{m,i}/n_i$. It belongs only to the multi-RHS path; the paper never uses it. | (none) |
-| (no prefix) | scope | One pair. For `setup`, one matrix. | |
+| (no prefix) | scope | One pair. For `setup`, one matrix; for an offline stage, one method. | |
 | `matrix_` | scope | Sum over the pairs of one matrix. | |
-| `workload_` | scope | Sum over the attempted pairs of a cohort. | $T_{x,m}$ |
-| `failed_` | scope filter | Restricted to pairs that did not converge. | |
-| `converged_` | scope filter | Restricted to pairs that converged. | |
-| `_mean` | statistic | Mean over the pairs of the population. | $\overline T_{x,m}$ |
+| `workload_` | scope | Sum over the planned pairs of a cohort. Every planned pair is charged its matrix's setup, a failed setup included, so `workload_online_s` exceeds the sum of the pairs' `online_s` when a setup fails. | $T_{x,m}$ |
+| `dataset_` | scope | Whole dataset before the fold share (generation only). | |
+| `reference_` | scope | The reference method's value of the rest of the name. | |
+| `failed_` | filter | Restricted to pairs that did not converge. | |
+| `converged_` | filter | Restricted to pairs that converged. | |
+| `_mean` | statistic | Mean over the pairs of the population (over the matrices for `setup`). | $\overline T_{x,m}$ |
 | `breakeven_<stage>` | derived | The count at which method m's `<stage>` cost equals method h's. | $N^\star$ |
 
 So `matrix_online_s` $= n_i s_i + \sum_q t_{iq}$ and `matrix_online_amortized_s` $= s_i + \sum_q t_{iq}$
-(over a whole matrix), and `breakeven_online_amortized` is the multi-RHS count $n^*$ of RHS per
-matrix. `standalone`, `allocated`, `total` (as a cost), `training` (as a cost stage) and `time` as a
+(over a whole matrix), `breakeven_online_amortized` is the multi-RHS count $n^*$ of RHS per
+matrix and `breakeven_matrix_online_amortized_s` is `matrix_online_amortized_s` at $n^*$, equal for
+both methods. `standalone`, `allocated`, `total` (as a cost), `training` (as a cost stage) and `time` as a
 figure-stem word naming a stage are not cost names.
 
 Where the numbers come from: `generation` from the dataset manifest (`HISTORICAL`), `fit` from the
@@ -461,8 +472,8 @@ compare methods to the configured reference on `REFERENCE_METRIC` (`ONLINE_S`, o
 pair); the paired scatter and the speed-ratio CDF also draw an `_amortized` variant; `reference_among_methods(obs, selection)` gives the reference name only for a
 `ConfiguredReference` whose method has systems in the group.
 
-`break_even(obs, reference)`, the multi-RHS `breakeven_online_amortized` count, has `BREAK_EVEN_SCHEMA` (`method, setup_s_mean,
-reference_setup_s_mean, solve_s_mean, reference_solve_s_mean, break_even_rhs`). The means are over
+`break_even(obs, reference)`, the multi-RHS `breakeven_online_amortized` count, has `BREAK_EVEN_SCHEMA` (`method, setup_mean_s,
+reference_setup_mean_s, solve_mean_s, reference_solve_mean_s, breakeven_online_amortized`). The means are over
 the population common to the pair alone: `SETUP_S` over the matrices both set up, `SOLVE_S` over
 the systems both solved. Against the reference, on those populations,
 $C_p(n) = \bar{t}^{\mathrm{setup}}_p + n\,\bar{t}^{\mathrm{solve},\mathrm{sys}}_p$ and
@@ -472,21 +483,24 @@ $$n^{*} = \frac{\bar{t}^{\mathrm{setup}}_p - \bar{t}^{\mathrm{setup}}_{\mathrm{r
 defined only when the denominator is positive. The projection covers online cost only
 (setup and solve): it omits generation and fit, so it is not a full-cost break-even, and it
 needs an explicit configured reference (no checked-in case configures one). The offline-plus-online
-full cost is the separate `full_cost_breakdown` figure. Otherwise `break_even_rhs` is null (the method is
+full cost is the separate `full_cost_breakdown` figure. Otherwise `breakeven_online_amortized` is null (the method is
 not faster per RHS and never breaks even). With a positive denominator and a setup no dearer than
-the reference's, `break_even_rhs` is 0.0: the method never costs more. A pair with no common unit
-has null means and a null `break_even_rhs`.
+the reference's, `breakeven_online_amortized` is 0.0: the method never costs more. A pair with no
+common unit has null means and a null `breakeven_online_amortized`.
 
 `cost_curves.py::break_even_curves(obs, reference)` samples the two lines whose crossing is $n^*$,
 so a break-even figure draws exactly what its table stores. It has `COST_CURVE_SCHEMA` (`method,
-side, n_rhs, cost_s, break_even, break_even_rhs, break_even_cost_s`): one row per compared method,
-`side` (`CostSide`: `method` or `reference`) and $n = 1..N$, with $C(n)$ in `cost_s` from that
+side, n_rhs, matrix_online_amortized_s, break_even, breakeven_online_amortized,
+breakeven_matrix_online_amortized_s`): one row per compared method, `side` (`CostSide`: `method` or
+`reference`) and $n = 1..N$, with $C(n)$, the online amortized cost of one matrix with $n$ RHS, in
+`matrix_online_amortized_s` from that
 pair's `break_even` means. $N$ is the largest planned RHS count of a matrix (`planned_rhs`),
 extended to $\lceil n^* \rceil$ of the furthest break-even count but not beyond
 `BREAK_EVEN_HORIZON_LIMIT` (1000), since a near-zero per-RHS saving puts $n^*$ arbitrarily far
 out. `break_even` holds a `BreakEvenState` repeated on every row of a method: `breaks_even`
-(`break_even_rhs` is $n^*$ and `break_even_cost_s` $C_p(n^*)$), `never` (not faster per RHS; both
-null) or `no_common_systems` (a mean is null, so `cost_s` is null too).
+(`breakeven_online_amortized` is $n^*$ and `breakeven_matrix_online_amortized_s` $C_p(n^*)$),
+`never` (not faster per RHS; both null) or `no_common_systems` (a mean is null, so
+`matrix_online_amortized_s` is null too).
 
 ## Diagnostic solver results
 

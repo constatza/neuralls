@@ -55,19 +55,21 @@ def _legend_texts(
     for row in marks.iter_rows(named=True):
         label = style.legend.label(row["method"])
         state = BreakEvenState(row["break_even"])
-        texts.append(break_even_legend(label, state, row["break_even_rhs"]))
+        texts.append(break_even_legend(label, state, row["breakeven_online_amortized"]))
         if state is not BreakEvenState.NO_COMMON_SYSTEMS:
             texts.append(reference_curve_legend(reference_label, label))
     return texts
 
 
-def break_even_legend(label: str, state: BreakEvenState, break_even_rhs: float | None) -> str:
+def break_even_legend(
+    label: str, state: BreakEvenState, breakeven_online_amortized: float | None
+) -> str:
     """Legend text of a compared method's curve: where, or whether, it breaks even.
 
     A method that never breaks even, or shares no system with the reference, keeps its entry so
     its absence from the crossings is stated rather than left to be inferred.
     """
-    match state, break_even_rhs:
+    match state, breakeven_online_amortized:
         case BreakEvenState.BREAKS_EVEN, float(n_star):
             return f"{label}: breaks even at n* = {n_star:.1f} RHS"
         case BreakEvenState.NEVER, None:
@@ -76,7 +78,7 @@ def break_even_legend(label: str, state: BreakEvenState, break_even_rhs: float |
             return f"{label}: no systems in common with the reference"
         case _:
             raise InconsistentBreakEvenError(
-                f"break-even state {state} contradicts break-even count {break_even_rhs}"
+                f"break-even state {state} contradicts break-even count {breakeven_online_amortized}"
             )
 
 
@@ -102,7 +104,7 @@ def plot_break_even_curves(
     reference a dashed line of the same colour; a star marks the break-even count $n^*$ where the
     method breaks even. ``None`` when no pair shares a system, so no curve has a cost.
     """
-    drawn = curves.filter(pl.col("cost_s").is_not_null())
+    drawn = curves.filter(pl.col("matrix_online_amortized_s").is_not_null())
     if drawn.height == 0:
         return None
     marks = curves.unique("method", keep="first", maintain_order=True)
@@ -115,7 +117,7 @@ def plot_break_even_curves(
     sns.lineplot(
         data=plot_frame(drawn),
         x="n_rhs",
-        y="cost_s",
+        y="matrix_online_amortized_s",
         hue="method",
         style="side",
         units="method",
@@ -131,7 +133,7 @@ def plot_break_even_curves(
         name, color = row["method"], palette[row["method"]]
         label = style.legend.label(name)
         state = BreakEvenState(row["break_even"])
-        text = break_even_legend(label, state, row["break_even_rhs"])
+        text = break_even_legend(label, state, row["breakeven_online_amortized"])
         # Seaborn's own legend would name the raw method ids; empty lines carry the legend text.
         match state:
             case BreakEvenState.NO_COMMON_SYSTEMS:
@@ -139,8 +141,8 @@ def plot_break_even_curves(
                 continue
             case BreakEvenState.BREAKS_EVEN:
                 ax.scatter(
-                    [row["break_even_rhs"]],
-                    [row["break_even_cost_s"]],
+                    [row["breakeven_online_amortized"]],
+                    [row["breakeven_matrix_online_amortized_s"]],
                     color=color,
                     marker=_BREAK_EVEN_MARKER,
                     s=_BREAK_EVEN_MARKER_SIZE,

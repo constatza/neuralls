@@ -114,13 +114,13 @@ def _generation_charge(generation: GenerationCost) -> dict[str, float | str | No
     match generation:
         case TrainShareOfGeneration(dataset=dataset, share=share):
             return {
-                "generation_dataset_s": dataset.wall_time_seconds,
+                "dataset_generation_s": dataset.wall_time_seconds,
                 "generation_share": share.value,
                 "generation_folds": share.folds.value,
             }
         case NotApplicable() | Unavailable():
             return {
-                "generation_dataset_s": None,
+                "dataset_generation_s": None,
                 "generation_share": None,
                 "generation_folds": None,
             }

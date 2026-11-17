@@ -28,11 +28,11 @@ def test_break_even_is_the_setup_gap_over_the_per_rhs_saving(
     assert _row(frame, AMG) == pytest.approx(
         {
             "method": AMG,
-            "setup_s_mean": 9.0,
-            "reference_setup_s_mean": 1.5,
-            "solve_s_mean": 0.25,
-            "reference_solve_s_mean": 0.65,
-            "break_even_rhs": 18.75,
+            "setup_mean_s": 9.0,
+            "reference_setup_mean_s": 1.5,
+            "solve_mean_s": 0.25,
+            "reference_solve_mean_s": 0.65,
+            "breakeven_online_amortized": 18.75,
         }
     )
 
@@ -43,9 +43,9 @@ def test_a_method_that_is_not_faster_per_rhs_never_breaks_even(
     """amg solves slower than jacobi (2.5 s against 0.65 s on average): the saving is negative."""
     row = _row(break_even(two_method_observations, JACOBI), AMG)
 
-    assert row["solve_s_mean"] == pytest.approx(2.5)
-    assert row["reference_solve_s_mean"] == pytest.approx(0.65)
-    assert row["break_even_rhs"] is None
+    assert row["solve_mean_s"] == pytest.approx(2.5)
+    assert row["reference_solve_mean_s"] == pytest.approx(0.65)
+    assert row["breakeven_online_amortized"] is None
 
 
 def test_a_method_never_costing_more_breaks_even_at_zero(
@@ -54,9 +54,9 @@ def test_a_method_never_costing_more_breaks_even_at_zero(
     """Against amg, jacobi has the cheaper setup (1.5 s against 9 s) and the faster solves."""
     row = _row(break_even(two_method_observations, AMG), JACOBI)
 
-    assert row["setup_s_mean"] == pytest.approx(1.5)
-    assert row["reference_setup_s_mean"] == pytest.approx(9.0)
-    assert row["break_even_rhs"] == 0.0
+    assert row["setup_mean_s"] == pytest.approx(1.5)
+    assert row["reference_setup_mean_s"] == pytest.approx(9.0)
+    assert row["breakeven_online_amortized"] == 0.0
 
 
 def test_a_method_without_a_common_system_has_null_means_and_no_break_even(
@@ -64,11 +64,11 @@ def test_a_method_without_a_common_system_has_null_means_and_no_break_even(
 ) -> None:
     assert _row(break_even(unbalanced_observations, JACOBI), BROKEN) == {
         "method": BROKEN,
-        "setup_s_mean": None,
-        "reference_setup_s_mean": None,
-        "solve_s_mean": None,
-        "reference_solve_s_mean": None,
-        "break_even_rhs": None,
+        "setup_mean_s": None,
+        "reference_setup_mean_s": None,
+        "solve_mean_s": None,
+        "reference_solve_mean_s": None,
+        "breakeven_online_amortized": None,
     }
 
 
@@ -78,8 +78,8 @@ def test_the_population_is_common_to_the_pair_not_to_every_method(
     """``broken`` solves nothing, yet the amg and jacobi pair keeps its four common systems."""
     row = _row(break_even(unbalanced_observations, JACOBI), AMG)
 
-    assert row["solve_s_mean"] == pytest.approx(2.5)
-    assert row["reference_solve_s_mean"] == pytest.approx(0.65)
+    assert row["solve_mean_s"] == pytest.approx(2.5)
+    assert row["reference_solve_mean_s"] == pytest.approx(0.65)
 
 
 def test_a_reference_absent_from_the_observations_is_rejected(

@@ -39,8 +39,12 @@ def test_each_side_costs_its_mean_setup_plus_n_mean_solves(
     reference = _curve(frame, AMG, CostSide.REFERENCE)
 
     n = method["n_rhs"].to_list()
-    assert method["cost_s"].to_list() == pytest.approx([9.0 + 0.25 * k for k in n])
-    assert reference["cost_s"].to_list() == pytest.approx([1.5 + 0.65 * k for k in n])
+    assert method["matrix_online_amortized_s"].to_list() == pytest.approx(
+        [9.0 + 0.25 * k for k in n]
+    )
+    assert reference["matrix_online_amortized_s"].to_list() == pytest.approx(
+        [1.5 + 0.65 * k for k in n]
+    )
 
 
 def test_the_curves_run_from_one_rhs_past_the_break_even_count(
@@ -57,15 +61,17 @@ def test_a_method_that_breaks_even_carries_its_count_and_cost_there(
 ) -> None:
     frame = break_even_curves(setup_heavy_fast_solver_observations, JACOBI)
 
-    marks = frame.select("method", "break_even", "break_even_rhs", "break_even_cost_s").unique()
+    marks = frame.select(
+        "method", "break_even", "breakeven_online_amortized", "breakeven_matrix_online_amortized_s"
+    ).unique()
 
     assert marks.rows(named=True) == [
         pytest.approx(
             {
                 "method": AMG,
                 "break_even": BreakEvenState.BREAKS_EVEN.value,
-                "break_even_rhs": 18.75,
-                "break_even_cost_s": 9.0 + 0.25 * 18.75,
+                "breakeven_online_amortized": 18.75,
+                "breakeven_matrix_online_amortized_s": 9.0 + 0.25 * 18.75,
             }
         )
     ]
@@ -76,9 +82,9 @@ def test_the_break_even_count_is_the_one_break_even_computes(
 ) -> None:
     frame = break_even_curves(setup_heavy_fast_solver_observations, JACOBI)
 
-    stored = frame.select("method", "break_even_rhs").unique().sort("method")
+    stored = frame.select("method", "breakeven_online_amortized").unique().sort("method")
     computed = break_even(setup_heavy_fast_solver_observations, JACOBI).select(
-        "method", "break_even_rhs"
+        "method", "breakeven_online_amortized"
     )
     assert_frame_equal(stored, computed)
 
@@ -89,10 +95,10 @@ def test_a_method_not_faster_per_rhs_never_breaks_even_and_keeps_its_curves(
     """amg solves slower than jacobi, so its curve never meets jacobi's from below."""
     frame = break_even_curves(two_method_observations, JACOBI)
 
-    assert frame.select("break_even", "break_even_rhs", "break_even_cost_s").unique().rows() == [
-        (BreakEvenState.NEVER.value, None, None)
-    ]
-    assert _curve(frame, AMG, CostSide.METHOD)["cost_s"].null_count() == 0
+    assert frame.select(
+        "break_even", "breakeven_online_amortized", "breakeven_matrix_online_amortized_s"
+    ).unique().rows() == [(BreakEvenState.NEVER.value, None, None)]
+    assert _curve(frame, AMG, CostSide.METHOD)["matrix_online_amortized_s"].null_count() == 0
 
 
 def test_without_a_break_even_count_the_curves_span_the_planned_rhs_per_matrix(
@@ -110,9 +116,9 @@ def test_a_method_never_costing_more_breaks_even_at_zero(
     """Against amg, jacobi has the cheaper setup (1.5 s) and the faster solves (0.65 s)."""
     frame = break_even_curves(two_method_observations, AMG)
 
-    assert frame.select("break_even", "break_even_rhs", "break_even_cost_s").unique().rows() == [
-        (BreakEvenState.BREAKS_EVEN.value, 0.0, pytest.approx(1.5))
-    ]
+    assert frame.select(
+        "break_even", "breakeven_online_amortized", "breakeven_matrix_online_amortized_s"
+    ).unique().rows() == [(BreakEvenState.BREAKS_EVEN.value, 0.0, pytest.approx(1.5))]
 
 
 def test_a_method_without_a_common_system_has_no_costs(
@@ -120,10 +126,10 @@ def test_a_method_without_a_common_system_has_no_costs(
 ) -> None:
     frame = break_even_curves(unbalanced_observations, JACOBI).filter(pl.col("method") == BROKEN)
 
-    assert frame.select("break_even", "break_even_rhs").unique().rows() == [
+    assert frame.select("break_even", "breakeven_online_amortized").unique().rows() == [
         (BreakEvenState.NO_COMMON_SYSTEMS.value, None)
     ]
-    assert frame["cost_s"].null_count() == frame.height
+    assert frame["matrix_online_amortized_s"].null_count() == frame.height
 
 
 def test_every_compared_method_has_a_curve_for_each_side(
@@ -151,7 +157,7 @@ def test_a_distant_break_even_count_does_not_extend_the_curves_past_the_limit(
     frame = break_even_curves(nearly_as_slow, JACOBI)
 
     assert frame["n_rhs"].max() == BREAK_EVEN_HORIZON_LIMIT
-    assert frame.select(pl.col("break_even_rhs").max()).item() == pytest.approx(7.5e6)
+    assert frame.select(pl.col("breakeven_online_amortized").max()).item() == pytest.approx(7.5e6)
 
 
 def test_a_reference_absent_from_the_observations_is_rejected(

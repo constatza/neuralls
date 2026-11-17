@@ -485,13 +485,15 @@ def test_mixture_figure_plans_use_literal_population_and_metric_semantics(
     assert online.metadata.recipe_counts == (1, 3)
     assert online.metadata.recipe_weights == (0.25, 0.75)
     assert online.metadata.metric_definition == (
-        "sum of matrix setup seconds once per matrix and solve-only seconds across attempted pairs"
+        "sum over planned pairs of each pair's share of its matrix setup seconds "
+        "(setup over the matrix's planned RHS) plus its solve-only seconds"
     )
     assert online.metadata.metric is MetricId.ONLINE_AMORTIZED_S
     assert online.metadata.failure_treatment is FailureTreatment.NONE
     assert online.metadata.solver_contexts == (context,)
     assert solve.metadata.metric_definition == (
-        "sum of solve-only seconds across attempted pairs, including failures"
+        "sum over planned pairs of solve-only seconds, including failures; a pair "
+        "with no solve adds none"
     )
     assert solve.metadata.metric is MetricId.SOLVE_S
 

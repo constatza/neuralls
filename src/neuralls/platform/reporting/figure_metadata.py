@@ -129,7 +129,7 @@ FULL_COST_BREAKDOWN_SCHEMA: TableSchema = {
     "method_id": pl.String,
     "generation_s": pl.Float64,
     "generation_status": pl.String,
-    "generation_dataset_s": pl.Float64,
+    "dataset_generation_s": pl.Float64,
     "generation_share": pl.Float64,
     "generation_folds": pl.String,
     "fit_s": pl.Float64,
@@ -144,7 +144,7 @@ FULL_COST_BREAKDOWN_SCHEMA: TableSchema = {
 
 A stage's seconds are null unless its status is ``known``, so a stage that does not apply and one
 that is unavailable both carry no number and are told apart by the status. A known
-``generation_s`` is ``generation_share`` of the dataset's whole ``generation_dataset_s``: the share
+``generation_s`` is ``generation_share`` of the dataset's whole ``dataset_generation_s``: the share
 of its rows in the ``generation_folds`` the fit read of the pinned split, ``train`` for a POD fit
 (a fit job or inline) and ``train_and_validation`` for a neural training job. ``fit_origin`` is
 ``none``, ``inline`` (fit during setup, so its time is in ``workload_setup_s``) or ``job`` (fit
