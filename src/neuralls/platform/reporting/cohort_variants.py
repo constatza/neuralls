@@ -97,6 +97,7 @@ def cohort_split(table: TableKind) -> CohortSplit:
             | TableKind.COHORT_RATIO_OF_SUMS
             | TableKind.MATRIX_BREAKDOWN
             | TableKind.FULL_COST_BREAKDOWN
+            | TableKind.BREAKEVEN_FULL
         ):
             return CohortSplit.CLASS_LEVEL_ONLY
         case unreachable:

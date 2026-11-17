@@ -12,7 +12,7 @@ The observation view carries each row's repeats as ``setup_samples_s`` and ``sol
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import assert_never
 
@@ -39,6 +39,10 @@ class TimedMetric:
     solve_weight: pl.Expr
 
 
+ONLINE_TIMING = TimedMetric(pl.lit(1.0), pl.lit(1.0))
+"""The pair online time: its matrix's whole setup plus its solve."""
+
+
 @dataclass(frozen=True, slots=True)
 class UntimedMetric:
     """A metric that is deterministic per pair, so it carries no timing noise."""
@@ -50,7 +54,7 @@ def timing_of(metric: MetricId) -> TimedMetric | UntimedMetric:
         case MetricId.SOLVE_S:
             return TimedMetric(pl.lit(0.0), pl.lit(1.0))
         case MetricId.ONLINE_S:
-            return TimedMetric(pl.lit(1.0), pl.lit(1.0))
+            return ONLINE_TIMING
         case MetricId.ONLINE_AMORTIZED_S:
             return TimedMetric(1.0 / pl.col("planned_rhs"), pl.lit(1.0))
         case MetricId.SETUP_S:
@@ -112,16 +116,34 @@ def timed_ratio_clusters(pairs: pl.DataFrame) -> dict[MatrixCluster, TimedCluste
     Raises:
         ValueError: A row that reads an event has no stored repeats for it.
     """
+    return _timed_pair_clusters(pairs, np.divide)
+
+
+def timed_difference_clusters(pairs: pl.DataFrame) -> dict[MatrixCluster, TimedCluster]:
+    """Each matrix of ``pairs``, its reference-minus-method differences as functions of events.
+
+    ``pairs`` is shaped as for ``timed_ratio_clusters``.
+
+    Raises:
+        ValueError: A row that reads an event has no stored repeats for it.
+    """
+    return _timed_pair_clusters(pairs, np.subtract)
+
+
+def _timed_pair_clusters(
+    pairs: pl.DataFrame, combine: Callable[[np.ndarray, np.ndarray], np.ndarray]
+) -> dict[MatrixCluster, TimedCluster]:
+    """Each matrix of ``pairs``, ``combine(reference values, method values)`` of its events."""
     clusters: dict[MatrixCluster, TimedCluster] = {}
     for (dataset, matrix_id), group in pairs.group_by(_MATRIX_KEYS, maintain_order=True):
         rows = group.to_dicts()
         events: list[tuple[float, ...]] = []
         method = _side_weights(rows, events)
         reference = _side_weights(rows, events, suffix=REFERENCE_SUFFIX)
-        numerator, denominator = _dense(reference, len(events)), _dense(method, len(events))
+        left, right = _dense(reference, len(events)), _dense(method, len(events))
         clusters[(_dataset(dataset), MatrixId(_matrix(matrix_id)))] = TimedCluster(
             tuple(events),
-            lambda times, num=numerator, den=denominator: (times @ num.T) / (times @ den.T),
+            lambda times, left=left, right=right: combine(times @ left.T, times @ right.T),
         )
     return clusters
 

@@ -53,6 +53,7 @@ _RAW_SCALE = (
     "workload_online_amortized_bars",
     "full_cost_breakdown",
     "breakeven_online_amortized",
+    "breakeven_full",
     "matrix_heatmap_iterations",
     "convergence_factor",
     "iteration_means",

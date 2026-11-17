@@ -729,7 +729,9 @@ def test_sink_skips_the_reference_figures_without_a_configured_reference(
 
     run = _scope_run(runs, writer, ReportLevelName.MATRIX_SET_RHS_TYPE)
     assert not [
-        name for name in _artifacts(run) if name.startswith(("speed_ratio", "paired", "breakeven"))
+        name
+        for name in _artifacts(run)
+        if name.startswith(("speed_ratio", "paired", "breakeven_online_amortized"))
     ]
     assert not [key for key in run.metrics if key.startswith("speed_ratio")]
 

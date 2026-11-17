@@ -474,6 +474,25 @@ FIGURE_RECIPES: Mapping[FigureKind, FigureRecipe] = {
             group_drawers.full_cost_breakdown,
             TableKind.FULL_COST_BREAKDOWN,
         ),
+        GroupFigureRecipe(
+            FigureKind.BREAKEVEN_FULL,
+            (
+                FigureVariant(
+                    "breakeven_full",
+                    "Offline Break-even",
+                    "pairs N* = offline / (compared mean online - method mean online) after which "
+                    "a method's offline cost (generation + fit) is paid off against each other "
+                    "method, means of online seconds per pair over the pairs both converged; "
+                    "serial compute, no worker count",
+                    MetricId.ONLINE_S,
+                    Population.COMMON,
+                    Statistic.BREAKEVEN_FULL,
+                ),
+            ),
+            FailureTreatment.OMITTED,
+            group_drawers.breakeven_full,
+            TableKind.BREAKEVEN_FULL,
+        ),
         HistoryFigureRecipe(
             FigureKind.RESIDUAL_HISTORY,
             HistoryVariant(
@@ -537,6 +556,7 @@ def compares_to_reference(statistic: Statistic) -> bool:
             | Statistic.QUANTILES
             | Statistic.MEAN_PER_MATRIX
             | Statistic.FULL_COST
+            | Statistic.BREAKEVEN_FULL
         ):
             return False
         case unreachable:

@@ -281,7 +281,7 @@ def test_planning_without_a_reference_plans_no_figure_that_compares_against_one(
     assert [plan.stem for plan in plans] == [
         variant.figure_stem("key")
         for _, variant in _PROFILE_VARIANTS
-        if not variant.stem.startswith(("paired_", "speed_ratio_", "breakeven_"))
+        if not variant.stem.startswith(("paired_", "speed_ratio_", "breakeven_online_amortized"))
     ]
 
 

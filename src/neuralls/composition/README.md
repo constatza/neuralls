@@ -535,7 +535,7 @@ figures `system`).
 
 Classification returns two closed report variants. `RecipeProfileReport` is
 matrix-set-and-RHS-type level and names exactly one RHS type; only it is planned the raw-scale
-figures (means, sums, distributions, break-even, heatmap, full cost). `WorkloadMixtureReport` is used at the matrix-set and all-matrix-sets levels and
+figures (means, sums, distributions, break-even, offline break-even, heatmap, full cost). `WorkloadMixtureReport` is used at the matrix-set and all-matrix-sets levels and
 retains the complete ordered recipe membership as explicit mixture metadata.
 Both variants carry distinct matrix, planned-RHS, attempted-RHS, and
 converged counts for each method, and both carry `observations`, the group's rows of the
@@ -784,8 +784,8 @@ Dolan--Moré profiles show their respective absolute budgets and fastest-method
 ratios. **Raw-scale aggregates exist only at the matrix-set-and-RHS-type level.** A number that
 pools several RHS classes or matrix sets depends on the arbitrary mixing weights (Dolan & Moré
 2002; COCO, Hansen et al.), so the workload and cost bars, the means, time per iteration,
-distributions, convergence factors, break-even curve, heatmap and full cost are drawn only for one
-class on one matrix set. Matrix-set and all-matrix-sets outputs are mixtures, even of one recipe
+distributions, convergence factors, break-even curve, offline break-even, heatmap and full cost are
+drawn only for one class on one matrix set. Matrix-set and all-matrix-sets outputs are mixtures, even of one recipe
 (the all-matrix-sets group still pools matrix sets): they emit only the scale-free per-pair views,
 the ECDFs, performance profiles, paired scatter and speed-ratio CDF, each one `__mixture` figure
 pooled over all the group's systems whose card `cohort` is "equal-weight mixture of <recipe
@@ -797,6 +797,12 @@ the pair setup and solve seconds of that group's workload. A report never recomp
 a session stored without the offline block cannot be reported; `compare` runs such methods again because
 the reuse gate requires the block. A method whose offline stage has no recorded number is drawn without
 that segment and labelled as having an unknown full cost.
+The class level also emits the offline break-even figure and table (`breakeven_full`): for every method
+whose offline cost (generation plus fit, the same `summary.toml` block) is known, against every other
+method of the group, the pair count $N^\star$ after which that offline cost is paid off by its online
+saving per pair (`domain/benchmarking/breakeven_full.py`; the derivation and interval are in
+`domain/solver/README.md`). It needs no `reference_preconditioner`, and it is not drawn when no method
+has a known offline cost.
 Paired time and reference/method speed ratios use only the same matrix/RHS
 systems and only a `reference_preconditioner` explicitly configured by the
 user. Missing or failed sides remain counted but do not produce a ratio.

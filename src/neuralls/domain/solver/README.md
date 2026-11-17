@@ -418,6 +418,8 @@ distribution and stopping rule.
   the speed-ratio summary using only positive-value both-solved systems while retaining all
   both-solved, reference-only, and method-only counts (`speed_ratio_summary`), and `break_even`
   (`paired.py`), with its cumulative-cost curves (`break_even_curves`, `cost_curves.py`);
+- the offline break-even count $N^\star$ of every method pair (`breakeven_full`,
+  `breakeven_full.py`);
 - `reference_among_methods`, which turns the configured `ReferenceSelection` into the reference
   name a group can be compared to;
 - percentile intervals that resample whole `(dataset, matrix_id)` clusters with
@@ -506,6 +508,32 @@ out. `break_even` holds a `BreakEvenState` repeated on every row of a method: `b
 (`breakeven_online_amortized` is $n^*$ and `breakeven_matrix_online_amortized_s` $C_p(n^*)$),
 `never` (not faster per RHS; both null) or `no_common_systems` (a mean is null, so
 `matrix_online_amortized_s` is null too).
+
+`breakeven_full.py::breakeven_full(obs, offline)` is the offline break-even count $N^\star$, the
+`breakeven_full` of the cost vocabulary, in pairs. It needs no configured reference: for every
+method $m$ whose `OfflineStages.combined()` is `Known` (generation plus fit, $C_m$; a method whose
+offline cost is unavailable, does not apply or is not given has no row as $m$) and every other
+method $h$ of the group, classical ones included, it takes the pairs both converged and
+
+$$N^\star_{m,h} = \frac{C_m}{\bar t^{\mathrm{online}}_h - \bar t^{\mathrm{online}}_m},$$
+
+with $\bar t^{\mathrm{online}}$ the mean pair `online_s` (each pair charged its matrix's whole
+setup) over that population. It is defined only for a positive denominator; otherwise the closed
+state is `never` (`BreaksEven | Never` in the domain, `BreakEvenState` in the table). The count is
+serial compute with no worker count: offline generation and online pair solves are both
+embarrassingly parallel, so dividing one side by workers would be unfair to the other. The
+interval is the two-level bootstrap (matrices, timing repeats) of the online saving per pair
+$D = \bar t_h - \bar t_m$, mapped through $g(D) = C_m / D$ for $D > 0$ and $+\infty$ otherwise, which
+is non-increasing, so the bounds are $[g(D_{97.5}), g(D_{2.5})]$: a bound is `inf` when more than
+2.5% of resamples never break even, rather than dropping them; no interval below
+`MIN_INTERVAL_MATRICES` matrices. `BREAKEVEN_FULL_SCHEMA` is `method, reference_method, offline_s,
+online_mean_s, reference_online_mean_s, break_even, breakeven_full, ci_low, ci_high, n_pairs,
+n_matrices`, where `reference_method` is $h$, not the configured reference.
+
+$N^\star$ and $n^*$ answer different questions. $n^*$ (`breakeven_online_amortized`) is per matrix:
+how many RHS of one matrix share one setup before a dearer setup pays off, with no offline cost.
+$N^\star$ (`breakeven_full`) is per method artifact: how many pairs, each charged its own setup,
+pay off the generation and fit.
 
 ## Diagnostic solver results
 

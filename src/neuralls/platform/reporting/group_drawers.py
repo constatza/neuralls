@@ -28,6 +28,7 @@ from neuralls.domain.benchmarking.paired import (
 from neuralls.domain.benchmarking.profiles import ProfileSeries, ecdf_series, performance_series
 from neuralls.domain.benchmarking.selection import ReferenceSelection
 from neuralls.domain.solver.reporting.metrics import METRICS, MetricId
+from neuralls.platform.reporting.breakeven_full_plot import plot_breakeven_full
 from neuralls.platform.reporting.cost_breakdown_plot import plot_full_cost_breakdown
 from neuralls.platform.reporting.figure_formats import FigureTarget
 from neuralls.platform.reporting.figure_metadata import Statistic
@@ -123,6 +124,10 @@ def performance_profile(data: FigureData, target: FigureTarget) -> FigureTarget 
 
 def full_cost_breakdown(data: FigureData, target: FigureTarget) -> FigureTarget | None:
     return plot_full_cost_breakdown(data.summary, style=data.style, target=target)
+
+
+def breakeven_full(data: FigureData, target: FigureTarget) -> FigureTarget | None:
+    return plot_breakeven_full(data.summary, style=data.style, target=target)
 
 
 def paired_time_scatter(data: FigureData, target: FigureTarget) -> FigureTarget | None:

@@ -14,6 +14,7 @@ from pathlib import Path
 
 import pytest
 
+from neuralls.domain.benchmarking.breakeven_full import BREAKEVEN_FULL_SCHEMA
 from neuralls.domain.benchmarking.cost_curves import COST_CURVE_SCHEMA
 from neuralls.domain.benchmarking.paired import BREAK_EVEN_SCHEMA
 from neuralls.domain.solver.models.workload import (
@@ -87,6 +88,7 @@ _STORED_COLUMNS = (
     *BREAK_EVEN_SCHEMA,
     *COST_CURVE_SCHEMA,
     *FULL_COST_BREAKDOWN_SCHEMA,
+    *BREAKEVEN_FULL_SCHEMA,
 )
 COST_NAMES = sorted(
     {

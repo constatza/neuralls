@@ -12,6 +12,7 @@ from neuralls.domain.benchmarking.paired import (
     reference_among_methods,
 )
 from neuralls.domain.benchmarking.profiles import performance_series
+from neuralls.domain.solver.models.cost import OfflineStages
 from neuralls.domain.solver.models.group_outcomes import (
     GroupReport,
     WorkloadMixtureReport,
@@ -29,6 +30,7 @@ from neuralls.platform.reporting.cohort_variants import cohort_level, cohort_var
 from neuralls.platform.reporting.figure_evidence import (
     FigureInterval,
     NotDrawnByKind,
+    intervals_of_breakeven_full,
     intervals_of_means,
     intervals_of_speed_ratios,
     outcome_counts_of,
@@ -161,7 +163,9 @@ def _figure_metadata(
         solver_contexts=presentation.solver_contexts,
         methods=methods,
         sources=sources,
-        interval=_interval(variant, outcome, compared_to),
+        interval=_interval(
+            variant, outcome, compared_to, {name: stored[name].offline for name in names}
+        ),
         setup_sharing=setup_sharing_of(variant.metric, outcome.observations),
         outcome_counts=outcome_counts_of(outcome.observations),
         timing=timing_evidence_of(
@@ -202,11 +206,16 @@ def _source_artifacts(metric: MetricId, artifacts: MethodBenchmarkArtifacts) -> 
 
 
 def _interval(
-    variant: FigureVariant, outcome: GroupReport, compared_to: PreconditionerName | None
+    variant: FigureVariant,
+    outcome: GroupReport,
+    compared_to: PreconditionerName | None,
+    offline: Mapping[PreconditionerName, OfflineStages],
 ) -> FigureInterval:
     """The interval a variant draws, from the systems of the cohort ``outcome`` reports."""
     observations = outcome.observations
     match variant.statistic:
+        case Statistic.BREAKEVEN_FULL:
+            return intervals_of_breakeven_full(observations, offline)
         case Statistic.SPEED_RATIO_CDF:
             return intervals_of_speed_ratios(
                 observations, drawn_reference(variant, compared_to), variant.metric

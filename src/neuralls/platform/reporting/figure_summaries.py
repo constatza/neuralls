@@ -7,6 +7,7 @@ from typing import assert_never
 
 import polars as pl
 
+from neuralls.domain.benchmarking.breakeven_full import breakeven_full
 from neuralls.domain.benchmarking.cost_curves import break_even_curves
 from neuralls.domain.benchmarking.paired import (
     paired_systems,
@@ -48,8 +49,8 @@ def figure_summaries(
 
     Each frame is computed once, here, and is both what the drawer draws and the table written
     beside the figure. The figures are those ``drawn_variants`` gives, the same ones planning
-    plans. ``offline`` holds the offline cost of every method of the group, which only the cost
-    breakdown draws.
+    plans. ``offline`` holds the offline cost of every method of the group, which only the
+    full-cost breakdown and the offline break-even draw.
     """
     reference = reference_among_methods(outcome.observations, outcome.reference_selection)
     return {
@@ -70,6 +71,8 @@ def _summary(
             return build_group_table(outcome.summaries)
         case Statistic.FULL_COST:
             return build_full_cost_breakdown_table(outcome.summaries, offline)
+        case Statistic.BREAKEVEN_FULL:
+            return breakeven_full(observations, offline)
         case Statistic.ECDF:
             return ecdf_series(observations, variant.metric).frame
         case Statistic.PERFORMANCE_PROFILE:

@@ -95,6 +95,7 @@ _NO_INTERVAL_STEMS = sorted(
         "speed_ratio_online_cdf",
         "speed_ratio_online_amortized_cdf",
         "convergence_factor",
+        "breakeven_full",
         *_MEAN_STEMS,
     }
 )
@@ -265,6 +266,34 @@ def test_a_drawn_interval_entry_names_its_bootstrap_and_survives_decoding(
         }
     )
     payload = {**payloads["speed_ratio_online_cdf"], "interval": interval}
+
+    assert card_payload(decode_figure_card(payload))["interval"] == interval
+
+
+def test_a_per_pair_interval_survives_decoding(payloads: dict[str, Payload]) -> None:
+    kind = BootstrapKind.TWO_LEVEL
+    interval = {
+        "kind": "per_method_pair",
+        "pairs": [
+            {
+                "method": "amg",
+                "kind": kind.value,
+                "resampled": kind.description,
+                "matrices": MIN_INTERVAL_MATRICES,
+                "level": CONFIDENCE_LEVEL,
+                "resamples": BOOTSTRAP_RESAMPLES,
+                "reference_method": "jacobi",
+            },
+            {
+                "method": "amg",
+                "kind": "too_few_matrices",
+                "matrices": 1,
+                "minimum": MIN_INTERVAL_MATRICES,
+                "reference_method": "never",
+            },
+        ],
+    }
+    payload = {**payloads["breakeven_full"], "interval": interval}
 
     assert card_payload(decode_figure_card(payload))["interval"] == interval
 

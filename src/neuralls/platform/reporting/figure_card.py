@@ -8,7 +8,7 @@ figure index only lists cards; it never repeats their parameters.
 from __future__ import annotations
 
 import tomllib
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import asdict, dataclass, replace
 from enum import StrEnum
 from pathlib import Path
@@ -52,7 +52,9 @@ from neuralls.platform.reporting.figure_evidence import (
     NoSharedSetup,
     NotDrawnByKind,
     NoTimingEvidence,
+    PairInterval,
     PerMethodIntervals,
+    PerPairIntervals,
     SetupSharedOverRhs,
     SetupSharing,
     TimingEvidence,
@@ -285,6 +287,7 @@ class FigureIntervalKind(StrEnum):
     """The card's name for whether a figure draws intervals."""
 
     PER_METHOD = "per_method"
+    PER_METHOD_PAIR = "per_method_pair"
     NOT_DRAWN_BY_KIND = "not_drawn_by_kind"
 
 
@@ -305,6 +308,10 @@ _METHOD_INTERVAL_FIELDS: Mapping[MethodIntervalKind, frozenset[str]] = {
 """The exact keys of a method's entry in ``[[interval.methods]]``, by its kind."""
 
 
+_REFERENCE_METHOD = "reference_method"
+"""The compared method of a ``[[interval.pairs]]`` entry, beside a method entry's fields."""
+
+
 def _encode_interval(interval: FigureInterval) -> dict[str, Any]:
     match interval:
         case NotDrawnByKind():
@@ -313,6 +320,15 @@ def _encode_interval(interval: FigureInterval) -> dict[str, Any]:
             return {
                 "kind": FigureIntervalKind.PER_METHOD.value,
                 "methods": [_encode_method_interval(entry) for entry in methods],
+            }
+        case PerPairIntervals(pairs=pairs):
+            return {
+                "kind": FigureIntervalKind.PER_METHOD_PAIR.value,
+                "pairs": [
+                    _encode_method_interval(MethodInterval(entry.method, entry.interval))
+                    | {_REFERENCE_METHOD: entry.reference_method}
+                    for entry in pairs
+                ],
             }
         case unreachable:
             assert_never(unreachable)
@@ -349,18 +365,44 @@ def _decode_interval(payload: object) -> FigureInterval:
         case FigureIntervalKind.PER_METHOD:
             _exact(interval, frozenset({"kind", "methods"}))
             entries = _require_tables(interval["methods"], frozenset({"kind"}), "interval method")
-            try:
-                return PerMethodIntervals(tuple(_decode_method_interval(e) for e in entries))
-            except InvalidFigureCardError:
-                raise
-            except (
-                ValueError
-            ) as error:  # the interval types' own invariants, e.g. a level above one
-                raise InvalidFigureCardError(
-                    InvalidFigureCardReason.INTERVAL_INVALID, f"figure card interval: {error}"
-                ) from error
+            return _checked(
+                lambda: PerMethodIntervals(tuple(_decode_method_interval(e) for e in entries))
+            )
+        case FigureIntervalKind.PER_METHOD_PAIR:
+            _exact(interval, frozenset({"kind", "pairs"}))
+            entries = _require_tables(
+                interval["pairs"], frozenset({"kind", _REFERENCE_METHOD}), "interval pair"
+            )
+            return _checked(
+                lambda: PerPairIntervals(tuple(_decode_pair_interval(e) for e in entries))
+            )
         case unreachable:
             assert_never(unreachable)
+
+
+def _checked[I: (PerMethodIntervals, PerPairIntervals)](decode: Callable[[], I]) -> I:
+    """``decode()``, its interval types' own invariants (a level above one) as card errors."""
+    try:
+        return decode()
+    except InvalidFigureCardError:
+        raise
+    except ValueError as error:
+        raise InvalidFigureCardError(
+            InvalidFigureCardReason.INTERVAL_INVALID, f"figure card interval: {error}"
+        ) from error
+
+
+def _decode_pair_interval(entry: Mapping[str, Any]) -> PairInterval:
+    reference = entry[_REFERENCE_METHOD]
+    if not isinstance(reference, str):
+        raise InvalidFigureCardError(
+            InvalidFigureCardReason.INTERVAL_METHOD_NOT_A_STRING,
+            "figure card interval reference method is not a string",
+        )
+    method = _decode_method_interval(
+        {key: value for key, value in entry.items() if key != _REFERENCE_METHOD}
+    )
+    return PairInterval(method.method, PreconditionerName(reference), method.interval)
 
 
 def _decode_method_interval(entry: Mapping[str, Any]) -> MethodInterval:

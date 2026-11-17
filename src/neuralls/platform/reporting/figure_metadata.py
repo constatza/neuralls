@@ -10,6 +10,7 @@ from pathlib import Path
 
 import polars as pl
 
+from neuralls.domain.benchmarking.breakeven_full import BREAKEVEN_FULL_SCHEMA
 from neuralls.domain.benchmarking.cost_curves import COST_CURVE_SCHEMA
 from neuralls.domain.benchmarking.paired import PAIRED_SCHEMA, SPEED_RATIO_SCHEMA
 from neuralls.domain.benchmarking.profiles import PROFILE_SERIES_SCHEMA
@@ -60,6 +61,7 @@ class FigureKind(StrEnum):
     TIME_DISTRIBUTION = "time_distribution"
     MATRIX_HEATMAP = "matrix_heatmap"
     FULL_COST_BREAKDOWN = "full_cost_breakdown"
+    BREAKEVEN_FULL = "breakeven_full"
     RESIDUAL_HISTORY = "residual_history"
     ENERGY_HISTORY = "energy_history"
 
@@ -86,7 +88,8 @@ class TableKind(StrEnum):
     (``domain/solver/reporting/cohorts.py``).
     ``MATRIX_BREAKDOWN`` holds one row per method and matrix, exactly the cells of a heatmap.
     ``FULL_COST_BREAKDOWN`` holds one row per method: its offline stages beside its online
-    workload sums.
+    workload sums. ``BREAKEVEN_FULL`` holds one row per method with a known offline cost and
+    method compared against: the pair count N* at which its offline cost is paid off.
     """
 
     SUMMARY = "summary"
@@ -99,6 +102,7 @@ class TableKind(StrEnum):
     COHORT_RATIO_OF_SUMS = "cohort_ratio_of_sums"
     MATRIX_BREAKDOWN = "matrix_breakdown"
     FULL_COST_BREAKDOWN = "full_cost_breakdown"
+    BREAKEVEN_FULL = "breakeven_full"
 
 
 type TableSchema = Mapping[str, pl.DataType | type[pl.DataType]]
@@ -165,6 +169,7 @@ TABLE_SCHEMAS: Mapping[TableKind, TableSchema] = {
     TableKind.COHORT_RATIO_OF_SUMS: COHORT_RATIO_OF_SUMS_SCHEMA,
     TableKind.MATRIX_BREAKDOWN: MATRIX_BREAKDOWN_SCHEMA,
     TableKind.FULL_COST_BREAKDOWN: FULL_COST_BREAKDOWN_SCHEMA,
+    TableKind.BREAKEVEN_FULL: BREAKEVEN_FULL_SCHEMA,
 }
 """The columns and dtypes, in order, of the table each kind stores; the frames come from the
 domain statistics, so a schema change there reaches the stored tables through this mapping."""
@@ -193,7 +198,7 @@ class Statistic(StrEnum):
     ``QUANTILES`` draws a distribution whose box and whiskers are the summary's ``q05`` to ``q95``;
     ``MEAN_PER_MATRIX`` draws one mean per method and matrix; ``FULL_COST`` stacks a method's
     offline generation and fit, paid once per artifact, on its pair setup and solve sums over the
-    report's workload.
+    report's workload; ``BREAKEVEN_FULL`` draws each method pair's offline break-even count.
     """
 
     WORKLOAD_SUM = "workload_sum"
@@ -209,6 +214,7 @@ class Statistic(StrEnum):
     QUANTILES = "quantiles"
     MEAN_PER_MATRIX = "mean_per_matrix"
     FULL_COST = "full_cost"
+    BREAKEVEN_FULL = "breakeven_full"
 
 
 class FailureTreatment(StrEnum):

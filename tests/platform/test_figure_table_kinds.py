@@ -10,6 +10,7 @@ import pytest
 from polars.testing import assert_frame_equal
 from tests.figure_support import no_offline_cost
 
+from neuralls.domain.benchmarking.breakeven_full import BREAKEVEN_FULL_SCHEMA, breakeven_full
 from neuralls.domain.benchmarking.cost_curves import COST_CURVE_SCHEMA, break_even_curves
 from neuralls.domain.benchmarking.paired import (
     PAIRED_SCHEMA,
@@ -83,6 +84,7 @@ def table_frames(profile_report: RecipeProfileReport) -> dict[str, pl.DataFrame]
         "FULL_COST_BREAKDOWN": build_full_cost_breakdown_table(
             profile_report.summaries, no_offline_cost(profile_report)
         ),
+        "BREAKEVEN_FULL": breakeven_full(observations, no_offline_cost(profile_report)),
     }
 
 
@@ -105,6 +107,7 @@ def test_each_table_kind_has_the_schema_of_the_frame_it_stores() -> None:
     assert schemas[kind.COHORT_RATIO_OF_SUMS] == COHORT_RATIO_OF_SUMS_SCHEMA
     assert schemas[kind.MATRIX_BREAKDOWN] == MATRIX_BREAKDOWN_SCHEMA
     assert schemas[kind.FULL_COST_BREAKDOWN] == dict(build_full_cost_breakdown_table((), {}).schema)
+    assert schemas[kind.BREAKEVEN_FULL] == BREAKEVEN_FULL_SCHEMA
 
 
 @pytest.mark.parametrize("name", TABLE_KINDS)

@@ -15,6 +15,7 @@ from typing import assert_never
 
 import polars as pl
 
+from neuralls.domain.benchmarking.breakeven_full import full_comparisons
 from neuralls.domain.benchmarking.paired import compared_methods, paired_systems, speed_ratios
 from neuralls.domain.benchmarking.uncertainty import (
     BootstrapKind,
@@ -22,6 +23,7 @@ from neuralls.domain.benchmarking.uncertainty import (
     TooFewMatrices,
     cluster_bootstrap,
 )
+from neuralls.domain.solver.models.cost import OfflineStages
 from neuralls.domain.solver.models.group_presentation import SolverTimingContext
 from neuralls.domain.solver.reporting.metrics import METRICS, MetricId, Unit
 from neuralls.domain.solver.reporting.observations import Outcome
@@ -71,7 +73,32 @@ class PerMethodIntervals:
             raise ValueError("per-method intervals must name each method once, in name order")
 
 
-type FigureInterval = NotDrawnByKind | PerMethodIntervals
+@dataclass(frozen=True, slots=True)
+class PairInterval:
+    """The interval of one method against one compared method, over the matrices of their pairs."""
+
+    method: PreconditionerName
+    reference_method: PreconditionerName
+    interval: TooFewMatrices | ClusterBootstrap
+
+
+@dataclass(frozen=True, slots=True)
+class PerPairIntervals:
+    """The figure draws an interval per ordered method pair, each over that pair's own matrices.
+
+    ``pairs`` is ordered by method, then compared method, and names each ordered pair once.
+    """
+
+    pairs: tuple[PairInterval, ...]
+
+    def __post_init__(self) -> None:
+        """Require each ordered pair once, in name order."""
+        keys = [(entry.method, entry.reference_method) for entry in self.pairs]
+        if keys != sorted(set(keys)):
+            raise ValueError("per-pair intervals must name each ordered pair once, in name order")
+
+
+type FigureInterval = NotDrawnByKind | PerMethodIntervals | PerPairIntervals
 """The intervals a figure draws, or that its statistic never draws one."""
 
 
@@ -192,6 +219,26 @@ def _per_method(
                 PreconditionerName(method), cluster_bootstrap(counts.get(method, 0), kind)
             )
             for method in methods
+        )
+    )
+
+
+def intervals_of_breakeven_full(
+    observations: pl.DataFrame, offline: Mapping[PreconditionerName, OfflineStages]
+) -> PerPairIntervals:
+    """The two-level bootstrap behind each method pair's offline break-even interval.
+
+    A pair's count is the distinct matrices of the pairs both methods converged, the clusters
+    ``breakeven_full`` resamples for it.
+    """
+    return PerPairIntervals(
+        tuple(
+            PairInterval(
+                comparison.method,
+                comparison.reference_method,
+                cluster_bootstrap(comparison.n_matrices, bootstrap_kind_of(MetricId.ONLINE_S)),
+            )
+            for comparison in full_comparisons(observations, offline)
         )
     )
 
