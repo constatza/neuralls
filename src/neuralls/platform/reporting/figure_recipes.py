@@ -480,10 +480,14 @@ FIGURE_RECIPES: Mapping[FigureKind, FigureRecipe] = {
                 FigureVariant(
                     "breakeven_full",
                     "Offline Break-even",
-                    "pairs N* = offline / (compared mean online - method mean online) after which "
-                    "a method's offline cost (generation + fit) is paid off against each other "
-                    "method, means of online seconds per pair over the pairs both converged; "
-                    "serial compute, no worker count",
+                    "pairs N* = (offline - reference offline) / (reference mean online - mean "
+                    "online) at which a method's full cost (offline generation + fit, 0 for a "
+                    "method with no offline stage, plus N pairs of online) equals each other "
+                    "method's, means of online seconds per pair over the pairs both converged; "
+                    "breaks even (cheaper from N*), cheaper until N*, always cheaper or never "
+                    "cheaper; the 95% interval bounds the count from which the method is cheaper "
+                    "(inf: never) when its offline cost is at least the other's, else the count "
+                    "up to which it is cheaper (inf: always); serial compute, no worker count",
                     MetricId.ONLINE_S,
                     Population.COMMON,
                     Statistic.BREAKEVEN_FULL,

@@ -810,8 +810,9 @@ the reuse gate requires the block. A method whose offline stage has no recorded 
 that segment and labelled as having an unknown full cost.
 The class level also emits the offline break-even figure and table (`breakeven_full`): for every method
 whose offline cost (generation plus fit, the same `summary.toml` block) is known, against every other
-method of the group, the pair count $N^\star$ after which that offline cost is paid off by its online
-saving per pair (`domain/benchmarking/breakeven_full.py`; the derivation and interval are in
+method of the group whose offline cost is known or does not apply, the pair count $N^\star$ at which
+the two full costs (offline plus online per pair) are equal, and which side of it each method is cheaper
+on (`domain/benchmarking/breakeven_full.py`; the derivation and interval are in
 `domain/solver/README.md`). It needs no `reference_preconditioner`, and it is not drawn when no method
 has a known offline cost.
 Paired time and reference/method speed ratios use only the same matrix/RHS

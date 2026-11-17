@@ -208,10 +208,12 @@ notation, legend and the family/colour/marker mappings). A failed run is never g
   "no systems in common with the reference", the `BreakEvenState` stored with its rows.
 - `breakeven_full_plot.plot_breakeven_full` (`breakeven_full_*`, matrix set and RHS type level only,
   no configured reference needed, not drawn when no method has a known offline cost): one row per
-  method $m$ with a known offline cost against every other method $h$, a dot at $N^\star$ in pairs
-  and a whisker over the finite part of its interval, with "N* = ... pairs, 95% CI [low, high]"
-  ("inf" for a bound where the bootstrap never breaks even), "never breaks even (not faster per
-  pair)" or "no pair both converged" beside it, drawn from the `breakeven_full` table
+  method $m$ with a known offline cost against every other method $h$ whose offline cost is known
+  or does not apply, a dot at $N^\star$ in pairs and a whisker over the finite part of its
+  interval, with the state beside it ("cheaper from N* = ... pairs", "cheaper until N* = ...
+  pairs", "always cheaper (...)", "never cheaper (...)" or "no pair both converged") and then
+  "cheaper from: 95% CI [low, high]" when $C_m \ge C_h$ ("inf": never) or "cheaper until: 95% CI
+  [low, high]" otherwise ("inf": always), drawn from the `breakeven_full` table
   (`BREAKEVEN_FULL_SCHEMA`, `domain/solver/README.md`). Observation unit: the pair, charged its
   matrix's whole setup. Population: the pairs both converged. Failure treatment: omitted. The card's
   `[interval]` is `kind = "per_method_pair"` with one `[[interval.pairs]]` entry per row (a method
@@ -371,7 +373,7 @@ the persistence source of truth; the removed scaling-law TOML is not emitted.
 | `matrix_heatmap` | iterations | own | mean per matrix | omitted: a cell with no converged RHS is hatched "0/r solved" |
 | `convergence_factor` | residual reduction per iteration | own | mean and median | omitted |
 | `full_cost_breakdown` | online plus offline generation and fit | own | pair workload sum per method, offline stages stacked on setup and solve | none: failed attempts keep their time |
-| `breakeven_full` | offline over the online saving per pair, every ordered method pair | common to the pair | $N^\star$ with a two-level bootstrap interval | omitted |
+| `breakeven_full` | offline difference over the online saving per pair, every ordered method pair | common to the pair | $N^\star$ with a two-level bootstrap interval | omitted |
 
 **Full-cost breakdown.** Offline cost is a property of the method artifact, so the figure reads it from each method's stored `summary.toml` (`StoredMethod.offline`, passed to `figure_summaries`, which the offline break-even reads too) and the online segments from the report group's workload summaries; at a sub-workload level the full offline cost stands beside only that level's online seconds, which is the cost of serving that workload from a fresh artifact. The figure is stacked vertical bars where colour encodes the stage, not the method: one fixed Okabe-Ito colour per stage (`cost_breakdown_plot.segment_color`; dataset generation, offline fit, matrix setup charged to each pair, solves), no hatches, and the method is the rotated x tick label; one legend of stages (`stacked_segments.segment_key` with the stage colour) sits outside the axes on the right. The text above each bar is the full cost (or "full cost unknown: ...") and, on a second line, the fit origin from `OfflineStages.fit_origin()`: "fit job" (a fit stage applies; its seconds are the wall time of the MLflow run that produced the checkpoint, a `run.type = "fit"` POD job included), "fit inline, counted in setup" (no fit stage but a dataset to generate: the fit runs inside the measured setup segment, so there is no offline fit segment) or nothing (no fit at all). The table states the same in its `fit_origin` column (`none`, `inline`, `job`). Fit seconds are the wall time of the whole fit or training job; `tracking/run_duration.py::run_wall_seconds_from_run` reads a record already fetched during method preparation, so cost attribution does not fetch the same run again (see `domain/solver/README.md`, "Cost vocabulary").
 

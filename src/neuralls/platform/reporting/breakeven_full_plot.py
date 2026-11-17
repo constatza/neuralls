@@ -1,9 +1,9 @@
 """The offline break-even figure: N* of each ordered method pair, with its interval.
 
 One row per method with a known offline cost and method it is compared against: a dot at the pair
-count N* from which its offline cost is paid off, a whisker over the finite part of its two-level
-bootstrap interval, and the numbers written beside it, since an interval reaching "never" (an
-infinite upper bound) has no end to draw.
+count N* at which the two full costs are equal, a whisker over the finite part of its two-level
+bootstrap interval, and the state and numbers written beside it, since an interval reaching
+"never" or "always" (an infinite upper bound) has no end to draw.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import polars as pl
 
-from neuralls.domain.benchmarking.cost_curves import BreakEvenState
+from neuralls.domain.benchmarking.breakeven_full import FullBreakEvenState
 from neuralls.platform.reporting.figure_annotations import RowAnnotation, annotate_rows
 from neuralls.platform.reporting.figure_formats import FigureTarget
 from neuralls.platform.reporting.figure_sizing import method_rows_figure_size
@@ -33,19 +33,32 @@ def _bound(value: object) -> str:
 
 
 def breakeven_full_text(row: BreakEvenRow) -> str:
-    """N* in pairs, never, or no common pairs; then the 95% interval when there is one."""
-    match BreakEvenState(row["break_even"]):
-        case BreakEvenState.BREAKS_EVEN:
-            text = f"N* = {row['breakeven_full']:.3g} pairs"
-        case BreakEvenState.NEVER:
-            text = "never breaks even (not faster per pair)"
-        case BreakEvenState.NO_COMMON_SYSTEMS:
+    """The state and N* in pairs, then the 95% interval of the count it bounds when there is one.
+
+    The interval bounds the count from which the method is cheaper when its offline cost is at
+    least the compared one's (``inf``: never), else the count up to which it is (``inf``: always).
+    """
+    match FullBreakEvenState(row["break_even"]):
+        case FullBreakEvenState.BREAKS_EVEN:
+            text = f"cheaper from N* = {row['breakeven_full']:.3g} pairs"
+        case FullBreakEvenState.CHEAPER_UNTIL:
+            text = f"cheaper until N* = {row['breakeven_full']:.3g} pairs"
+        case FullBreakEvenState.ALWAYS_CHEAPER:
+            text = "always cheaper (no dearer offline, not slower per pair)"
+        case FullBreakEvenState.NEVER:
+            text = "never cheaper (no cheaper offline, not faster per pair)"
+        case FullBreakEvenState.NO_COMMON_SYSTEMS:
             return "no pair both converged"
         case unreachable:
             assert_never(unreachable)
     if row["ci_low"] is None:
         return text
-    return f"{text}, 95% CI [{_bound(row['ci_low'])}, {_bound(row['ci_high'])}]"
+    match row["offline_s"], row["reference_offline_s"]:
+        case float(offline_s), float(reference_offline_s) if offline_s < reference_offline_s:
+            bounded = "until"
+        case _:
+            bounded = "from"
+    return f"{text}; cheaper {bounded}: 95% CI [{_bound(row['ci_low'])}, {_bound(row['ci_high'])}]"
 
 
 def _finite_marks(row: BreakEvenRow) -> list[float]:

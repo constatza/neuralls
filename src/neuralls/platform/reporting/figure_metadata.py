@@ -89,7 +89,7 @@ class TableKind(StrEnum):
     ``MATRIX_BREAKDOWN`` holds one row per method and matrix, exactly the cells of a heatmap.
     ``FULL_COST_BREAKDOWN`` holds one row per method: its offline stages beside its online
     workload sums. ``BREAKEVEN_FULL`` holds one row per method with a known offline cost and
-    method compared against: the pair count N* at which its offline cost is paid off.
+    method compared against: the pair count N* at which the two full costs are equal.
     """
 
     SUMMARY = "summary"

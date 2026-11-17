@@ -6,107 +6,140 @@ import math
 
 import pytest
 
-from neuralls.domain.benchmarking.breakeven_full import breakeven_full
-from neuralls.domain.benchmarking.cost_curves import BreakEvenState
+from neuralls.domain.benchmarking.breakeven_full import (
+    AlwaysCheaper,
+    BreakEvenFull,
+    BreaksEven,
+    CheaperUntil,
+    FullBreakEvenState,
+    Never,
+    breakeven_count,
+    breakeven_full,
+    count_bounds,
+)
 from neuralls.domain.solver.models.cost import (
     NO_OFFLINE_COST,
     Known,
     NotApplicable,
     OfflineStages,
-    StageCost,
     Unavailable,
 )
+from neuralls.domain.solver.models.statistics import Interval
 from neuralls.shared.types import CostProvenance, PreconditionerName
 from tests.observation_support import solved_row, synthetic_observations
 
-FITTED = PreconditionerName("fitted")
 CLASSICAL = PreconditionerName("classical")
-OFFLINE_S = 10.0
+FITTED = PreconditionerName("fitted")
+SECOND = PreconditionerName("second")
+UNRECORDED = PreconditionerName("unrecorded")
+N_MATRICES = 5
+OFFLINE_S = {CLASSICAL: 0.0, FITTED: 10.0, SECOND: 4.0}
 
 
-def _offline(fit: StageCost) -> dict[PreconditionerName, OfflineStages]:
-    return {FITTED: OfflineStages(NotApplicable(), fit), CLASSICAL: NO_OFFLINE_COST}
+def _fit(seconds: float) -> OfflineStages:
+    return OfflineStages(NotApplicable(), Known(seconds, None, CostProvenance.HISTORICAL))
 
 
-def _row(
-    n_matrices: int, fitted_s: float, classical_s: float, state: BreakEvenState
-) -> dict[str, object]:
+@pytest.fixture
+def offline() -> dict[PreconditionerName, OfflineStages]:
+    """A classical method (C = 0), two fitted ones (C = 10, 4) and one whose fit went unrecorded."""
     return {
-        "method": FITTED,
-        "reference_method": CLASSICAL,
-        "offline_s": OFFLINE_S,
-        "online_mean_s": fitted_s,
-        "reference_online_mean_s": classical_s,
-        "break_even": state.value,
-        "n_pairs": n_matrices,
-        "n_matrices": n_matrices,
+        CLASSICAL: NO_OFFLINE_COST,
+        FITTED: _fit(OFFLINE_S[FITTED]),
+        SECOND: _fit(OFFLINE_S[SECOND]),
+        UNRECORDED: OfflineStages(NotApplicable(), Unavailable("no fit run")),
     }
 
 
 @pytest.mark.parametrize(
-    ("n_matrices", "fitted_s", "classical_s", "fit", "expected"),
+    ("offline_surplus_s", "saving_s", "expected"),
     [
-        pytest.param(
-            5,
-            1.0,
-            3.0,
-            Known(OFFLINE_S, None, CostProvenance.HISTORICAL),
-            [
-                _row(5, 1.0, 3.0, BreakEvenState.BREAKS_EVEN)
-                | {"breakeven_full": 5.0, "ci_low": 5.0, "ci_high": 5.0}
-            ],
-            id="faster-per-pair-breaks-even-at-offline-over-saving",
-        ),
-        pytest.param(
-            5,
-            3.0,
-            1.0,
-            Known(OFFLINE_S, None, CostProvenance.HISTORICAL),
-            [
-                _row(5, 3.0, 1.0, BreakEvenState.NEVER)
-                | {"breakeven_full": None, "ci_low": math.inf, "ci_high": math.inf}
-            ],
-            id="no-saving-never-breaks-even",
-        ),
-        pytest.param(
-            5,
-            1.0,
-            3.0,
-            Unavailable("no fit run"),
-            [],
-            id="unavailable-offline-cost-has-no-row",
-        ),
-        pytest.param(
-            2,
-            1.0,
-            3.0,
-            Known(OFFLINE_S, None, CostProvenance.HISTORICAL),
-            [
-                _row(2, 1.0, 3.0, BreakEvenState.BREAKS_EVEN)
-                | {"breakeven_full": 5.0, "ci_low": None, "ci_high": None}
-            ],
-            id="fewer-than-five-matrices-have-no-interval",
-        ),
+        pytest.param(10.0, 2.0, BreaksEven(5.0), id="dearer-offline-faster-online"),
+        pytest.param(-4.0, 2.0, AlwaysCheaper(), id="cheaper-offline-faster-online"),
+        pytest.param(0.0, 2.0, AlwaysCheaper(), id="same-offline-faster-online"),
+        pytest.param(-4.0, 0.0, AlwaysCheaper(), id="cheaper-offline-same-online"),
+        pytest.param(-6.0, -3.0, CheaperUntil(2.0), id="cheaper-offline-slower-online"),
+        pytest.param(10.0, -2.0, Never(), id="dearer-offline-slower-online"),
+        pytest.param(0.0, 0.0, Never(), id="same-offline-same-online"),
     ],
 )
-def test_breakeven_full_is_offline_over_the_online_saving_per_pair(
-    n_matrices: int,
-    fitted_s: float,
-    classical_s: float,
-    fit: StageCost,
-    expected: list[dict[str, object]],
+def test_breakeven_count_state_follows_the_signs_of_offline_surplus_and_saving(
+    offline_surplus_s: float, saving_s: float, expected: BreakEvenFull
 ) -> None:
+    assert breakeven_count(offline_surplus_s, saving_s) == expected
+
+
+@pytest.mark.parametrize(
+    ("offline_surplus_s", "saving", "expected"),
+    [
+        pytest.param(10.0, (1.0, 2.0), (5.0, 10.0), id="cheaper-from-ends-swap"),
+        pytest.param(10.0, (-1.0, 2.0), (5.0, math.inf), id="cheaper-from-reaching-never"),
+        pytest.param(-10.0, (-2.0, -1.0), (5.0, 10.0), id="cheaper-until-ends-kept"),
+        pytest.param(-10.0, (-2.0, 1.0), (5.0, math.inf), id="cheaper-until-reaching-always"),
+    ],
+)
+def test_count_bounds_map_the_saving_interval_through_the_monotone_count(
+    offline_surplus_s: float, saving: tuple[float, float], expected: tuple[float, float]
+) -> None:
+    assert count_bounds(offline_surplus_s, Interval(*saving, 0.95)) == expected
+
+
+def test_breakeven_full_charges_both_offline_costs_and_skips_unknown_ones(
+    offline: dict[PreconditionerName, OfflineStages],
+) -> None:
+    seconds = {CLASSICAL: 3.0, FITTED: 1.0, SECOND: 4.0, UNRECORDED: 0.5}
     observations = synthetic_observations(
         [
-            row
-            for matrix in range(n_matrices)
-            for row in (
-                solved_row(FITTED, f"s{matrix}", matrix, fitted_s),
-                solved_row(CLASSICAL, f"s{matrix}", matrix, classical_s),
-            )
+            solved_row(method, f"s{matrix}", matrix, online_s)
+            for matrix in range(N_MATRICES)
+            for method, online_s in seconds.items()
         ]
     )
 
-    table = breakeven_full(observations, _offline(fit))
+    table = breakeven_full(observations, offline)
 
-    assert table.to_dicts() == [pytest.approx(row) for row in expected]
+    def row(
+        method: PreconditionerName,
+        other: PreconditionerName,
+        state: FullBreakEvenState,
+        count: float | None,
+        bounds: tuple[float, float],
+    ) -> dict[str, object]:
+        return {
+            "method": method,
+            "reference_method": other,
+            "offline_s": OFFLINE_S[method],
+            "reference_offline_s": OFFLINE_S[other],
+            "online_mean_s": seconds[method],
+            "reference_online_mean_s": seconds[other],
+            "break_even": state.value,
+            "breakeven_full": count,
+            "ci_low": bounds[0],
+            "ci_high": bounds[1],
+            "n_pairs": N_MATRICES,
+            "n_matrices": N_MATRICES,
+        }
+
+    assert table.to_dicts() == [
+        pytest.approx(expected)
+        for expected in (
+            row(FITTED, CLASSICAL, FullBreakEvenState.BREAKS_EVEN, 5.0, (5.0, 5.0)),
+            row(FITTED, SECOND, FullBreakEvenState.BREAKS_EVEN, 2.0, (2.0, 2.0)),
+            row(SECOND, CLASSICAL, FullBreakEvenState.NEVER, None, (math.inf, math.inf)),
+            row(SECOND, FITTED, FullBreakEvenState.CHEAPER_UNTIL, 2.0, (2.0, 2.0)),
+        )
+    ]
+
+
+def test_breakeven_full_without_a_common_pair_has_no_means(
+    offline: dict[PreconditionerName, OfflineStages],
+) -> None:
+    observations = synthetic_observations(
+        [solved_row(FITTED, "s0", 0, 1.0), solved_row(CLASSICAL, "s1", 1, 3.0)]
+    )
+
+    table = breakeven_full(observations, offline)
+
+    assert table.select("method", "reference_method", "break_even", "n_pairs").rows() == [
+        (FITTED, CLASSICAL, FullBreakEvenState.NO_COMMON_SYSTEMS.value, 0)
+    ]

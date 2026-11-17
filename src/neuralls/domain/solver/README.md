@@ -517,25 +517,49 @@ out. `break_even` holds a `BreakEvenState` repeated on every row of a method: `b
 `matrix_online_amortized_s` is null too).
 
 `breakeven_full.py::breakeven_full(obs, offline)` is the offline break-even count $N^\star$, the
-`breakeven_full` of the cost vocabulary, in pairs. It needs no configured reference: for every
-method $m$ whose `OfflineStages.combined()` is `Known` (generation plus fit, $C_m$; a method whose
-offline cost is unavailable, does not apply or is not given has no row as $m$) and every other
-method $h$ of the group, classical ones included, it takes the pairs both converged and
+`breakeven_full` of the cost vocabulary, in pairs: the pair count at which two methods' full
+costs $C_m + N\,\bar t^{\mathrm{online}}_m$ and $C_h + N\,\bar t^{\mathrm{online}}_h$ are equal. It
+needs no configured reference: for every method $m$ whose `OfflineStages.combined()` is `Known`
+(generation plus fit, $C_m$) and every other method $h$ of the group whose cost is `Known` or
+`NotApplicable` ($C_h = 0$, a classical method), it takes the pairs both converged and
 
-$$N^\star_{m,h} = \frac{C_m}{\bar t^{\mathrm{online}}_h - \bar t^{\mathrm{online}}_m},$$
+$$N^\star_{m,h} = \frac{\Delta C}{D}, \qquad \Delta C = C_m - C_h,\quad
+D = \bar t^{\mathrm{online}}_h - \bar t^{\mathrm{online}}_m,$$
 
 with $\bar t^{\mathrm{online}}$ the mean pair `online_s` (each pair charged its matrix's whole
-setup) over that population. It is defined only for a positive denominator; otherwise the closed
-state is `never` (`BreaksEven | Never` in the domain, `BreakEvenState` in the table). The count is
-serial compute with no worker count: offline generation and online pair solves are both
-embarrassingly parallel, so dividing one side by workers would be unfair to the other. The
-interval is the two-level bootstrap (matrices, timing repeats) of the online saving per pair
-$D = \bar t_h - \bar t_m$, mapped through $g(D) = C_m / D$ for $D > 0$ and $+\infty$ otherwise, which
-is non-increasing, so the bounds are $[g(D_{97.5}), g(D_{2.5})]$: a bound is `inf` when more than
-2.5% of resamples never break even, rather than dropping them; no interval below
-`MIN_INTERVAL_MATRICES` matrices. `BREAKEVEN_FULL_SCHEMA` is `method, reference_method, offline_s,
-online_mean_s, reference_online_mean_s, break_even, breakeven_full, ci_low, ci_high, n_pairs,
-n_matrices`, where `reference_method` is $h$, not the configured reference.
+setup) over that population. An unavailable or missing offline cost is never read as zero: such a
+method has no row in either role. A method whose cost does not apply has no row as $m$, since its
+rows would mirror those holding it as $h$; two methods with known costs appear in both
+orientations, which are consistent mirrors (the formula is antisymmetric). The signs of $D$ and
+$\Delta C$ give a closed state (`BreaksEven | AlwaysCheaper | CheaperUntil | Never` in the domain,
+`FullBreakEvenState` in the table):
+
+| $D$ | $\Delta C$ | `break_even` | `breakeven_full` |
+|---|---|---|---|
+| $> 0$ | $> 0$ | `breaks_even`: $m$ cheaper from $N^\star$ pairs on | $N^\star$ |
+| $> 0$ | $\le 0$ | `always_cheaper` | null |
+| $= 0$ | $< 0$ | `always_cheaper` | null |
+| $< 0$ | $< 0$ | `cheaper_until`: $m$ cheaper only below $N^\star$ pairs | $N^\star$ |
+| $\le 0$ | $\ge 0$ | `never` | null |
+
+plus `no_common_systems` when the two converged on no pair in common. The count is serial compute
+with no worker count: offline generation and online pair solves are both embarrassingly parallel,
+so dividing one side by workers would be unfair to the other. The interval is the two-level
+bootstrap (matrices, timing repeats) of $D$; $C_m$ and $C_h$ are single measurements and stay
+fixed, so $\Delta C$'s sign fixes which count the interval bounds, a monotone function of $D$ whose
+percentile interval is the image of $D$'s:
+
+- $\Delta C \ge 0$: the count from which $m$ is cheaper, $F(D) = \Delta C / D$ for $D > 0$ and
+  $+\infty$ (never) otherwise, non-increasing, so the bounds are $[F(D_{97.5}), F(D_{2.5})]$;
+- $\Delta C < 0$: the count up to which $m$ is cheaper, $U(D) = \Delta C / D$ for $D < 0$ and
+  $+\infty$ (always) otherwise, non-decreasing, so the bounds are $[U(D_{2.5}), U(D_{97.5})]$.
+
+A $D$ interval straddling 0 crosses the state boundary and gives an `inf` upper bound (more than
+2.5% of resamples never break even, or are always cheaper), rather than dropping those resamples;
+no interval below `MIN_INTERVAL_MATRICES` matrices. `BREAKEVEN_FULL_SCHEMA` is `method,
+reference_method, offline_s, reference_offline_s, online_mean_s, reference_online_mean_s,
+break_even, breakeven_full, ci_low, ci_high, n_pairs, n_matrices`, where `reference_method` is $h$,
+not the configured reference, and `reference_offline_s` is $C_h$.
 
 $N^\star$ and $n^*$ answer different questions. $n^*$ (`breakeven_online_amortized`) is per matrix:
 how many RHS of one matrix share one setup before a dearer setup pays off, with no offline cost.
