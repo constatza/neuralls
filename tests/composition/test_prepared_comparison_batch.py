@@ -40,6 +40,7 @@ from neuralls.domain.presentation.provenance import DatasetPresentation, Dataset
 from neuralls.domain.presentation.run_names import NamedRun, Untimed
 from neuralls.domain.presentation.titles import ComparisonScopePresentation, EditorialPresentation
 from neuralls.domain.solver.models.provenance import SharedSingleMatrix
+from neuralls.platform.config.models.coarsening import PODCoarseningConfig
 from neuralls.platform.config.models.experiments import ComparisonRegistryEntry
 from neuralls.platform.config.models.preconditioner import (
     PreconditionerConfig,
@@ -188,7 +189,9 @@ def test_method_schedule_rejects_conflicting_origins_for_one_method(
     first = execution(planned_system("a"))
     second = replace(
         execution(planned_system("b")),
-        origins_by_method={"jacobi": InlineFit(Path("virtual/fit"))},
+        origins_by_method={
+            "jacobi": InlineFit(PODCoarseningConfig(dataset_dir=Path("virtual/fit")))
+        },
     )
 
     with pytest.raises(ValueError, match="different data origins"):

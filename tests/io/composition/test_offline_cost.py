@@ -31,6 +31,7 @@ from neuralls.domain.solver.models.cost import (
     Unavailable,
 )
 from neuralls.platform.config.models.checkpoint_refs import NeuralCheckpointRef
+from neuralls.platform.config.models.coarsening import PODCoarseningConfig
 from neuralls.platform.storage.manifest import DatasetArtifact, DatasetScaling
 from neuralls.platform.storage.manifest_io import make_dataset_manifest, save_dataset_manifest
 from neuralls.platform.tracking.services import MlflowTrackingServices
@@ -148,20 +149,20 @@ def test_no_fit_data_has_no_offline_cost(runs: MlflowClient) -> None:
 def test_inline_fit_charges_its_train_folds_share_of_generation(
     dataset_dir: Path, runs: MlflowClient, splits: InMemorySplitStore
 ) -> None:
-    assert resolve_offline_cost(InlineFit(dataset_dir), runs=runs, splits=splits) == (
-        OfflineStages(TrainShareOfGeneration(WHOLE_GENERATION, CUBE_SHARE), NotApplicable())
-    )
+    assert resolve_offline_cost(
+        InlineFit(PODCoarseningConfig(dataset_dir=dataset_dir)), runs=runs, splits=splits
+    ) == (OfflineStages(TrainShareOfGeneration(WHOLE_GENERATION, CUBE_SHARE), NotApplicable()))
 
 
 def test_missing_manifest_duration_is_unavailable(unstamped_dataset: Path) -> None:
     assert resolve_generation_cost(
-        InlineFit(unstamped_dataset), InMemorySplitStore()
+        InlineFit(PODCoarseningConfig(dataset_dir=unstamped_dataset)), InMemorySplitStore()
     ) == Unavailable("no dataset manifest records a generation duration")
 
 
 def test_missing_manifest_is_unavailable(tmp_path: Path) -> None:
     assert resolve_generation_cost(
-        InlineFit(tmp_path / "absent"), InMemorySplitStore()
+        InlineFit(PODCoarseningConfig(dataset_dir=tmp_path / "absent")), InMemorySplitStore()
     ) == Unavailable("no dataset manifest records a generation duration")
 
 
@@ -222,7 +223,9 @@ def test_an_inline_fit_without_a_train_fold_has_no_generation_charge(
 ) -> None:
     splits = InMemorySplitStore({} if pinned is None else {dataset_dir: _split(*pinned)})
 
-    assert resolve_generation_cost(InlineFit(dataset_dir), splits) == Unavailable(reason)
+    assert resolve_generation_cost(
+        InlineFit(PODCoarseningConfig(dataset_dir=dataset_dir)), splits
+    ) == Unavailable(reason)
 
 
 def test_unverified_checkpoint_never_charges_nearby_dataset(

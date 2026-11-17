@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -57,6 +58,7 @@ from tests.presentation_support import (
 
 PLAIN = NotationPolicy.default()
 FIT_DIR = Path("pod-fit")
+INLINE_FIT = InlineFit(PODCoarseningConfig(dataset_dir=FIT_DIR))
 
 
 def test_pod_method_is_qualified_by_its_fit_dataset_exactly_once(
@@ -64,7 +66,7 @@ def test_pod_method_is_qualified_by_its_fit_dataset_exactly_once(
 ) -> None:
     presentation = describe_method(
         pod_spec(FIT_DIR, 10),
-        InlineFit(FIT_DIR),
+        INLINE_FIT,
         datasets_by_dir({FIT_DIR: pod_fit_presentation}),
         train_splits(FIT_DIR),
     )
@@ -90,29 +92,27 @@ def _verified(folds: FitFolds) -> CheckpointBased:
 
 
 @pytest.mark.parametrize(
-    ("snapshots", "origin", "fit_rows"),
+    ("snapshots", "origin_of", "fit_rows"),
     [
-        (-1, InlineFit(FIT_DIR), 5),
-        (3, InlineFit(FIT_DIR), 3),
-        (-1, _verified(FitFolds.TRAIN), 5),
-        (-1, _verified(FitFolds.TRAIN_AND_VALIDATION), 7),
+        (-1, InlineFit, 5),
+        (3, InlineFit, 3),
+        (-1, lambda _: _verified(FitFolds.TRAIN), 5),
+        (-1, lambda _: _verified(FitFolds.TRAIN_AND_VALIDATION), 7),
     ],
     ids=["inline-train-fold", "inline-cut-to-n-snapshots", "fit-job-train", "train-and-validation"],
 )
 def test_a_fit_is_qualified_by_the_rows_of_the_folds_it_read(
     pod_fit_presentation: DatasetPresentation,
     snapshots: int,
-    origin: InlineFit | CheckpointBased,
+    origin_of: Callable[[PODCoarseningConfig], InlineFit | CheckpointBased],
     fit_rows: int,
 ) -> None:
     """One dataset row is one snapshot vector, so the fit folds' rows are the columns of V."""
-    cfg = AMGPreconditionerConfig(
-        coarsening=PODCoarseningConfig(dataset_dir=FIT_DIR, rank=2, n_snapshots=snapshots)
-    )
+    pod = PODCoarseningConfig(dataset_dir=FIT_DIR, rank=2, n_snapshots=snapshots)
 
     presentation = describe_method(
-        cfg,
-        origin,
+        AMGPreconditionerConfig(coarsening=pod),
+        origin_of(pod),
         datasets_by_dir({FIT_DIR: pod_fit_presentation}),
         InMemorySplitStore({FIT_DIR: FIT_SPLIT}),
     )
@@ -225,7 +225,10 @@ def test_a_dataset_that_cannot_be_described_is_rejected() -> None:
 
     with pytest.raises(MissingDatasetProvenanceError) as error:
         describe_method(
-            pod_spec(FIT_DIR, 10), InlineFit(FIT_DIR), unprovenanced, train_splits(FIT_DIR)
+            pod_spec(FIT_DIR, 10),
+            INLINE_FIT,
+            unprovenanced,
+            train_splits(FIT_DIR),
         )
     assert error.value.dataset_dir == FIT_DIR
 

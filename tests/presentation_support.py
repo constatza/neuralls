@@ -39,7 +39,7 @@ def fixture_origins(
     """The explicit inline-fit and no-fit origins of fixture methods."""
     return {
         spec.name: (
-            InlineFit(Path(spec.coarsening.dataset_dir))
+            InlineFit(spec.coarsening)
             if isinstance(spec, AMGPreconditionerConfig)
             and isinstance(spec.coarsening, PODCoarseningConfig)
             else NoFitData()

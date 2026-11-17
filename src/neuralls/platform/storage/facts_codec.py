@@ -8,6 +8,7 @@ model validation, so a malformed payload cannot become a presentation object.
 from __future__ import annotations
 
 from collections.abc import Mapping
+from enum import StrEnum
 from typing import Any, assert_never
 
 from neuralls.domain.presentation.methods import (
@@ -69,6 +70,8 @@ from neuralls.shared.types import (
 )
 
 __all__ = [
+    "StalePayloadReason",
+    "StalePresentationPayloadError",
     "decode_dataset_presentation",
     "decode_executed_method",
     "decode_facts",
@@ -85,6 +88,30 @@ __all__ = [
 ]
 
 type Payload = Mapping[str, Any]
+
+_FIT_ROWS_KEY = "fit_rows"
+
+
+class StalePayloadReason(StrEnum):
+    """Why a stored presentation payload was written by older code and cannot be decoded."""
+
+    PREDATES_FIT_ROWS = "predates_fit_rows"
+
+
+class StalePresentationPayloadError(ValueError):
+    """A stored presentation was written before a field it now requires; re-run compare.
+
+    Attributes:
+        reason: Which change the stored payload predates.
+    """
+
+    def __init__(self, reason: StalePayloadReason) -> None:
+        self.reason = reason
+        super().__init__(
+            f"Stored method presentation is stale ({reason.value}): it was written before "
+            "the presentation recorded the rows its fit read. Re-run `neuralls compare` to "
+            "store it again."
+        )
 
 
 def _encode_fact(fact: ScientificFact) -> dict[str, Any]:
@@ -257,7 +284,7 @@ def encode_method_presentation(presentation: ConfiguredMethodPresentation) -> di
                 "kind": "dataset_qualified",
                 "method": _encode_description(method),
                 "dataset": encode_dataset_presentation(dataset),
-                "fit_rows": rows,
+                _FIT_ROWS_KEY: rows,
             }
         case _:
             assert_never(presentation)
@@ -270,8 +297,10 @@ def decode_method_presentation(payload: Payload) -> ConfiguredMethodPresentation
         case "standalone":
             return StandaloneMethodPresentation(method)
         case "dataset_qualified":
+            if _FIT_ROWS_KEY not in payload:
+                raise StalePresentationPayloadError(StalePayloadReason.PREDATES_FIT_ROWS)
             return DatasetQualifiedMethodPresentation(
-                method, decode_dataset_presentation(payload["dataset"]), int(payload["fit_rows"])
+                method, decode_dataset_presentation(payload["dataset"]), int(payload[_FIT_ROWS_KEY])
             )
         case other:
             raise ValueError(f"Unknown method presentation kind {other!r}")

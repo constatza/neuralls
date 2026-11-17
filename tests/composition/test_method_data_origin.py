@@ -95,7 +95,7 @@ def test_inline_pod_uses_its_snapshot_dataset(fit_dir: Path) -> None:
         training_dataset_dir=lambda path: pytest.fail("unexpected data config lookup"),
         dataset_digest=lambda path: pytest.fail("unexpected dataset hash"),
         pinned_split=lambda path: PINNED,
-    ) == InlineFit(fit_dir)
+    ) == InlineFit(PODCoarseningConfig(dataset_dir=fit_dir))
 
 
 def test_checkpoint_pod_accepts_matching_recorded_digest(

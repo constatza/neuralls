@@ -40,9 +40,7 @@ from neuralls.domain.presentation.titles import (
     ComparisonTitle,
     EditorialPresentation,
 )
-from neuralls.platform.config.models.coarsening import PODCoarseningConfig
 from neuralls.platform.config.models.preconditioner import (
-    AMGPreconditionerConfig,
     ConcretePreconditionerConfig,
     PreconditionerConfig,
 )
@@ -78,10 +76,10 @@ def describe_method(
     """
     method = describe_configured_preconditioner(cfg)
     match origin:
-        case InlineFit(fit_dataset=directory):
+        case InlineFit(coarsening=pod, fit_dataset=directory):
             dataset = load_dataset(directory)
             train_rows = len(pinned_train_rows(directory, splits))
-            return qualify_method(method, dataset, _inline_fit_rows(cfg, train_rows))
+            return qualify_method(method, dataset, pod.inline_fit_rows(train_rows))
         case CheckpointBased(training_data=training_data):
             match training_data:
                 case VerifiedTrainingDataset(dataset=directory, split=pinned, folds=folds):
@@ -96,15 +94,6 @@ def describe_method(
             return StandaloneMethodPresentation(method=method)
         case unreachable:
             assert_never(unreachable)
-
-
-def _inline_fit_rows(cfg: PreconditionerConfig, train_rows: int) -> int:
-    """The train rows an inline fit reads; only a POD coarsening fits inline."""
-    match cfg:
-        case AMGPreconditionerConfig(coarsening=PODCoarseningConfig() as pod):
-            return pod.inline_fit_rows(train_rows)
-        case _:
-            raise ValueError("only a POD coarsening is fit inline")
 
 
 def prepare_comparison_presentation(

@@ -17,9 +17,11 @@ from neuralls.domain.presentation.qualifier import dataset_qualifier
 from neuralls.domain.presentation.strategy_names import snapshot_source
 from neuralls.domain.presentation.titles import ComparisonScopePresentation
 from neuralls.shared.scientific_description.catalog import (
+    SAMPLE_COUNT,
     FactPhase,
     FactVisibility,
     fact_definition,
+    make_fact,
 )
 from neuralls.shared.scientific_description.models import (
     DescriptionIdentity,
@@ -119,6 +121,39 @@ type ConfiguredMethodPresentation = (
 )
 
 
+def method_parts(configured: ConfiguredMethodPresentation) -> tuple[ScientificDescription, ...]:
+    """The descriptions a method's label is made of, method first.
+
+    The one owner of a label's parts: the renderer draws them and the cohort identity is
+    built from them, so two methods share an identity exactly when their labels agree.
+    A POD method named by its snapshot source (POD-CG, POD-JP) already says which strategy
+    made its data, so that strategy's facts join the method's own parenthesis
+    (``POD-CG (c=100, k=20, N=4500)``) instead of following a dataset qualifier. There
+    ``N`` is the method's own: the columns of the snapshot matrix it fit, one per fit
+    row (a trajectory's kept steps are separate rows), not the rows generation produced.
+    """
+    match configured:
+        case StandaloneMethodPresentation(method=method):
+            return (method,)
+        case DatasetQualifiedMethodPresentation(method=method, dataset=dataset, fit_rows=fit_rows):
+            qualifier = dataset_qualifier(dataset)
+            match qualifier:
+                case (strategy,) if method.base_name == pod_source_name(dataset):
+                    fitted = make_fact(SAMPLE_COUNT, fit_rows)
+                    strategy_facts = tuple(
+                        fitted if fact.key == SAMPLE_COUNT else fact for fact in strategy.facts
+                    )
+                    folded = ScientificDescription(
+                        base_name=method.base_name,
+                        facts=(*method.facts, *strategy_facts),
+                        context_facts=(*method.context_facts, *strategy.context_facts),
+                    )
+                    return (folded,)
+            return (method, *qualifier)
+        case _:
+            assert_never(configured)
+
+
 @dataclass(frozen=True, slots=True)
 class MethodPresentationCandidate:
     """One configured method awaiting cohort validation."""
@@ -148,12 +183,12 @@ def description_facts(description: ScientificDescription) -> tuple[ScientificFac
 class CompactIdentity:
     """What makes a prepared method's compact label unique within a cohort.
 
-    ``dataset`` is empty for a standalone method; a dataset-qualified method always has at
-    least one qualifier description, so the two cannot be confused.
+    ``parts`` are the identities of the compact label's parts (``method_parts``), so the
+    identity holds exactly what the label renders: a POD fold's fitted ``N`` and not the
+    generated rows it replaces.
     """
 
-    method: DescriptionIdentity
-    dataset: tuple[DescriptionIdentity, ...]
+    parts: tuple[DescriptionIdentity, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -195,17 +230,7 @@ class PreparedMethodPresentation:
 
     def compact_identity(self) -> CompactIdentity:
         """Canonical structured identity of the compact label, with no rendered text."""
-        method = self._view(self.compact_facts).identity
-        match self.configured:
-            case StandaloneMethodPresentation():
-                return CompactIdentity(method=method, dataset=())
-            case DatasetQualifiedMethodPresentation(dataset=dataset):
-                return CompactIdentity(
-                    method=method,
-                    dataset=tuple(part.identity for part in dataset_qualifier(dataset)),
-                )
-            case _:
-                assert_never(self.configured)
+        return CompactIdentity(tuple(part.identity for part in method_parts(self.compact)))
 
 
 @dataclass(frozen=True, slots=True)

@@ -9,6 +9,7 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    PositiveInt,
     ValidationInfo,
     field_validator,
     model_validator,
@@ -37,6 +38,12 @@ from neuralls.shared.scientific_description.catalog import (
     THRESHOLD,
 )
 from neuralls.shared.types import InnerProductKind
+
+ALL_SNAPSHOTS = -1
+"""The ``n_snapshots`` value that keeps every snapshot."""
+
+type SnapshotCount = Literal[-1] | PositiveInt
+"""A snapshot cut: ``ALL_SNAPSHOTS``, or a positive count; zero and other negatives are invalid."""
 
 
 class AggregationCoarseningConfig(BaseModel):
@@ -187,8 +194,12 @@ class PODCoarseningConfig(NeuralCheckpointRef):
             "little of the snapshot energy is warned about at fit time."
         ),
     )
-    n_snapshots: Annotated[int, Fact(SNAPSHOT_COUNT, show=Show.NON_DEFAULT)] = Field(
-        default=-1, description="Number of snapshot files to load; -1 means all matched."
+    n_snapshots: Annotated[SnapshotCount, Fact(SNAPSHOT_COUNT, show=Show.NON_DEFAULT)] = Field(
+        default=ALL_SNAPSHOTS,
+        description=(
+            "Number of snapshot rows an inline fit reads; -1 means all. A checkpoint-backed "
+            "basis is loaded, not refit, so it accepts only the default."
+        ),
     )
     inner_product: Annotated[
         InnerProductKind, Fact(INNER_PRODUCT, convert=enum_value, show=Show.NON_DEFAULT)
@@ -215,6 +226,20 @@ class PODCoarseningConfig(NeuralCheckpointRef):
             )
         return self
 
+    @model_validator(mode="after")
+    def _snapshot_count_needs_an_inline_fit(self) -> PODCoarseningConfig:
+        """Reject a snapshot cut on a checkpoint-backed basis.
+
+        A checkpoint's basis is loaded, not refit, so ``n_snapshots`` would change nothing
+        and still be stated as a method fact beside the checkpoint's fitted ``N``.
+        """
+        if self.n_snapshots != ALL_SNAPSHOTS and self.exposed_checkpoint_ref() is not None:
+            raise ValueError(
+                "n_snapshots applies only to an inline POD fit: a checkpoint-backed basis "
+                "(assignment, model_ref or checkpoint_path) is loaded, not refit"
+            )
+        return self
+
     @field_validator("dataset_dir", mode="before")
     @classmethod
     def _expand_dataset_dir(cls, v: object, info: ValidationInfo) -> object:
@@ -234,7 +259,9 @@ class PODCoarseningConfig(NeuralCheckpointRef):
 
         The first ``n_snapshots`` of them, or all when ``n_snapshots`` is -1.
         """
-        return available if self.n_snapshots == -1 else min(self.n_snapshots, available)
+        if self.n_snapshots == ALL_SNAPSHOTS:
+            return available
+        return min(self.n_snapshots, available)
 
     def exposed_checkpoint_ref(self) -> NeuralCheckpointRef | None:
         """Opt into checkpoint resolution only when a resolvable identity is set.
@@ -308,8 +335,8 @@ class NeuralPODCoarseningConfig(NeuralCheckpointRef):
             "little of the snapshot energy is warned about at fit time."
         ),
     )
-    n_snapshots: Annotated[int, Fact(SNAPSHOT_COUNT, show=Show.NON_DEFAULT)] = Field(
-        default=-1, description="Number of predicted snapshots to keep; -1 means all."
+    n_snapshots: Annotated[SnapshotCount, Fact(SNAPSHOT_COUNT, show=Show.NON_DEFAULT)] = Field(
+        default=ALL_SNAPSHOTS, description="Number of predicted snapshots to keep; -1 means all."
     )
     model_config = ConfigDict(extra="forbid", frozen=True)
 

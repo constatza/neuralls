@@ -267,7 +267,7 @@ def test_a_method_run_and_a_plot_legend_render_the_same_presentation(
 ) -> None:
     prepared = prepare_comparison_presentation(
         [pod_spec(FIT_DIR, 10)],
-        {pod_spec(FIT_DIR, 10).name: InlineFit(FIT_DIR)},
+        {pod_spec(FIT_DIR, 10).name: InlineFit(PODCoarseningConfig(dataset_dir=FIT_DIR))},
         ComparisonScopePresentation(dataset_presentation),
         datasets_by_dir({FIT_DIR: pod_fit_presentation}),
         train_splits(FIT_DIR),
@@ -312,7 +312,7 @@ def test_configured_facts_become_stable_parameters_without_rendered_text(
 ) -> None:
     prepared = prepare_comparison_presentation(
         [pod_spec(FIT_DIR, 10)],
-        {pod_spec(FIT_DIR, 10).name: InlineFit(FIT_DIR)},
+        {pod_spec(FIT_DIR, 10).name: InlineFit(PODCoarseningConfig(dataset_dir=FIT_DIR))},
         ComparisonScopePresentation(dataset_presentation),
         datasets_by_dir({FIT_DIR: pod_fit_presentation}),
         train_splits(FIT_DIR),
@@ -339,8 +339,14 @@ def test_describing_a_method_yields_a_presentation_with_no_assignment_id(
     load = datasets_by_dir({FIT_DIR: pod_fit_presentation})
     splits = train_splits(FIT_DIR)
     method = describe_method(
-        pod_spec(FIT_DIR, 10, assignment="fit-job"), InlineFit(FIT_DIR), load, splits
+        pod_spec(FIT_DIR, 10, assignment="fit-job"),
+        InlineFit(PODCoarseningConfig(dataset_dir=FIT_DIR)),
+        load,
+        splits,
     )
     assert method == describe_method(
-        pod_spec(FIT_DIR, 10, assignment="another-job"), InlineFit(FIT_DIR), load, splits
+        pod_spec(FIT_DIR, 10, assignment="another-job"),
+        InlineFit(PODCoarseningConfig(dataset_dir=FIT_DIR)),
+        load,
+        splits,
     )

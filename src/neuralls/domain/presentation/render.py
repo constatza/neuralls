@@ -9,9 +9,7 @@ from typing import assert_never
 
 from neuralls.domain.presentation.methods import (
     ConfiguredMethodPresentation,
-    DatasetQualifiedMethodPresentation,
-    StandaloneMethodPresentation,
-    pod_source_name,
+    method_parts,
 )
 from neuralls.domain.presentation.provenance import DatasetPresentation
 from neuralls.domain.presentation.qualifier import dataset_qualifier
@@ -20,11 +18,7 @@ from neuralls.domain.presentation.titles import (
     ComparisonTitle,
     EditorialPresentation,
 )
-from neuralls.shared.scientific_description.catalog import (
-    SAMPLE_COUNT,
-    fact_definition,
-    make_fact,
-)
+from neuralls.shared.scientific_description.catalog import fact_definition
 from neuralls.shared.scientific_description.models import (
     DecimalFact,
     FieldKey,
@@ -65,44 +59,13 @@ def _render_chain(
     )
 
 
-def _method_parts(configured: ConfiguredMethodPresentation) -> tuple[ScientificDescription, ...]:
-    """The descriptions a method's label is made of, method first.
-
-    A POD method named by its snapshot source (POD-CG, POD-JP) already says which strategy
-    made its data, so that strategy's facts join the method's own parenthesis
-    (``POD-CG (c=100, k=20, N=4500)``) instead of following a dataset qualifier. There
-    ``N`` is the method's own: the columns of the snapshot matrix it fit, one per fit
-    row (a trajectory's kept steps are separate rows), not the rows generation produced.
-    """
-    match configured:
-        case StandaloneMethodPresentation(method=method):
-            return (method,)
-        case DatasetQualifiedMethodPresentation(method=method, dataset=dataset, fit_rows=fit_rows):
-            qualifier = dataset_qualifier(dataset)
-            match qualifier:
-                case (strategy,) if method.base_name == pod_source_name(dataset):
-                    fitted = make_fact(SAMPLE_COUNT, fit_rows)
-                    strategy_facts = tuple(
-                        fitted if fact.key == SAMPLE_COUNT else fact for fact in strategy.facts
-                    )
-                    folded = ScientificDescription(
-                        base_name=method.base_name,
-                        facts=(*method.facts, *strategy_facts),
-                        context_facts=(*method.context_facts, *strategy.context_facts),
-                    )
-                    return (folded,)
-            return (method, *qualifier)
-        case _:
-            assert_never(configured)
-
-
 def render_method(
     configured: ConfiguredMethodPresentation,
     profile: RenderProfile,
     policy: NotationPolicy,
 ) -> RenderedScientificDescription:
     """Render a method, stating its training dataset exactly once when it has one."""
-    return _render_chain(_method_parts(configured), profile, policy)
+    return _render_chain(method_parts(configured), profile, policy)
 
 
 def render_dataset(
@@ -154,7 +117,7 @@ class DistinctRendering:
 def _decimal_keys(configured: ConfiguredMethodPresentation) -> frozenset[FieldKey]:
     return frozenset(
         fact.key
-        for part in _method_parts(configured)
+        for part in method_parts(configured)
         for fact in (*part.facts, *part.context_facts)
         if isinstance(fact, DecimalFact)
     )

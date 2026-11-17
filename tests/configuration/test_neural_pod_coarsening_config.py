@@ -94,3 +94,20 @@ def test_an_energy_fit_has_its_own_slug_and_a_euclidean_one_keeps_its_slug() -> 
         f"pod_rank10_n-1_{euclidean.checkpoint_slug()}",
         f"pod_rank10_n-1_energy_{euclidean.checkpoint_slug()}",
     )
+
+
+@pytest.mark.parametrize(
+    ("fields", "loc"),
+    [
+        pytest.param({"n_snapshots": 0}, ("n_snapshots",), id="zero"),
+        pytest.param({"n_snapshots": -2}, ("n_snapshots",), id="negative"),
+        pytest.param({"n_snapshots": 5, "assignment": "fit_job_1"}, (), id="checkpoint-backed"),
+    ],
+)
+def test_n_snapshots_is_all_or_a_positive_inline_cut(
+    fields: dict[str, object], loc: tuple[str, ...]
+) -> None:
+    """-1 keeps every snapshot; a checkpoint's basis is loaded, not refit, so it takes no cut."""
+    with pytest.raises(ValidationError) as error:
+        PODCoarseningConfig.model_validate({"dataset_dir": WORKSPACE, **fields})
+    assert {item["loc"][:1] for item in error.value.errors()} == {loc}

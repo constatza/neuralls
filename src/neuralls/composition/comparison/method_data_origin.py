@@ -40,9 +40,18 @@ class NoFitData:
 
 @dataclass(frozen=True, slots=True)
 class InlineFit:
-    """A POD basis fitted from snapshots during each matrix setup."""
+    """A POD basis fitted from snapshots during each matrix setup.
 
-    fit_dataset: Path
+    Carries the coarsening it fits, so the dataset and the snapshot cut that decide the
+    rows it reads are never re-derived from the method config.
+    """
+
+    coarsening: PODCoarseningConfig
+
+    @property
+    def fit_dataset(self) -> Path:
+        """The dataset whose snapshots the fit reads."""
+        return Path(self.coarsening.dataset_dir)
 
 
 @dataclass(frozen=True, slots=True)
@@ -174,7 +183,7 @@ def resolve_method_data_origin(
         else ()
     )
     if not refs:
-        return InlineFit(Path(pod.dataset_dir)) if pod is not None else NoFitData()
+        return InlineFit(pod) if pod is not None else NoFitData()
 
     pod_dir = Path(pod.dataset_dir) if pod is not None else None
     folds = FitFolds.TRAIN if pod is not None else FitFolds.TRAIN_AND_VALIDATION

@@ -7,6 +7,7 @@ import json
 import pytest
 from pydantic import ValidationError
 
+from neuralls.domain.presentation.methods import DatasetQualifiedMethodPresentation
 from neuralls.domain.presentation.provenance import (
     DatasetGenerationProvenance,
     DatasetPresentation,
@@ -17,11 +18,15 @@ from neuralls.domain.presentation.provenance import (
     StrategyProvenance,
 )
 from neuralls.platform.storage.facts_codec import (
+    StalePayloadReason,
+    StalePresentationPayloadError,
     decode_dataset_presentation,
     decode_facts,
+    decode_method_presentation,
     decode_recipe,
     encode_dataset_presentation,
     encode_facts,
+    encode_method_presentation,
     encode_recipe,
 )
 from neuralls.shared.rhs_recipe import (
@@ -167,3 +172,17 @@ def test_an_unknown_recipe_kind_or_mask_is_rejected_on_decode(
 ) -> None:
     with pytest.raises(ValueError, match=message):
         decode_recipe(payload)
+
+
+def test_a_qualified_method_stored_before_fit_rows_is_rejected_as_stale(
+    dataset: DatasetPresentation,
+) -> None:
+    payload = encode_method_presentation(
+        DatasetQualifiedMethodPresentation(ScientificDescription("POD"), dataset, fit_rows=10)
+    )
+    del payload["fit_rows"]
+
+    with pytest.raises(StalePresentationPayloadError) as error:
+        decode_method_presentation(payload)
+
+    assert error.value.reason is StalePayloadReason.PREDATES_FIT_ROWS

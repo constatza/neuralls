@@ -6,13 +6,13 @@ from dataclasses import replace
 
 import pytest
 
-from neuralls.domain.presentation.methods import qualify_method
+from neuralls.domain.presentation.methods import PreparedMethodPresentation, qualify_method
 from neuralls.domain.presentation.provenance import DatasetPresentation
 from neuralls.domain.presentation.render import render_method
 from neuralls.shared.scientific_description.catalog import RANK, STEPS, make_fact
 from neuralls.shared.scientific_description.models import ScientificDescription
 from neuralls.shared.scientific_description.policy import LEGEND_PROFILE, NotationPolicy
-from neuralls.shared.types import GenerationStrategyKind
+from neuralls.shared.types import GenerationStrategyKind, PreconditionerName
 
 FIT_ROWS = 90
 """Rows the fit read: fewer than the fixture dataset's 100 generated rows, as under a split.
@@ -115,3 +115,37 @@ def test_pod_jp_label_states_the_sweeps_as_k(dataset_presentation: DatasetPresen
     )
 
     assert rendered.text == "POD-JP (c=100, k=10, N=90)"
+
+
+def _prepared_pod(
+    dataset: DatasetPresentation, generated_rows: int, fit_rows: int
+) -> PreparedMethodPresentation:
+    cg = _with_strategies(dataset, (GenerationStrategyKind.CG_ERRORS,))
+    strategy = replace(cg.generation.strategies[0], rows=generated_rows)
+    generation = replace(cg.generation, strategies=(strategy,), generated_rows=generated_rows)
+    method = ScientificDescription("POD", facts=(make_fact(RANK, 100),))
+    configured = qualify_method(method, replace(cg, generation=generation), fit_rows)
+    return PreparedMethodPresentation(
+        PreconditionerName(f"pod-{generated_rows}-{fit_rows}"), configured, method.facts
+    )
+
+
+@pytest.mark.parametrize(
+    ("first", "second", "same"),
+    [
+        pytest.param((100, 90), (100, 80), False, id="one-dataset-two-split-ratios"),
+        pytest.param((100, 90), (120, 90), True, id="two-datasets-one-fit-size"),
+    ],
+)
+def test_pod_compact_identity_agrees_with_its_rendered_label(
+    dataset_presentation: DatasetPresentation,
+    first: tuple[int, int],
+    second: tuple[int, int],
+    same: bool,
+) -> None:
+    a, b = (_prepared_pod(dataset_presentation, *rows) for rows in (first, second))
+    policy = NotationPolicy.default()
+
+    labels = (render_method(m.compact, LEGEND_PROFILE, policy).text for m in (a, b))
+
+    assert (a.compact_identity() == b.compact_identity(), len(set(labels)) == 1) == (same, same)
