@@ -68,6 +68,7 @@ def test_expand_sweep_writes_one_file_per_value(
             "seed": 42,
             "strategy": [{"name": "cg_errors", "samples": [1000, 5000], "stop": 50}],
         },
+        "split": {"test_ratio": 0.1, "val_ratio": 0.0},
         "output": {"data_dir": "${NEURALLS_PROCESSED_DIR}"},
     }
     written = dataset_sweep_module.expand_sweep(

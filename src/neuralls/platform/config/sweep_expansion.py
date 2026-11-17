@@ -90,6 +90,7 @@ def _render_dataset_toml(
     strategy: dict[str, TomlValue],
     strategy_comment: list[str] | None,
     output: dict[str, TomlValue],
+    split: dict[str, TomlValue] | None = None,
     source_comments: dict[str, list[str]] | None = None,
 ) -> str:
     """Render one expanded dataset config, matching the hand-written file shape exactly."""
@@ -110,6 +111,12 @@ def _render_dataset_toml(
             "[[generation.strategy]]",
             _render_table(strategy),
             "",
+        ]
+    )
+    if split is not None:
+        parts.extend(["[split]", _render_table(split), ""])
+    parts.extend(
+        [
             "[output]",
             _render_table(output),
         ]
@@ -157,6 +164,7 @@ def expand_sweep(
             strategy={**strategy, axis: value},
             strategy_comment=strategy_comment,
             output=output,
+            split=spec.get("split"),
             source_comments=source_comments,
         )
         path = output_dir / filename_template.format(value=value)

@@ -10,7 +10,7 @@ the need to hand-type them.
 A sweep spec (`*.sweep.toml`) is an ordinary dataset config except exactly
 one field inside its single `[[generation.strategy]]` table is a list
 instead of a scalar (e.g. `samples = [1000, 2000, 5000, 10000]`). Every
-other field — `[source]`, `[generation]`'s scalar fields, `[output]`, and
+other field — `[source]`, `[generation]`'s scalar fields, an optional `[split]`, `[output]`, and
 every other strategy field — is rendered back out verbatim: this script has
 no knowledge of "samples", "cg_iters", "cg_errors",
 "gaussian_forward", or any other strategy/field name. It only knows "one
