@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
+from pathlib import Path
 
 from mlflow.tracking import MlflowClient
 
@@ -14,11 +15,15 @@ from neuralls.composition.comparison.method_data_origin import (
     TrainingDataUnavailable,
     VerifiedTrainingDataset,
 )
+from neuralls.composition.generation.ports import SplitStore
 from neuralls.domain.solver.models.cost import (
+    GenerationCost,
     Known,
     NotApplicable,
     OfflineStages,
     StageCost,
+    TrainShare,
+    TrainShareOfGeneration,
     Unavailable,
 )
 from neuralls.platform.storage.manifest import DatasetManifest
@@ -31,11 +36,12 @@ def resolve_offline_cost(
     origin: MethodDataOrigin,
     *,
     runs: MlflowClient,
+    splits: SplitStore,
     run_costs: Mapping[str, Known | Unavailable] | None = None,
 ) -> OfflineStages:
     """Attribute offline stages to the prepared method's validated dependencies."""
     return OfflineStages(
-        generation=resolve_generation_cost(origin),
+        generation=resolve_generation_cost(origin, splits),
         training=resolve_training_cost(origin, runs=runs, run_costs=run_costs),
     )
 
@@ -70,17 +76,35 @@ def resolve_training_cost(
     )
 
 
-def resolve_generation_cost(origin: MethodDataOrigin) -> StageCost:
-    """Read only the inline fit or attested training dataset's manifest."""
+def resolve_generation_cost(origin: MethodDataOrigin, splits: SplitStore) -> GenerationCost:
+    """Charge the generation of the dataset the method was fit on, read from its manifest.
+
+    An inline fit reads every row of its dataset, so it is charged the whole generation. A
+    checkpoint was fit on the train fold of its dataset's pinned split, so it is charged that
+    fold's share of the generation; the held-out rows are generated for evaluation.
+    """
     match origin:
         case NoFitData():
             return NotApplicable()
         case InlineFit(fit_dataset=dataset_dir):
-            pass
+            return _dataset_generation_cost(dataset_dir)
         case CheckpointBased(training_data=VerifiedTrainingDataset(dataset=dataset_dir)):
             pass
         case CheckpointBased(training_data=TrainingDataUnavailable(reason=reason)):
             return Unavailable(reason)
+    whole = _dataset_generation_cost(dataset_dir)
+    if not isinstance(whole, Known):
+        return whole
+    split = splits.read(dataset_dir)
+    if split is None:
+        return Unavailable("the training dataset has no pinned split to take the train share of")
+    if not split.train:
+        return Unavailable("the training dataset's pinned split has no train rows")
+    total_rows = len(split.train) + len(split.validation) + len(split.test)
+    return TrainShareOfGeneration(whole, TrainShare.of_rows(len(split.train), total_rows))
+
+
+def _dataset_generation_cost(dataset_dir: Path) -> Known | Unavailable:
     try:
         manifest = read_dataset_manifest(dataset_dir)
     except FileNotFoundError, ValueError:

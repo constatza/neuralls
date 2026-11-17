@@ -51,6 +51,8 @@ from neuralls.domain.solver.models.cost import (
     Known,
     NotApplicable,
     OfflineStages,
+    TrainShare,
+    TrainShareOfGeneration,
     Unavailable,
 )
 from neuralls.domain.solver.models.workload import CompleteWorkloadSummary, MethodWorkloadSummary
@@ -427,7 +429,9 @@ def test_offline_stages_are_stored_with_their_status_and_provenance(
     summary: CompleteWorkloadSummary,
 ) -> None:
     offline = OfflineStages(
-        generation=Known(8.5, 1024, CostProvenance.HISTORICAL),
+        generation=TrainShareOfGeneration(
+            Known(8.5, 1024, CostProvenance.HISTORICAL), TrainShare(0.9)
+        ),
         training=Known(90.25, None, CostProvenance.HISTORICAL),
     )
     artifacts = write(
@@ -438,7 +442,9 @@ def test_offline_stages_are_stored_with_their_status_and_provenance(
     assert payload["offline"] == {
         "generation": {
             "status": "known",
-            "seconds": 8.5,
+            "charge": "train_share",
+            "dataset_seconds": 8.5,
+            "train_share": 0.9,
             "provenance": "historical",
             "peak_bytes": 1024,
         },

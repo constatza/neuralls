@@ -588,8 +588,11 @@ the `[offline.generation]` and `[offline.training]` tables (see `platform/README
 not apply stores only its status, a recorded one its seconds and provenance, and an unavailable one
 its reason and no number. `execute_method_workload` resolves it once per method (not per matrix) with
 `composition/comparison/_offline_cost.py::resolve_offline_cost` from the already validated method
-origin: no-fit methods have no generation cost, inline fit uses its snapshot dataset, and checkpoint
-generation uses only an attested training dataset. The origin's resolved refs identify the MLflow
+origin: no-fit methods have no generation cost, inline fit is charged its snapshot dataset's whole
+generation (it reads every row), and a checkpoint is charged only an attested training dataset's
+generation times the train share of its pinned split (`SplitStore`, `FS_SPLIT_STORE`), the rows
+the fit job read; the whole duration and the share are both stored. A dataset with no pinned split
+or an empty train fold leaves that generation `Unavailable`. The origin's resolved refs identify the MLflow
 runs the method's checkpoints were trained in (`training_runs`, a client over the case's model
 store that `comparison_batch` builds from its tracking services). Preparation caches each training
 run record once for both provenance and wall-time attribution, outside the timed build.

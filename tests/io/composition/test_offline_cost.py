@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from dlkit.infrastructure.types.split import IndexSplit
 from mlflow.tracking import MlflowClient
 
 from neuralls.composition.comparison._offline_cost import (
@@ -19,7 +20,14 @@ from neuralls.composition.comparison.method_data_origin import (
     TrainingDataUnavailable,
     VerifiedTrainingDataset,
 )
-from neuralls.domain.solver.models.cost import Known, NotApplicable, OfflineStages, Unavailable
+from neuralls.domain.solver.models.cost import (
+    Known,
+    NotApplicable,
+    OfflineStages,
+    TrainShare,
+    TrainShareOfGeneration,
+    Unavailable,
+)
 from neuralls.platform.config.models.checkpoint_refs import NeuralCheckpointRef
 from neuralls.platform.storage.manifest import DatasetArtifact, DatasetScaling
 from neuralls.platform.storage.manifest_io import make_dataset_manifest, save_dataset_manifest
@@ -27,8 +35,11 @@ from neuralls.platform.tracking.services import MlflowTrackingServices
 from neuralls.shared.system_scaling import NoScaling
 from neuralls.shared.types import CostProvenance
 from tests.fakes.mlflow_client import FakeMlflowClient
+from tests.fakes.split_store import InMemorySplitStore
 
 GENERATION_SECONDS = 12.5
+WHOLE_GENERATION = Known(GENERATION_SECONDS, 1024, CostProvenance.HISTORICAL)
+CUBE_SHARE = TrainShare(0.9)
 TRAINING_SECONDS = 90.5
 START_MS = 10_000
 
@@ -68,6 +79,21 @@ def dataset_dir(tmp_path: Path) -> Path:
     return directory
 
 
+def _split(train_rows: int, val_rows: int, test_rows: int) -> IndexSplit:
+    rows = iter(range(train_rows + val_rows + test_rows))
+    return IndexSplit(
+        train=tuple(next(rows) for _ in range(train_rows)),
+        validation=tuple(next(rows) for _ in range(val_rows)),
+        test=tuple(next(rows) for _ in range(test_rows)),
+        predict=None,
+    )
+
+
+@pytest.fixture
+def splits(dataset_dir: Path) -> InMemorySplitStore:
+    return InMemorySplitStore({dataset_dir: _split(180, 0, 20)})
+
+
 @pytest.fixture
 def unstamped_dataset(tmp_path: Path) -> Path:
     directory = tmp_path / "old-data"
@@ -104,63 +130,106 @@ def _finished_run(store: FakeMlflowClient, seconds: float = TRAINING_SECONDS) ->
 
 
 def test_no_fit_data_has_no_offline_cost(runs: MlflowClient) -> None:
-    assert resolve_offline_cost(NoFitData(), runs=runs) == OfflineStages(
-        NotApplicable(), NotApplicable()
-    )
+    assert resolve_offline_cost(
+        NoFitData(), runs=runs, splits=InMemorySplitStore()
+    ) == OfflineStages(NotApplicable(), NotApplicable())
 
 
-def test_inline_fit_charges_only_generation(dataset_dir: Path, runs: MlflowClient) -> None:
-    assert resolve_offline_cost(InlineFit(dataset_dir), runs=runs) == OfflineStages(
-        Known(GENERATION_SECONDS, 1024, CostProvenance.HISTORICAL), NotApplicable()
+def test_inline_fit_charges_its_whole_generation(
+    dataset_dir: Path, runs: MlflowClient, splits: InMemorySplitStore
+) -> None:
+    assert resolve_offline_cost(InlineFit(dataset_dir), runs=runs, splits=splits) == (
+        OfflineStages(WHOLE_GENERATION, NotApplicable())
     )
 
 
 def test_missing_manifest_duration_is_unavailable(unstamped_dataset: Path) -> None:
-    assert resolve_generation_cost(InlineFit(unstamped_dataset)) == Unavailable(
-        "no dataset manifest records a generation duration"
-    )
+    assert resolve_generation_cost(
+        InlineFit(unstamped_dataset), InMemorySplitStore()
+    ) == Unavailable("no dataset manifest records a generation duration")
 
 
 def test_missing_manifest_is_unavailable(tmp_path: Path) -> None:
-    assert resolve_generation_cost(InlineFit(tmp_path / "absent")) == Unavailable(
-        "no dataset manifest records a generation duration"
-    )
+    assert resolve_generation_cost(
+        InlineFit(tmp_path / "absent"), InMemorySplitStore()
+    ) == Unavailable("no dataset manifest records a generation duration")
 
 
 def test_verified_checkpoint_charges_attested_dataset(
-    dataset_dir: Path, fake_store: FakeMlflowClient, runs: MlflowClient
+    dataset_dir: Path, fake_store: FakeMlflowClient, runs: MlflowClient, splits: InMemorySplitStore
 ) -> None:
     run_id = _finished_run(fake_store)
     origin = CheckpointBased(
         (_ref(run_id),), VerifiedTrainingDataset(dataset_dir, "sha256:verified")
     )
-    assert resolve_offline_cost(origin, runs=runs) == OfflineStages(
-        Known(GENERATION_SECONDS, 1024, CostProvenance.HISTORICAL),
+    assert resolve_offline_cost(origin, runs=runs, splits=splits) == OfflineStages(
+        TrainShareOfGeneration(WHOLE_GENERATION, CUBE_SHARE),
         Known(TRAINING_SECONDS, None, CostProvenance.HISTORICAL),
     )
 
 
+@pytest.mark.parametrize(
+    ("folds", "share", "charged_seconds"),
+    [
+        pytest.param((180, 0, 20), 0.9, 11.25, id="train-test"),
+        pytest.param((160, 20, 20), 0.8, 10.0, id="train-val-test"),
+        pytest.param((200, 0, 0), 1.0, GENERATION_SECONDS, id="all-train"),
+    ],
+)
+def test_a_checkpoint_is_charged_its_train_folds_share_of_generation(
+    dataset_dir: Path, folds: tuple[int, int, int], share: float, charged_seconds: float
+) -> None:
+    store = InMemorySplitStore({dataset_dir: _split(*folds)})
+    origin = CheckpointBased((_ref("run"),), VerifiedTrainingDataset(dataset_dir, "sha256:v"))
+    expected = TrainShareOfGeneration(WHOLE_GENERATION, TrainShare(share))
+
+    assert resolve_generation_cost(origin, store) == expected
+    assert expected.charged().wall_time_seconds == pytest.approx(charged_seconds)
+
+
+@pytest.mark.parametrize(
+    ("pinned", "reason"),
+    [
+        pytest.param(
+            None,
+            "the training dataset has no pinned split to take the train share of",
+            id="no-split",
+        ),
+        pytest.param(
+            (0, 0, 200), "the training dataset's pinned split has no train rows", id="empty-train"
+        ),
+    ],
+)
+def test_a_checkpoint_without_a_train_fold_has_no_generation_charge(
+    dataset_dir: Path, pinned: tuple[int, int, int] | None, reason: str
+) -> None:
+    splits = InMemorySplitStore({} if pinned is None else {dataset_dir: _split(*pinned)})
+    origin = CheckpointBased((_ref("run"),), VerifiedTrainingDataset(dataset_dir, "sha256:v"))
+
+    assert resolve_generation_cost(origin, splits) == Unavailable(reason)
+
+
 def test_unverified_checkpoint_never_charges_nearby_dataset(
-    dataset_dir: Path, fake_store: FakeMlflowClient, runs: MlflowClient
+    dataset_dir: Path, fake_store: FakeMlflowClient, runs: MlflowClient, splits: InMemorySplitStore
 ) -> None:
     run_id = _finished_run(fake_store)
     origin = CheckpointBased((_ref(run_id),), TrainingDataUnavailable("no dataset identity"))
-    assert resolve_offline_cost(origin, runs=runs) == OfflineStages(
+    assert resolve_offline_cost(origin, runs=runs, splits=splits) == OfflineStages(
         Unavailable("no dataset identity"),
         Known(TRAINING_SECONDS, None, CostProvenance.HISTORICAL),
     )
 
 
 def test_multiple_checkpoints_deduplicate_dataset_and_training_run(
-    dataset_dir: Path, fake_store: FakeMlflowClient, runs: MlflowClient
+    dataset_dir: Path, fake_store: FakeMlflowClient, runs: MlflowClient, splits: InMemorySplitStore
 ) -> None:
     run_id = _finished_run(fake_store)
     origin = CheckpointBased(
         (_ref(run_id), _ref(run_id)),
         VerifiedTrainingDataset(dataset_dir, "sha256:verified"),
     )
-    assert resolve_offline_cost(origin, runs=runs) == OfflineStages(
-        Known(GENERATION_SECONDS, 1024, CostProvenance.HISTORICAL),
+    assert resolve_offline_cost(origin, runs=runs, splits=splits) == OfflineStages(
+        TrainShareOfGeneration(WHOLE_GENERATION, CUBE_SHARE),
         Known(TRAINING_SECONDS, None, CostProvenance.HISTORICAL),
     )
 

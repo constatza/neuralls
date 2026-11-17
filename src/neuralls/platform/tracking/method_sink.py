@@ -112,7 +112,7 @@ class MLflowBenchmarkMethodSink:
             metrics["workload_peak_memory_bytes"] = float(summary.workload_peak_memory.bytes)
         offline = workload.offline_cost
         for key, stage in (
-            ("generation_s", offline.generation),
+            ("generation_s", offline.charged_generation()),
             ("training_s", offline.training),
             ("offline_s", offline.total()),
         ):

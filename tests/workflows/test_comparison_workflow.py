@@ -119,6 +119,7 @@ from neuralls.shared.types import (
 )
 from tests.environment_support import SESSION_ENVIRONMENT
 from tests.fakes.comparison_runs import RecordingTrackingServices
+from tests.fakes.split_store import InMemorySplitStore
 from tests.presentation_support import NO_DATASET_READS, PreparedMethodFactory
 from tests.recipe_support import GAUSSIAN
 from tests.workflows.comparison_support import (
@@ -1026,7 +1027,10 @@ def test_preparation_keeps_checkpoint_when_training_data_config_is_unavailable(
             "training dataset config is unavailable or invalid"
         )
         offline = resolve_offline_cost(
-            origin, runs=tracking.client.return_value, run_costs=prepared.training_run_costs
+            origin,
+            runs=tracking.client.return_value,
+            splits=InMemorySplitStore(),
+            run_costs=prepared.training_run_costs,
         )
         assert offline.generation == Unavailable(
             "training dataset config is unavailable or invalid"

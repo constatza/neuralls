@@ -9,7 +9,15 @@ from typing import assert_never
 
 import polars as pl
 
-from neuralls.domain.solver.models.cost import OfflineStages, recorded_seconds
+from neuralls.domain.solver.models.cost import (
+    GenerationCost,
+    Known,
+    NotApplicable,
+    OfflineStages,
+    TrainShareOfGeneration,
+    Unavailable,
+    recorded_seconds,
+)
 from neuralls.domain.solver.models.workload import MethodWorkloadSummary
 from neuralls.domain.solver.reporting.total_cost import (
     Complete,
@@ -87,8 +95,9 @@ def _cost_breakdown_row(
             assert_never(unreachable)
     return {
         "method_id": str(summary.method),
-        "generation_s": recorded_seconds(offline.generation),
-        "generation_status": stage_status(offline.generation).value,
+        "generation_s": recorded_seconds(offline.charged_generation()),
+        "generation_status": stage_status(offline.charged_generation()).value,
+        **_generation_charge(offline.generation),
         "training_s": recorded_seconds(offline.training),
         "training_status": stage_status(offline.training).value,
         "fit_origin": fit_origin_kind(offline.fit_origin()).value,
@@ -97,6 +106,21 @@ def _cost_breakdown_row(
         "total_s": total,
         "total_status": total_status.value,
     }
+
+
+def _generation_charge(generation: GenerationCost) -> dict[str, float | None]:
+    """The whole dataset's generation seconds and the share of them charged, when known."""
+    match generation:
+        case TrainShareOfGeneration(dataset=dataset, share=share):
+            dataset_s: float | None = dataset.wall_time_seconds
+            charged_share: float | None = share.value
+        case Known(wall_time_seconds=seconds):
+            dataset_s, charged_share = seconds, 1.0
+        case NotApplicable() | Unavailable():
+            dataset_s, charged_share = None, None
+        case unreachable:
+            assert_never(unreachable)
+    return {"generation_dataset_s": dataset_s, "generation_share": charged_share}
 
 
 def write_group_table(path: Path, table: pl.DataFrame) -> None:

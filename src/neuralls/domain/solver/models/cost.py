@@ -42,6 +42,54 @@ class Unavailable:
 type StageCost = NotApplicable | Known | Unavailable
 
 
+@dataclass(frozen=True, slots=True)
+class TrainShare:
+    """The fraction of a dataset's rows that its pinned split puts in the train fold, in (0, 1].
+
+    An empty train fold has no share: nothing was fit on it, so there is nothing to charge.
+    """
+
+    value: float
+
+    def __post_init__(self) -> None:
+        """Reject a share outside (0, 1], NaN included."""
+        if not 0.0 < self.value <= 1.0:
+            raise ValueError(f"a train share lies in (0, 1], got {self.value}")
+
+    @classmethod
+    def of_rows(cls, train_rows: int, total_rows: int) -> TrainShare:
+        """The share ``train_rows / total_rows``; raises when the train fold is empty."""
+        if not 0 < train_rows <= total_rows:
+            raise ValueError(f"{train_rows} train rows of {total_rows} have no train share")
+        return cls(train_rows / total_rows)
+
+
+@dataclass(frozen=True, slots=True)
+class TrainShareOfGeneration:
+    """The train fold's share of a dataset's recorded generation, charged to an artifact fit on it.
+
+    Generation produced every row of the dataset, but a fit job reads only the train fold, so
+    the artifact is charged ``dataset`` scaled by ``share``; the held-out rows serve evaluation.
+    Both numbers are kept, so the whole generation and the share charged stay stated.
+    """
+
+    dataset: Known
+    share: TrainShare
+
+    def charged(self) -> Known:
+        """The seconds charged to the artifact; peak memory is the whole generation's."""
+        return Known(
+            self.dataset.wall_time_seconds * self.share.value,
+            self.dataset.peak_memory_bytes,
+            self.dataset.provenance,
+        )
+
+
+type GenerationCost = StageCost | TrainShareOfGeneration
+"""The generation stage: a `Known` cost charges the whole dataset (an inline fit reads every row),
+`TrainShareOfGeneration` charges the train fold's share of it."""
+
+
 def recorded_seconds(cost: StageCost) -> float | None:
     """Wall time of a recorded cost; None for a stage that is not applicable or unavailable."""
     match cost:
@@ -73,15 +121,26 @@ type FitOrigin = NoFit | InlineFit | FitJob
 class OfflineStages:
     """The one-off costs paid once per method artifact, before any workload runs.
 
-    ``generation`` is building the dataset the artifact was fit on and ``training`` is fitting
-    the network or basis. A stage the method does not have is `NotApplicable` (a classical
+    ``generation`` is building the dataset the artifact was fit on (only the train fold's share
+    of it when the fit read only that fold) and ``training`` is fitting the network or basis.
+    A stage the method does not have is `NotApplicable` (a classical
     method has neither; a method fit inline during setup has no separate training, because
     that fit is already part of its measured setup), so a method's stages are always both
     stated and a missing number is `Unavailable`, never an absent field.
     """
 
-    generation: StageCost
+    generation: GenerationCost
     training: StageCost
+
+    def charged_generation(self) -> StageCost:
+        """The generation cost charged to the artifact, as a plain stage cost."""
+        match self.generation:
+            case TrainShareOfGeneration() as share:
+                return share.charged()
+            case NotApplicable() | Known() | Unavailable() as stage:
+                return stage
+            case unreachable:
+                assert_never(unreachable)
 
     def fit_origin(self) -> FitOrigin:
         """Where the method's fit happened, read from which stages apply.
@@ -91,7 +150,7 @@ class OfflineStages:
         generate means the method is fit inline from it, and that fit is part of its measured
         setup, not of an offline stage. With neither stage the method has nothing to fit.
         """
-        match self.training, self.generation:
+        match self.training, self.charged_generation():
             case ((Known() | Unavailable()), _):
                 return FitJob()
             case NotApplicable(), (Known() | Unavailable()):
@@ -109,7 +168,7 @@ class OfflineStages:
         (`MEASURED` only if every one of them was timed live) or `NotApplicable` when neither
         applies. Peak memory takes the maximum because the stages never shared a process.
         """
-        named = (("generation", self.generation), ("training", self.training))
+        named = (("generation", self.charged_generation()), ("training", self.training))
         reasons: list[str] = []
         recorded: list[Known] = []
         for name, stage in named:

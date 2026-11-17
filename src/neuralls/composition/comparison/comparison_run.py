@@ -26,6 +26,7 @@ from neuralls.composition.comparison.models import (
     ResolvedMethod,
     canonical_method_config,
 )
+from neuralls.composition.generation.default_services import FS_SPLIT_STORE
 from neuralls.composition.preconditioners.checkpoint_store import CheckpointLoaders, CheckpointStore
 from neuralls.composition.preconditioners.default_services import FS_FIT_DATA
 from neuralls.domain.presentation.methods import (
@@ -448,7 +449,9 @@ def execute_method_workload(
     attempts: list[SolveAttempt] = []
     diagnostics: list[tuple[SystemId, CGComparisonResult]] = []
     realizations: list[SystemRealization] = []
-    offline_cost = resolve_offline_cost(origin, runs=training_runs, run_costs=training_run_costs)
+    offline_cost = resolve_offline_cost(
+        origin, runs=training_runs, splits=FS_SPLIT_STORE, run_costs=training_run_costs
+    )
     method_text = render_method_label(prepared.configured, notation)
     target = reference_target(params.rtol, params.reference_precision_margin)
     if target.is_clamped:

@@ -11,6 +11,8 @@ from neuralls.domain.solver.models.cost import (
     Known,
     NotApplicable,
     OfflineStages,
+    TrainShare,
+    TrainShareOfGeneration,
     Unavailable,
 )
 from neuralls.platform.reporting.offline_cost_codec import (
@@ -27,6 +29,10 @@ OFFLINE_COSTS = (
     ),
     OfflineStages(Known(0.0, 7, CostProvenance.MEASURED), Unavailable("no recorded training run")),
     OfflineStages(Unavailable("no manifest"), Unavailable("run gone cannot be read")),
+    OfflineStages(
+        TrainShareOfGeneration(Known(10.0, 1024, CostProvenance.HISTORICAL), TrainShare(0.9)),
+        Known(90.25, None, CostProvenance.HISTORICAL),
+    ),
 )
 
 
@@ -43,6 +49,7 @@ def test_a_stage_is_stored_with_its_status_and_only_the_fields_of_that_status() 
     assert encode_offline_cost(offline) == {
         "generation": {
             "status": "known",
+            "charge": "whole_dataset",
             "seconds": 8.5,
             "provenance": "historical",
             "peak_bytes": 1024,
@@ -67,27 +74,70 @@ def test_a_stage_that_does_not_apply_stores_only_its_status() -> None:
         {"generation": {"status": "not_applicable"}, "training": "known"},
         {"generation": {"status": "free"}, "training": {"status": "not_applicable"}},
         {
-            "generation": {"status": "known", "seconds": 1.0, "provenance": "guessed"},
-            "training": {"status": "not_applicable"},
-        },
-        {
-            "generation": {"status": "known", "provenance": "historical"},
-            "training": {"status": "not_applicable"},
-        },
-        {
-            "generation": {"status": "known", "seconds": -1.0, "provenance": "historical"},
-            "training": {"status": "not_applicable"},
-        },
-        {
-            "generation": {"status": "known", "seconds": math.nan, "provenance": "historical"},
+            "generation": {
+                "status": "known",
+                "charge": "whole_dataset",
+                "seconds": 1.0,
+                "provenance": "guessed",
+            },
             "training": {"status": "not_applicable"},
         },
         {
             "generation": {
                 "status": "known",
+                "charge": "whole_dataset",
+                "provenance": "historical",
+            },
+            "training": {"status": "not_applicable"},
+        },
+        {
+            "generation": {
+                "status": "known",
+                "charge": "whole_dataset",
+                "seconds": -1.0,
+                "provenance": "historical",
+            },
+            "training": {"status": "not_applicable"},
+        },
+        {
+            "generation": {
+                "status": "known",
+                "charge": "whole_dataset",
+                "seconds": math.nan,
+                "provenance": "historical",
+            },
+            "training": {"status": "not_applicable"},
+        },
+        {
+            "generation": {
+                "status": "known",
+                "charge": "whole_dataset",
                 "seconds": 1.0,
                 "provenance": "historical",
                 "peak_bytes": -3,
+            },
+            "training": {"status": "not_applicable"},
+        },
+        {
+            "generation": {"status": "known", "seconds": 1.0, "provenance": "historical"},
+            "training": {"status": "not_applicable"},
+        },
+        {
+            "generation": {
+                "status": "known",
+                "charge": "train_share",
+                "dataset_seconds": 1.0,
+                "train_share": 1.5,
+                "provenance": "historical",
+            },
+            "training": {"status": "not_applicable"},
+        },
+        {
+            "generation": {
+                "status": "known",
+                "charge": "train_share",
+                "dataset_seconds": 1.0,
+                "provenance": "historical",
             },
             "training": {"status": "not_applicable"},
         },

@@ -14,6 +14,8 @@ from neuralls.domain.solver.models.cost import (
     Known,
     NotApplicable,
     OfflineStages,
+    TrainShare,
+    TrainShareOfGeneration,
     Unavailable,
 )
 from neuralls.domain.solver.models.workload import CompleteWorkloadSummary, MethodWorkloadSummary
@@ -128,7 +130,9 @@ def test_cost_breakdown_stacks_each_methods_offline_stages_on_its_online_totals(
     offline = {
         PreconditionerName("pcg_jacobi"): NO_OFFLINE_COST,
         PreconditionerName("amg"): OfflineStages(
-            generation=Known(10.0, None, CostProvenance.HISTORICAL),
+            generation=TrainShareOfGeneration(
+                Known(20.0, None, CostProvenance.HISTORICAL), TrainShare(0.5)
+            ),
             training=Known(90.0, None, CostProvenance.HISTORICAL),
         ),
     }
@@ -141,6 +145,8 @@ def test_cost_breakdown_stacks_each_methods_offline_stages_on_its_online_totals(
             "method_id": "amg",
             "generation_s": 10.0,
             "generation_status": "known",
+            "generation_dataset_s": 20.0,
+            "generation_share": 0.5,
             "training_s": 90.0,
             "training_status": "known",
             "fit_origin": "job",
@@ -153,6 +159,8 @@ def test_cost_breakdown_stacks_each_methods_offline_stages_on_its_online_totals(
             "method_id": "pcg_jacobi",
             "generation_s": None,
             "generation_status": "not_applicable",
+            "generation_dataset_s": None,
+            "generation_share": None,
             "training_s": None,
             "training_status": "not_applicable",
             "fit_origin": "none",
@@ -196,6 +204,8 @@ def test_cost_breakdown_has_no_total_when_an_offline_stage_is_unavailable(
         "method_id": "amg",
         "generation_s": 10.0,
         "generation_status": "known",
+        "generation_dataset_s": 10.0,
+        "generation_share": 1.0,
         "training_s": None,
         "training_status": "unavailable",
         "fit_origin": "job",

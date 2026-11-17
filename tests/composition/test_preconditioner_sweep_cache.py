@@ -22,6 +22,7 @@ from neuralls.composition.comparison._preconditioner_setup import (
 from neuralls.composition.comparison.comparison_run import execute_method_workload
 from neuralls.composition.comparison.method_data_origin import NoFitData
 from neuralls.composition.comparison.models import MatrixRef, PlannedSystem, ResolvedMethod
+from neuralls.composition.generation.ports import SplitStore
 from neuralls.domain.presentation.provenance import DatasetPresentation
 from neuralls.domain.solver.models.config import SolverParams
 from neuralls.domain.solver.models.cost import Known, OfflineStages
@@ -136,6 +137,7 @@ def test_the_offline_cost_is_resolved_once_per_method_and_shared_by_every_matrix
         origin: NoFitData,
         *,
         runs: MlflowClient,
+        splits: SplitStore,
         run_costs: dict[str, Known] | None,
     ) -> OfflineStages:
         resolved.append(runs)

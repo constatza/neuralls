@@ -510,8 +510,13 @@ artifacts.
 `NotApplicable` (the method has no such stage; reads as zero in totals and plots),
 `Known(wall_time_seconds, peak_memory_bytes, provenance)` (`MEASURED` or `HISTORICAL`), and
 `Unavailable(reason)` (the cost applies but was never recorded; it carries no number, so it is never
-read as zero). `OfflineStages(generation, training)` pairs the two offline stages of a method, and
-`OfflineStages.total()` adds them: seconds sum, peak memory is the largest, and the total is
+read as zero). The generation stage is a `GenerationCost`: a `StageCost`, or a
+`TrainShareOfGeneration(dataset, share)` that keeps the whole dataset's `Known` generation and the
+`TrainShare` (a value in (0, 1], the train fold's share of the dataset's rows) charged to an
+artifact fit only on that fold; `charged()` scales the seconds by the share. An inline fit reads
+every row, so its generation is a plain `Known`. `OfflineStages(generation, training)` pairs the
+two offline stages of a method, `charged_generation()` is the generation as a `StageCost`, and
+`OfflineStages.total()` adds the charged stages: seconds sum, peak memory is the largest, and the total is
 `Unavailable` when either stage is. `composition/comparison/_offline_cost.py` chooses the variants
 from a validated method data origin (`resolve_generation_cost`, `resolve_training_cost`,
 `resolve_offline_cost`); an unverified checkpoint training dataset has unavailable generation cost.

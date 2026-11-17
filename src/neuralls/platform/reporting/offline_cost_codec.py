@@ -1,7 +1,10 @@
 """The stored form of a method's offline cost: one table per stage inside ``summary.toml``.
 
 Each stage states its ``status`` and carries exactly the fields of that status, so a stage that
-is unavailable stores no number and one that does not apply stores nothing else.
+is unavailable stores no number and one that does not apply stores nothing else. A known
+generation also states its ``charge``: the whole dataset's ``seconds``, or the ``train_share`` of
+the whole ``dataset_seconds``. A summary without the charge is rejected, so a method stored before
+the train share was recorded is never read as charged its whole dataset.
 """
 
 from __future__ import annotations
@@ -13,12 +16,15 @@ from typing import assert_never
 from neuralls.domain.solver.models.cost import (
     FitJob,
     FitOrigin,
+    GenerationCost,
     InlineFit,
     Known,
     NoFit,
     NotApplicable,
     OfflineStages,
     StageCost,
+    TrainShare,
+    TrainShareOfGeneration,
     Unavailable,
 )
 from neuralls.shared.types import CostProvenance
@@ -48,6 +54,13 @@ def stage_status(cost: StageCost) -> StageStatus:
             assert_never(unreachable)
 
 
+class GenerationCharge(StrEnum):
+    """How much of its dataset's generation a known generation stage charges."""
+
+    WHOLE_DATASET = "whole_dataset"
+    TRAIN_SHARE = "train_share"
+
+
 class FitOriginKind(StrEnum):
     """Which `FitOrigin` variant a cost-breakdown row states."""
 
@@ -72,7 +85,7 @@ def fit_origin_kind(origin: FitOrigin) -> FitOriginKind:
 def encode_offline_cost(offline: OfflineStages) -> OfflinePayload:
     """The ``[offline]`` tables of ``summary.toml`` for ``offline``."""
     return {
-        "generation": _encode_stage(offline.generation),
+        "generation": _encode_generation(offline.generation),
         "training": _encode_stage(offline.training),
     }
 
@@ -82,9 +95,45 @@ def decode_offline_cost(payload: object) -> OfflineStages:
     if not isinstance(payload, dict):
         raise TypeError("the summary has no offline cost block")
     return OfflineStages(
-        generation=_decode_stage(payload.get("generation"), "generation"),
+        generation=_decode_generation(payload.get("generation")),
         training=_decode_stage(payload.get("training"), "training"),
     )
+
+
+def _encode_generation(cost: GenerationCost) -> StagePayload:
+    match cost:
+        case TrainShareOfGeneration(dataset=dataset, share=share):
+            stage: StagePayload = {
+                "status": StageStatus.KNOWN.value,
+                "charge": GenerationCharge.TRAIN_SHARE.value,
+                "dataset_seconds": dataset.wall_time_seconds,
+                "train_share": share.value,
+                "provenance": dataset.provenance.value,
+            }
+            if dataset.peak_memory_bytes is not None:
+                stage["peak_bytes"] = dataset.peak_memory_bytes
+            return stage
+        case Known():
+            return _encode_stage(cost) | {"charge": GenerationCharge.WHOLE_DATASET.value}
+        case NotApplicable() | Unavailable():
+            return _encode_stage(cost)
+        case unreachable:
+            assert_never(unreachable)
+
+
+def _decode_generation(payload: object) -> GenerationCost:
+    if not isinstance(payload, dict) or StageStatus(payload.get("status")) is not StageStatus.KNOWN:
+        return _decode_stage(payload, "generation")
+    match GenerationCharge(payload.get("charge")):
+        case GenerationCharge.WHOLE_DATASET:
+            return _decode_known(payload, "seconds", "generation")
+        case GenerationCharge.TRAIN_SHARE:
+            return TrainShareOfGeneration(
+                _decode_known(payload, "dataset_seconds", "generation"),
+                TrainShare(_number(payload.get("train_share"), "offline generation train share")),
+            )
+        case unreachable:
+            assert_never(unreachable)
 
 
 def _encode_stage(cost: StageCost) -> StagePayload:
@@ -114,11 +163,7 @@ def _decode_stage(payload: object, name: str) -> StageCost:
         case StageStatus.NOT_APPLICABLE:
             return NotApplicable()
         case StageStatus.KNOWN:
-            return Known(
-                _non_negative_seconds(payload.get("seconds"), name),
-                _peak_bytes(payload.get("peak_bytes"), name),
-                CostProvenance(payload.get("provenance")),
-            )
+            return _decode_known(payload, "seconds", name)
         case StageStatus.UNAVAILABLE:
             reason = payload.get("reason")
             if not isinstance(reason, str):
@@ -128,9 +173,22 @@ def _decode_stage(payload: object, name: str) -> StageCost:
             assert_never(unreachable)
 
 
-def _non_negative_seconds(value: object, name: str) -> float:
+def _decode_known(payload: dict[str, object], seconds_key: str, name: str) -> Known:
+    return Known(
+        _non_negative_seconds(payload.get(seconds_key), name),
+        _peak_bytes(payload.get("peak_bytes"), name),
+        CostProvenance(payload.get("provenance")),
+    )
+
+
+def _number(value: object, what: str) -> float:
     if not isinstance(value, int | float) or isinstance(value, bool):
-        raise TypeError(f"offline {name} seconds must be a number")
+        raise TypeError(f"{what} must be a number")
+    return float(value)
+
+
+def _non_negative_seconds(value: object, name: str) -> float:
+    value = _number(value, f"offline {name} seconds")
     if not math.isfinite(value) or value < 0:
         raise ValueError(f"offline {name} seconds must be finite and non-negative")
     return float(value)

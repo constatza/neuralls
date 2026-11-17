@@ -123,6 +123,8 @@ COST_BREAKDOWN_SCHEMA: TableSchema = {
     "method_id": pl.String,
     "generation_s": pl.Float64,
     "generation_status": pl.String,
+    "generation_dataset_s": pl.Float64,
+    "generation_share": pl.Float64,
     "training_s": pl.Float64,
     "training_status": pl.String,
     "fit_origin": pl.String,
@@ -134,7 +136,9 @@ COST_BREAKDOWN_SCHEMA: TableSchema = {
 """One row per method: its offline stages and the online totals of the report's workload.
 
 A stage's seconds are null unless its status is ``known``, so a stage that does not apply and one
-that is unavailable both carry no number and are told apart by the status. ``fit_origin`` is
+that is unavailable both carry no number and are told apart by the status. A known
+``generation_s`` is ``generation_share`` of the dataset's whole ``generation_dataset_s``: the train
+fold's share of its rows for a fit job, 1 for an inline fit, which reads every row. ``fit_origin`` is
 ``none``, ``inline`` (fit during setup, so its time is in ``allocated_setup_s``) or ``job`` (fit
 ahead of time, its time is ``training_s``). ``total_s`` is the
 sum of the known offline seconds, ``allocated_setup_s`` and ``solve_total_s``, and is null when
