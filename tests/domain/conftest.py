@@ -15,7 +15,14 @@ from torchalg.preconditioners.implementations import Identity, JacobiPreconditio
 
 from neuralls.domain.solver.models.benchmark_events import SolveConverged
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
-from neuralls.domain.solver.models.cost import Known, NotApplicable, OfflineStages
+from neuralls.domain.solver.models.cost import (
+    FitFolds,
+    Known,
+    NotApplicable,
+    OfflineStages,
+    TrainShare,
+    TrainShareOfGeneration,
+)
 from neuralls.domain.solver.reporting.observations import MethodFrames, observations_of_methods
 from neuralls.shared.types import CostProvenance, PreconditionerName
 from tests import observation_support
@@ -144,10 +151,13 @@ def comparison_result_with_offline_cost() -> CGComparisonResult:
         rhs_norm=1.0,
         breakdown=False,
         offline_cost=OfflineStages(
-            generation=Known(
-                wall_time_seconds=5.0,
-                peak_memory_bytes=500,
-                provenance=CostProvenance.HISTORICAL,
+            generation=TrainShareOfGeneration(
+                Known(
+                    wall_time_seconds=5.0,
+                    peak_memory_bytes=500,
+                    provenance=CostProvenance.HISTORICAL,
+                ),
+                TrainShare(1.0, FitFolds.TRAIN),
             ),
             training=NotApplicable(),
         ),

@@ -9,6 +9,8 @@ import torch
 from torchalg.preconditioners.base import BindableInputs, Preconditioner
 
 from neuralls.composition.comparison.models import MatrixWorkload, PlannedSystem
+from neuralls.composition.generation.ports import SplitStore
+from neuralls.composition.generation.split_pinning import pinned_train_rows
 from neuralls.composition.preconditioners.checkpoint_store import (
     NO_PRELOADED,
     CheckpointLoaders,
@@ -53,6 +55,8 @@ class PreconditionerService:
     Args:
         fit_data: Where the arrays of an inline POD fit are read from; `preload` reads them
             once per method so the timed build never touches the dataset.
+        splits: Where the fit dataset's split is pinned. An inline POD fit keeps only the
+            train fold's rows, since comparisons draw held-out systems from the test fold.
         loaders: How checkpoints are loaded and on which device (`CheckpointLoaders.dlkit`).
         checkpoints: Where checkpoints are loaded ahead of a build (see `preload`).
             ``None`` means nothing is preloaded: every checkpoint is then read
@@ -62,10 +66,12 @@ class PreconditionerService:
     def __init__(
         self,
         fit_data: FitDataLoader,
+        splits: SplitStore,
         loaders: CheckpointLoaders | None = None,
         checkpoints: CheckpointStore | None = None,
     ) -> None:
         self._fit_data = fit_data
+        self._splits = splits
         self._loaders = loaders
         self._checkpoints = checkpoints
         self._staged_fit_data: dict[str, tuple[np.ndarray, ...]] = {}
@@ -98,8 +104,9 @@ class PreconditionerService:
                 and coarsening.active_checkpoint_path is None
             ):
                 if config.name not in self._staged_fit_data:
+                    train = list(pinned_train_rows(coarsening.dataset_dir, self._splits))
                     self._staged_fit_data[config.name] = tuple(
-                        self._fit_data.dense(coarsening.dataset_dir)
+                        array[train] for array in self._fit_data.dense(coarsening.dataset_dir)
                     )
             elif (
                 isinstance(coarsening, NeuralPODCoarseningConfig)

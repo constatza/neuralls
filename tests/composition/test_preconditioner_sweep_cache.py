@@ -12,6 +12,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 import torch
+from dlkit.infrastructure.types.split import IndexSplit
 from mlflow.tracking import MlflowClient
 
 from neuralls.composition.comparison import comparison_run
@@ -25,7 +26,13 @@ from neuralls.composition.comparison.models import MatrixRef, PlannedSystem, Res
 from neuralls.composition.generation.ports import SplitStore
 from neuralls.domain.presentation.provenance import DatasetPresentation
 from neuralls.domain.solver.models.config import SolverParams
-from neuralls.domain.solver.models.cost import Known, OfflineStages
+from neuralls.domain.solver.models.cost import (
+    FitFolds,
+    Known,
+    OfflineStages,
+    TrainShare,
+    TrainShareOfGeneration,
+)
 from neuralls.domain.solver.models.provenance import SharedSingleMatrix
 from neuralls.platform.config.models.coarsening import PODCoarseningConfig
 from neuralls.platform.config.models.experiments import ComparisonRegistryEntry
@@ -39,6 +46,7 @@ from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import CostProvenance, DatasetId, MatrixId
 from tests.composition.workload_support import matrix_bundle
 from tests.fakes.fit_data import FakeFitData
+from tests.fakes.split_store import InMemorySplitStore
 from tests.loaders_support import CPU
 from tests.presentation_support import PreparedMethodFactory
 
@@ -57,8 +65,11 @@ def _diagonal(values: list[float]) -> torch.Tensor:
 
 def test_inline_pod_staging_reads_arrays_once_per_method() -> None:
     config = AMGPreconditionerConfig(coarsening=PODCoarseningConfig(dataset_dir=Path("pod-fit")))
-    fit_data = FakeFitData()
-    service = PreconditionerService(fit_data)
+    fit_data = FakeFitData(rhs=np.zeros((1, 1)), solutions=np.zeros((1, 1)))
+    splits = InMemorySplitStore(
+        {Path("pod-fit"): IndexSplit(train=(0,), validation=(), test=(), predict=None)}
+    )
+    service = PreconditionerService(fit_data, splits)
 
     service.preload(_diagonal([1.0]), config)
     service.preload(_diagonal([2.0]), config)
@@ -128,7 +139,9 @@ def test_the_offline_cost_is_resolved_once_per_method_and_shared_by_every_matrix
     training_runs: MlflowClient,
 ) -> None:
     offline = OfflineStages(
-        generation=Known(8.5, 1024, CostProvenance.HISTORICAL),
+        generation=TrainShareOfGeneration(
+            Known(8.5, 1024, CostProvenance.HISTORICAL), TrainShare(1.0, FitFolds.TRAIN)
+        ),
         training=Known(90.25, None, CostProvenance.HISTORICAL),
     )
     resolved: list[MlflowClient] = []

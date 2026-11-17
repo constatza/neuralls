@@ -17,10 +17,12 @@ from neuralls.composition.comparison.method_data_origin import (
     CheckpointBased,
     InlineFit,
     NoFitData,
+    PinnedSplit,
     TrainingDataUnavailable,
     VerifiedTrainingDataset,
 )
 from neuralls.domain.solver.models.cost import (
+    FitFolds,
     Known,
     NotApplicable,
     OfflineStages,
@@ -39,7 +41,7 @@ from tests.fakes.split_store import InMemorySplitStore
 
 GENERATION_SECONDS = 12.5
 WHOLE_GENERATION = Known(GENERATION_SECONDS, 1024, CostProvenance.HISTORICAL)
-CUBE_SHARE = TrainShare(0.9)
+CUBE_SHARE = TrainShare(0.9, FitFolds.TRAIN)
 TRAINING_SECONDS = 90.5
 START_MS = 10_000
 
@@ -89,6 +91,14 @@ def _split(train_rows: int, val_rows: int, test_rows: int) -> IndexSplit:
     )
 
 
+def _verified(
+    dataset_dir: Path, folds: tuple[int, int, int] = (180, 0, 20), fit: FitFolds = FitFolds.TRAIN
+) -> VerifiedTrainingDataset:
+    return VerifiedTrainingDataset(
+        dataset_dir, "sha256:verified", PinnedSplit(_split(*folds), "sha256:split"), fit
+    )
+
+
 @pytest.fixture
 def splits(dataset_dir: Path) -> InMemorySplitStore:
     return InMemorySplitStore({dataset_dir: _split(180, 0, 20)})
@@ -135,11 +145,11 @@ def test_no_fit_data_has_no_offline_cost(runs: MlflowClient) -> None:
     ) == OfflineStages(NotApplicable(), NotApplicable())
 
 
-def test_inline_fit_charges_its_whole_generation(
+def test_inline_fit_charges_its_train_folds_share_of_generation(
     dataset_dir: Path, runs: MlflowClient, splits: InMemorySplitStore
 ) -> None:
     assert resolve_offline_cost(InlineFit(dataset_dir), runs=runs, splits=splits) == (
-        OfflineStages(WHOLE_GENERATION, NotApplicable())
+        OfflineStages(TrainShareOfGeneration(WHOLE_GENERATION, CUBE_SHARE), NotApplicable())
     )
 
 
@@ -159,9 +169,7 @@ def test_verified_checkpoint_charges_attested_dataset(
     dataset_dir: Path, fake_store: FakeMlflowClient, runs: MlflowClient, splits: InMemorySplitStore
 ) -> None:
     run_id = _finished_run(fake_store)
-    origin = CheckpointBased(
-        (_ref(run_id),), VerifiedTrainingDataset(dataset_dir, "sha256:verified")
-    )
+    origin = CheckpointBased((_ref(run_id),), _verified(dataset_dir))
     assert resolve_offline_cost(origin, runs=runs, splits=splits) == OfflineStages(
         TrainShareOfGeneration(WHOLE_GENERATION, CUBE_SHARE),
         Known(TRAINING_SECONDS, None, CostProvenance.HISTORICAL),
@@ -169,21 +177,30 @@ def test_verified_checkpoint_charges_attested_dataset(
 
 
 @pytest.mark.parametrize(
-    ("folds", "share", "charged_seconds"),
+    ("folds", "fit", "share", "charged_seconds"),
     [
-        pytest.param((180, 0, 20), 0.9, 11.25, id="train-test"),
-        pytest.param((160, 20, 20), 0.8, 10.0, id="train-val-test"),
-        pytest.param((200, 0, 0), 1.0, GENERATION_SECONDS, id="all-train"),
+        pytest.param((180, 0, 20), FitFolds.TRAIN, 0.9, 11.25, id="pod-train-test"),
+        pytest.param((160, 20, 20), FitFolds.TRAIN, 0.8, 10.0, id="pod-train-val-test"),
+        pytest.param(
+            (160, 20, 20), FitFolds.TRAIN_AND_VALIDATION, 0.9, 11.25, id="neural-train-val-test"
+        ),
+        pytest.param(
+            (180, 0, 20), FitFolds.TRAIN_AND_VALIDATION, 0.9, 11.25, id="neural-train-test"
+        ),
+        pytest.param((200, 0, 0), FitFolds.TRAIN, 1.0, GENERATION_SECONDS, id="pod-all-train"),
     ],
 )
-def test_a_checkpoint_is_charged_its_train_folds_share_of_generation(
-    dataset_dir: Path, folds: tuple[int, int, int], share: float, charged_seconds: float
+def test_a_checkpoint_is_charged_the_share_of_generation_in_the_folds_it_read(
+    dataset_dir: Path,
+    folds: tuple[int, int, int],
+    fit: FitFolds,
+    share: float,
+    charged_seconds: float,
 ) -> None:
-    store = InMemorySplitStore({dataset_dir: _split(*folds)})
-    origin = CheckpointBased((_ref("run"),), VerifiedTrainingDataset(dataset_dir, "sha256:v"))
-    expected = TrainShareOfGeneration(WHOLE_GENERATION, TrainShare(share))
+    origin = CheckpointBased((_ref("run"),), _verified(dataset_dir, folds, fit))
+    expected = TrainShareOfGeneration(WHOLE_GENERATION, TrainShare(share, fit))
 
-    assert resolve_generation_cost(origin, store) == expected
+    assert resolve_generation_cost(origin, InMemorySplitStore()) == expected
     assert expected.charged().wall_time_seconds == pytest.approx(charged_seconds)
 
 
@@ -192,21 +209,20 @@ def test_a_checkpoint_is_charged_its_train_folds_share_of_generation(
     [
         pytest.param(
             None,
-            "the training dataset has no pinned split to take the train share of",
+            "the fit dataset has no pinned split to take the train share of",
             id="no-split",
         ),
         pytest.param(
-            (0, 0, 200), "the training dataset's pinned split has no train rows", id="empty-train"
+            (0, 0, 200), "the fit dataset's pinned split has no train rows", id="empty-train"
         ),
     ],
 )
-def test_a_checkpoint_without_a_train_fold_has_no_generation_charge(
+def test_an_inline_fit_without_a_train_fold_has_no_generation_charge(
     dataset_dir: Path, pinned: tuple[int, int, int] | None, reason: str
 ) -> None:
     splits = InMemorySplitStore({} if pinned is None else {dataset_dir: _split(*pinned)})
-    origin = CheckpointBased((_ref("run"),), VerifiedTrainingDataset(dataset_dir, "sha256:v"))
 
-    assert resolve_generation_cost(origin, splits) == Unavailable(reason)
+    assert resolve_generation_cost(InlineFit(dataset_dir), splits) == Unavailable(reason)
 
 
 def test_unverified_checkpoint_never_charges_nearby_dataset(
@@ -224,10 +240,7 @@ def test_multiple_checkpoints_deduplicate_dataset_and_training_run(
     dataset_dir: Path, fake_store: FakeMlflowClient, runs: MlflowClient, splits: InMemorySplitStore
 ) -> None:
     run_id = _finished_run(fake_store)
-    origin = CheckpointBased(
-        (_ref(run_id), _ref(run_id)),
-        VerifiedTrainingDataset(dataset_dir, "sha256:verified"),
-    )
+    origin = CheckpointBased((_ref(run_id), _ref(run_id)), _verified(dataset_dir))
     assert resolve_offline_cost(origin, runs=runs, splits=splits) == OfflineStages(
         TrainShareOfGeneration(WHOLE_GENERATION, CUBE_SHARE),
         Known(TRAINING_SECONDS, None, CostProvenance.HISTORICAL),

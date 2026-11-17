@@ -41,6 +41,7 @@ from neuralls.composition.comparison.method_data_origin import (
     CheckpointBased,
     MethodDataOrigin,
     TrainingDataUnavailable,
+    read_pinned_split,
     resolve_method_data_origin,
 )
 from neuralls.composition.comparison.models import (
@@ -56,6 +57,7 @@ from neuralls.composition.comparison.source_handlers import (
     validate_comparison_source,
 )
 from neuralls.composition.comparison.spec_consistency import validate_dataset_specs_consistent
+from neuralls.composition.generation.default_services import FS_SPLIT_STORE
 from neuralls.composition.identity.comparison import (
     comparison_identity,
     preconditioner_identities,
@@ -216,6 +218,7 @@ def prepare_comparison_entry(
                 run_tags=run_tags,
                 training_dataset_dir=lambda path: assignment_dataset_dir(path, context.settings),
                 dataset_digest=current_dataset_digest,
+                pinned_split=lambda path: read_pinned_split(path, FS_SPLIT_STORE),
             )
             for spec in resolved.specs
         }

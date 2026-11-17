@@ -19,6 +19,7 @@ from loguru import logger
 
 from neuralls.composition.generation.ports import SplitStore
 from neuralls.platform.config.models.data_models import SplitConfig
+from neuralls.shared.errors import StageInputsStale, StageInputsStaleReason
 
 
 def _expand_group_split_to_rows(
@@ -87,6 +88,23 @@ def plan_split(matrix_sample_index: np.ndarray, cfg: SplitConfig) -> IndexSplit:
 def split_is_current(dataset_dir: Path, split: IndexSplit, store: SplitStore) -> bool:
     """Whether the dataset's pinned split exists and equals `split`. Read-only."""
     return store.read(dataset_dir) == split
+
+
+def pinned_train_rows(dataset_dir: Path, store: SplitStore) -> tuple[int, ...]:
+    """The dataset rows of the train fold of the split pinned for ``dataset_dir``.
+
+    Raises:
+        StageInputsStale: If generation has not pinned a split for the dataset.
+        ValueError: If the train fold is empty.
+    """
+    split = store.read(dataset_dir)
+    if split is None:
+        raise StageInputsStale(
+            StageInputsStaleReason.SPLIT_MISSING, f"Dataset '{dataset_dir}' has no pinned split"
+        )
+    if not split.train:
+        raise ValueError(f"Dataset '{dataset_dir}' has an empty train fold.")
+    return split.train
 
 
 def pin_split(dataset_dir: Path, split: IndexSplit, cfg: SplitConfig, store: SplitStore) -> Path:

@@ -48,6 +48,7 @@ from neuralls.domain.solver.models import (
 from neuralls.domain.solver.models.benchmark_events import MeasuredResidual
 from neuralls.domain.solver.models.cost import (
     NO_OFFLINE_COST,
+    FitFolds,
     Known,
     NotApplicable,
     OfflineStages,
@@ -430,7 +431,7 @@ def test_offline_stages_are_stored_with_their_status_and_provenance(
 ) -> None:
     offline = OfflineStages(
         generation=TrainShareOfGeneration(
-            Known(8.5, 1024, CostProvenance.HISTORICAL), TrainShare(0.9)
+            Known(8.5, 1024, CostProvenance.HISTORICAL), TrainShare(0.9, FitFolds.TRAIN)
         ),
         training=Known(90.25, None, CostProvenance.HISTORICAL),
     )
@@ -442,9 +443,9 @@ def test_offline_stages_are_stored_with_their_status_and_provenance(
     assert payload["offline"] == {
         "generation": {
             "status": "known",
-            "charge": "train_share",
             "dataset_seconds": 8.5,
             "train_share": 0.9,
+            "fit_folds": "train",
             "provenance": "historical",
             "peak_bytes": 1024,
         },

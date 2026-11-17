@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import assert_never
 
 from neuralls.shared.types import CostProvenance
@@ -42,14 +43,27 @@ class Unavailable:
 type StageCost = NotApplicable | Known | Unavailable
 
 
+class FitFolds(StrEnum):
+    """The folds of a dataset's pinned split that the job fitting an artifact read.
+
+    A POD basis, fit by a job or inline during setup, reads only the train fold. A neural
+    training or search job also reads the validation fold, for early stopping and checkpoint
+    selection, so those rows served the artifact too.
+    """
+
+    TRAIN = "train"
+    TRAIN_AND_VALIDATION = "train_and_validation"
+
+
 @dataclass(frozen=True, slots=True)
 class TrainShare:
-    """The fraction of a dataset's rows that its pinned split puts in the train fold, in (0, 1].
+    """The fraction of a dataset's rows that a fit read, in (0, 1], and the folds they are.
 
-    An empty train fold has no share: nothing was fit on it, so there is nothing to charge.
+    A fit that read no row has no share: nothing was fit, so there is nothing to charge.
     """
 
     value: float
+    folds: FitFolds
 
     def __post_init__(self) -> None:
         """Reject a share outside (0, 1], NaN included."""
@@ -57,20 +71,21 @@ class TrainShare:
             raise ValueError(f"a train share lies in (0, 1], got {self.value}")
 
     @classmethod
-    def of_rows(cls, train_rows: int, total_rows: int) -> TrainShare:
-        """The share ``train_rows / total_rows``; raises when the train fold is empty."""
-        if not 0 < train_rows <= total_rows:
-            raise ValueError(f"{train_rows} train rows of {total_rows} have no train share")
-        return cls(train_rows / total_rows)
+    def of_rows(cls, read_rows: int, total_rows: int, folds: FitFolds) -> TrainShare:
+        """The share ``read_rows / total_rows`` of ``folds``; raises when no row was read."""
+        if not 0 < read_rows <= total_rows:
+            raise ValueError(f"{read_rows} read rows of {total_rows} have no train share")
+        return cls(read_rows / total_rows, folds)
 
 
 @dataclass(frozen=True, slots=True)
 class TrainShareOfGeneration:
-    """The train fold's share of a dataset's recorded generation, charged to an artifact fit on it.
+    """The share of a dataset's recorded generation charged to an artifact fit on it.
 
-    Generation produced every row of the dataset, but a fit job reads only the train fold, so
-    the artifact is charged ``dataset`` scaled by ``share``; the held-out rows serve evaluation.
-    Both numbers are kept, so the whole generation and the share charged stay stated.
+    Generation produced every row of the dataset, but a fit reads only the folds of its pinned
+    split that ``share`` names, so the artifact is charged ``dataset`` scaled by ``share``; the
+    held-out test rows serve evaluation. Both numbers are kept, so the whole generation and the
+    share charged stay stated.
     """
 
     dataset: Known
@@ -85,9 +100,9 @@ class TrainShareOfGeneration:
         )
 
 
-type GenerationCost = StageCost | TrainShareOfGeneration
-"""The generation stage: a `Known` cost charges the whole dataset (an inline fit reads every row),
-`TrainShareOfGeneration` charges the train fold's share of it."""
+type GenerationCost = NotApplicable | Unavailable | TrainShareOfGeneration
+"""The generation stage: every fit reads only some folds of its dataset's pinned split, so a
+recorded generation is always charged as a `TrainShareOfGeneration`."""
 
 
 def recorded_seconds(cost: StageCost) -> float | None:
@@ -121,8 +136,8 @@ type FitOrigin = NoFit | InlineFit | FitJob
 class OfflineStages:
     """The one-off costs paid once per method artifact, before any workload runs.
 
-    ``generation`` is building the dataset the artifact was fit on (only the train fold's share
-    of it when the fit read only that fold) and ``training`` is fitting the network or basis.
+    ``generation`` is building the dataset the artifact was fit on (only the share of it in the
+    folds the fit read) and ``training`` is fitting the network or basis.
     A stage the method does not have is `NotApplicable` (a classical
     method has neither; a method fit inline during setup has no separate training, because
     that fit is already part of its measured setup), so a method's stages are always both
@@ -137,7 +152,7 @@ class OfflineStages:
         match self.generation:
             case TrainShareOfGeneration() as share:
                 return share.charged()
-            case NotApplicable() | Known() | Unavailable() as stage:
+            case NotApplicable() | Unavailable() as stage:
                 return stage
             case unreachable:
                 assert_never(unreachable)

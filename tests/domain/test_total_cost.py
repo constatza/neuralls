@@ -6,9 +6,12 @@ import pytest
 
 from neuralls.domain.solver.models.cost import (
     NO_OFFLINE_COST,
+    FitFolds,
     Known,
     NotApplicable,
     OfflineStages,
+    TrainShare,
+    TrainShareOfGeneration,
     Unavailable,
 )
 from neuralls.domain.solver.reporting.total_cost import (
@@ -26,8 +29,12 @@ def _known(seconds: float) -> Known:
     return Known(seconds, None, CostProvenance.HISTORICAL)
 
 
+def _generated(seconds: float) -> TrainShareOfGeneration:
+    return TrainShareOfGeneration(_known(seconds), TrainShare(1.0, FitFolds.TRAIN))
+
+
 def test_total_is_offline_plus_online() -> None:
-    offline = OfflineStages(generation=_known(10.0), training=_known(90.0))
+    offline = OfflineStages(generation=_generated(10.0), training=_known(90.0))
 
     assert total_cost_seconds(offline, ONLINE_S) == Complete(107.5)
 
@@ -37,7 +44,7 @@ def test_a_method_with_no_offline_stage_costs_its_online_time() -> None:
 
 
 def test_a_stage_that_does_not_apply_is_zero_not_unavailable() -> None:
-    offline = OfflineStages(generation=_known(10.0), training=NotApplicable())
+    offline = OfflineStages(generation=_generated(10.0), training=NotApplicable())
 
     assert total_cost_seconds(offline, ONLINE_S) == Complete(17.5)
 
@@ -45,7 +52,7 @@ def test_a_stage_that_does_not_apply_is_zero_not_unavailable() -> None:
 @pytest.mark.parametrize(
     "offline",
     [
-        OfflineStages(_known(10.0), Unavailable("no run id")),
+        OfflineStages(_generated(10.0), Unavailable("no run id")),
         OfflineStages(Unavailable("no manifest"), _known(90.0)),
         OfflineStages(Unavailable("no manifest"), Unavailable("no run id")),
     ],

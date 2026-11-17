@@ -8,6 +8,7 @@ import pytest
 
 from neuralls.domain.solver.models.cost import (
     NO_OFFLINE_COST,
+    FitFolds,
     Known,
     NotApplicable,
     OfflineStages,
@@ -21,16 +22,22 @@ from neuralls.platform.reporting.offline_cost_codec import (
 )
 from neuralls.shared.types import CostProvenance
 
+POD_SHARE = TrainShare(0.9, FitFolds.TRAIN)
+NEURAL_SHARE = TrainShare(0.8, FitFolds.TRAIN_AND_VALIDATION)
+
 OFFLINE_COSTS = (
     NO_OFFLINE_COST,
-    OfflineStages(Known(8.5, 1024, CostProvenance.HISTORICAL), NotApplicable()),
     OfflineStages(
-        Known(8.5, None, CostProvenance.HISTORICAL), Known(90.25, None, CostProvenance.HISTORICAL)
+        TrainShareOfGeneration(Known(8.5, 1024, CostProvenance.HISTORICAL), POD_SHARE),
+        NotApplicable(),
     ),
-    OfflineStages(Known(0.0, 7, CostProvenance.MEASURED), Unavailable("no recorded training run")),
+    OfflineStages(
+        TrainShareOfGeneration(Known(0.0, 7, CostProvenance.MEASURED), POD_SHARE),
+        Unavailable("no recorded training run"),
+    ),
     OfflineStages(Unavailable("no manifest"), Unavailable("run gone cannot be read")),
     OfflineStages(
-        TrainShareOfGeneration(Known(10.0, 1024, CostProvenance.HISTORICAL), TrainShare(0.9)),
+        TrainShareOfGeneration(Known(10.0, None, CostProvenance.HISTORICAL), NEURAL_SHARE),
         Known(90.25, None, CostProvenance.HISTORICAL),
     ),
 )
@@ -43,14 +50,16 @@ def test_an_offline_cost_is_read_back_as_written(offline: OfflineStages) -> None
 
 def test_a_stage_is_stored_with_its_status_and_only_the_fields_of_that_status() -> None:
     offline = OfflineStages(
-        Known(8.5, 1024, CostProvenance.HISTORICAL), Unavailable("no recorded training run")
+        TrainShareOfGeneration(Known(8.5, 1024, CostProvenance.HISTORICAL), POD_SHARE),
+        Unavailable("no recorded training run"),
     )
 
     assert encode_offline_cost(offline) == {
         "generation": {
             "status": "known",
-            "charge": "whole_dataset",
-            "seconds": 8.5,
+            "dataset_seconds": 8.5,
+            "train_share": 0.9,
+            "fit_folds": "train",
             "provenance": "historical",
             "peak_bytes": 1024,
         },
@@ -76,8 +85,9 @@ def test_a_stage_that_does_not_apply_stores_only_its_status() -> None:
         {
             "generation": {
                 "status": "known",
-                "charge": "whole_dataset",
-                "seconds": 1.0,
+                "dataset_seconds": 1.0,
+                "train_share": 1.0,
+                "fit_folds": "train",
                 "provenance": "guessed",
             },
             "training": {"status": "not_applicable"},
@@ -85,7 +95,8 @@ def test_a_stage_that_does_not_apply_stores_only_its_status() -> None:
         {
             "generation": {
                 "status": "known",
-                "charge": "whole_dataset",
+                "train_share": 1.0,
+                "fit_folds": "train",
                 "provenance": "historical",
             },
             "training": {"status": "not_applicable"},
@@ -93,8 +104,9 @@ def test_a_stage_that_does_not_apply_stores_only_its_status() -> None:
         {
             "generation": {
                 "status": "known",
-                "charge": "whole_dataset",
-                "seconds": -1.0,
+                "dataset_seconds": -1.0,
+                "train_share": 1.0,
+                "fit_folds": "train",
                 "provenance": "historical",
             },
             "training": {"status": "not_applicable"},
@@ -102,8 +114,9 @@ def test_a_stage_that_does_not_apply_stores_only_its_status() -> None:
         {
             "generation": {
                 "status": "known",
-                "charge": "whole_dataset",
-                "seconds": math.nan,
+                "dataset_seconds": math.nan,
+                "train_share": 1.0,
+                "fit_folds": "train",
                 "provenance": "historical",
             },
             "training": {"status": "not_applicable"},
@@ -111,8 +124,9 @@ def test_a_stage_that_does_not_apply_stores_only_its_status() -> None:
         {
             "generation": {
                 "status": "known",
-                "charge": "whole_dataset",
-                "seconds": 1.0,
+                "dataset_seconds": 1.0,
+                "train_share": 1.0,
+                "fit_folds": "train",
                 "provenance": "historical",
                 "peak_bytes": -3,
             },
@@ -125,9 +139,8 @@ def test_a_stage_that_does_not_apply_stores_only_its_status() -> None:
         {
             "generation": {
                 "status": "known",
-                "charge": "train_share",
                 "dataset_seconds": 1.0,
-                "train_share": 1.5,
+                "train_share": 0.9,
                 "provenance": "historical",
             },
             "training": {"status": "not_applicable"},
@@ -135,8 +148,18 @@ def test_a_stage_that_does_not_apply_stores_only_its_status() -> None:
         {
             "generation": {
                 "status": "known",
-                "charge": "train_share",
                 "dataset_seconds": 1.0,
+                "train_share": 1.5,
+                "fit_folds": "train",
+                "provenance": "historical",
+            },
+            "training": {"status": "not_applicable"},
+        },
+        {
+            "generation": {
+                "status": "known",
+                "dataset_seconds": 1.0,
+                "fit_folds": "train",
                 "provenance": "historical",
             },
             "training": {"status": "not_applicable"},

@@ -14,13 +14,13 @@ import numpy as np
 from scipy.sparse import csr_array
 
 from neuralls.composition.generation.ports import SplitStore
+from neuralls.composition.generation.split_pinning import pinned_train_rows
 from neuralls.platform.storage.dataset_readers import (
     load_matrix_sample_index,
     load_matrix_sparse_sample,
     matrix_row,
     resolve_dataset_artifacts,
 )
-from neuralls.shared.errors import StageInputsStale, StageInputsStaleReason
 
 
 def train_matrix_rows(matrix_sample_index: np.ndarray, train_rows: Sequence[int]) -> dict[int, int]:
@@ -57,14 +57,9 @@ def mean_train_matrix(dataset_dir: Path, split_store: SplitStore) -> np.ndarray:
         StageInputsStale: If the dataset has no pinned split.
         ValueError: If the train fold is empty.
     """
-    split = split_store.read(dataset_dir)
-    if split is None:
-        raise StageInputsStale(
-            StageInputsStaleReason.SPLIT_MISSING, f"Dataset '{dataset_dir}' has no pinned split"
-        )
-    rows = train_matrix_rows(load_matrix_sample_index(dataset_dir), split.train)
-    if not rows:
-        raise ValueError(f"Dataset '{dataset_dir}' has an empty train fold.")
+    rows = train_matrix_rows(
+        load_matrix_sample_index(dataset_dir), pinned_train_rows(dataset_dir, split_store)
+    )
     artifact = resolve_dataset_artifacts(dataset_dir).matrix
 
     def load(matrix_id: int, row: int) -> csr_array:

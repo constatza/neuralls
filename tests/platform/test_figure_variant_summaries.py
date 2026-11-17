@@ -23,7 +23,14 @@ from neuralls.domain.benchmarking.paired import (
 )
 from neuralls.domain.benchmarking.profiles import ecdf_series, performance_series
 from neuralls.domain.benchmarking.selection import NoReferenceConfigured
-from neuralls.domain.solver.models.cost import Known, OfflineStages, Unavailable
+from neuralls.domain.solver.models.cost import (
+    FitFolds,
+    Known,
+    OfflineStages,
+    TrainShare,
+    TrainShareOfGeneration,
+    Unavailable,
+)
 from neuralls.domain.solver.models.group_outcomes import (
     RecipeProfileReport,
     WorkloadMixtureReport,
@@ -230,7 +237,9 @@ def test_the_cost_breakdown_stacks_the_offline_cost_of_each_method_on_its_worklo
     report: RecipeProfileReport | WorkloadMixtureReport = request.getfixturevalue(report_name)
     offline = {
         summary.method: OfflineStages(
-            generation=Known(10.0, None, CostProvenance.HISTORICAL),
+            generation=TrainShareOfGeneration(
+                Known(10.0, None, CostProvenance.HISTORICAL), TrainShare(1.0, FitFolds.TRAIN)
+            ),
             training=Unavailable("1 of 1 checkpoints have no recorded training run"),
         )
         for summary in report.summaries

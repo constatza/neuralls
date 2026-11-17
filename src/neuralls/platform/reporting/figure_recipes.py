@@ -477,9 +477,9 @@ FIGURE_RECIPES: Mapping[FigureKind, FigureRecipe] = {
                     "Total Cost",
                     "offline (dataset generation + training, paid once per method artifact) "
                     "+ setup + solve-only seconds of the report's workload, stacked per method; "
-                    "a fit job is charged its train fold's share of the generation, an inline fit "
-                    "the whole of it; an offline stage with no recorded cost draws no segment and "
-                    "leaves the total unstated",
+                    "a fit is charged the share of the generation in the folds it read (train for "
+                    "a POD fit, train and validation for neural training); an offline stage with "
+                    "no recorded cost draws no segment and leaves the total unstated",
                     MetricId.ONLINE_S,
                     Population.OWN,
                     Statistic.OFFLINE_ONLINE_TOTAL,

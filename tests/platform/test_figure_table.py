@@ -11,6 +11,7 @@ from polars.testing import assert_frame_equal
 from neuralls.domain.solver.models.benchmark_events import UnknownPeakMemory
 from neuralls.domain.solver.models.cost import (
     NO_OFFLINE_COST,
+    FitFolds,
     Known,
     NotApplicable,
     OfflineStages,
@@ -131,7 +132,7 @@ def test_cost_breakdown_stacks_each_methods_offline_stages_on_its_online_totals(
         PreconditionerName("pcg_jacobi"): NO_OFFLINE_COST,
         PreconditionerName("amg"): OfflineStages(
             generation=TrainShareOfGeneration(
-                Known(20.0, None, CostProvenance.HISTORICAL), TrainShare(0.5)
+                Known(20.0, None, CostProvenance.HISTORICAL), TrainShare(0.5, FitFolds.TRAIN)
             ),
             training=Known(90.0, None, CostProvenance.HISTORICAL),
         ),
@@ -147,6 +148,7 @@ def test_cost_breakdown_stacks_each_methods_offline_stages_on_its_online_totals(
             "generation_status": "known",
             "generation_dataset_s": 20.0,
             "generation_share": 0.5,
+            "generation_folds": "train",
             "training_s": 90.0,
             "training_status": "known",
             "fit_origin": "job",
@@ -161,6 +163,7 @@ def test_cost_breakdown_stacks_each_methods_offline_stages_on_its_online_totals(
             "generation_status": "not_applicable",
             "generation_dataset_s": None,
             "generation_share": None,
+            "generation_folds": None,
             "training_s": None,
             "training_status": "not_applicable",
             "fit_origin": "none",
@@ -178,7 +181,10 @@ def test_cost_breakdown_states_a_method_fit_inline_by_its_generation_alone(
     offline = {
         PreconditionerName("pcg_jacobi"): NO_OFFLINE_COST,
         PreconditionerName("amg"): OfflineStages(
-            generation=Known(10.0, None, CostProvenance.HISTORICAL), training=NotApplicable()
+            generation=TrainShareOfGeneration(
+                Known(10.0, None, CostProvenance.HISTORICAL), TrainShare(1.0, FitFolds.TRAIN)
+            ),
+            training=NotApplicable(),
         ),
     }
 
@@ -193,7 +199,9 @@ def test_cost_breakdown_has_no_total_when_an_offline_stage_is_unavailable(
     offline = {
         PreconditionerName("pcg_jacobi"): NO_OFFLINE_COST,
         PreconditionerName("amg"): OfflineStages(
-            generation=Known(10.0, None, CostProvenance.HISTORICAL),
+            generation=TrainShareOfGeneration(
+                Known(10.0, None, CostProvenance.HISTORICAL), TrainShare(1.0, FitFolds.TRAIN)
+            ),
             training=Unavailable("1 of 1 checkpoints have no recorded training run"),
         ),
     }
@@ -206,6 +214,7 @@ def test_cost_breakdown_has_no_total_when_an_offline_stage_is_unavailable(
         "generation_status": "known",
         "generation_dataset_s": 10.0,
         "generation_share": 1.0,
+        "generation_folds": "train",
         "training_s": None,
         "training_status": "unavailable",
         "fit_origin": "job",

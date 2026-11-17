@@ -11,7 +11,6 @@ import polars as pl
 
 from neuralls.domain.solver.models.cost import (
     GenerationCost,
-    Known,
     NotApplicable,
     OfflineStages,
     TrainShareOfGeneration,
@@ -108,19 +107,23 @@ def _cost_breakdown_row(
     }
 
 
-def _generation_charge(generation: GenerationCost) -> dict[str, float | None]:
-    """The whole dataset's generation seconds and the share of them charged, when known."""
+def _generation_charge(generation: GenerationCost) -> dict[str, float | str | None]:
+    """The whole dataset's generation seconds, the share of them charged and its folds, when known."""
     match generation:
         case TrainShareOfGeneration(dataset=dataset, share=share):
-            dataset_s: float | None = dataset.wall_time_seconds
-            charged_share: float | None = share.value
-        case Known(wall_time_seconds=seconds):
-            dataset_s, charged_share = seconds, 1.0
+            return {
+                "generation_dataset_s": dataset.wall_time_seconds,
+                "generation_share": share.value,
+                "generation_folds": share.folds.value,
+            }
         case NotApplicable() | Unavailable():
-            dataset_s, charged_share = None, None
+            return {
+                "generation_dataset_s": None,
+                "generation_share": None,
+                "generation_folds": None,
+            }
         case unreachable:
             assert_never(unreachable)
-    return {"generation_dataset_s": dataset_s, "generation_share": charged_share}
 
 
 def write_group_table(path: Path, table: pl.DataFrame) -> None:

@@ -13,7 +13,14 @@ from neuralls.composition.comparison.models import (
     CompletedMethodWorkload,
 )
 from neuralls.domain.presentation.provenance import DatasetPresentation
-from neuralls.domain.solver.models.cost import Known, OfflineStages, Unavailable
+from neuralls.domain.solver.models.cost import (
+    FitFolds,
+    Known,
+    OfflineStages,
+    TrainShare,
+    TrainShareOfGeneration,
+    Unavailable,
+)
 from neuralls.platform.config.models.preconditioner import PreconditionerType
 from neuralls.platform.reporting.stored_benchmark import MethodDirectory, read_stored_benchmark
 from neuralls.shared.types import CostProvenance, DatasetId
@@ -55,7 +62,9 @@ def test_a_methods_offline_cost_is_read_back_from_its_summary(
     tmp_path: Path, write_method: Callable[..., CompletedMethodWorkload]
 ) -> None:
     offline = OfflineStages(
-        generation=Known(8.5, 1024, CostProvenance.HISTORICAL),
+        generation=TrainShareOfGeneration(
+            Known(8.5, 1024, CostProvenance.HISTORICAL), TrainShare(1.0, FitFolds.TRAIN)
+        ),
         training=Unavailable("1 of 1 checkpoints have no recorded training run"),
     )
     jacobi = write_method(PreconditionerType.JACOBI, tmp_path / "jacobi", offline=offline)

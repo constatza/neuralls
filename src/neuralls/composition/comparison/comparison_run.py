@@ -468,7 +468,10 @@ def execute_method_workload(
         run = _MethodRun(
             method=method,
             service=PreconditionerService(
-                FS_FIT_DATA, CheckpointLoaders.dlkit(device), checkpoints=checkpoints
+                FS_FIT_DATA,
+                FS_SPLIT_STORE,
+                CheckpointLoaders.dlkit(device),
+                checkpoints=checkpoints,
             ),
             params=params,
             device=device,

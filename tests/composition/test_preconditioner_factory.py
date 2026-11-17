@@ -17,6 +17,7 @@ from typing import Self
 import numpy as np
 import pytest
 import torch
+from dlkit.infrastructure.types.split import IndexSplit
 from pydantic import ValidationError
 from torch.testing import assert_close
 from torchalg.preconditioners.base import PreconditionerContext
@@ -59,6 +60,7 @@ from neuralls.platform.config.models.preconditioner import (
 )
 from neuralls.platform.dlkit.predictor_adapter import OwningDLKitNeuralPreconditioner
 from tests.fakes.fit_data import FakeFitData
+from tests.fakes.split_store import InMemorySplitStore
 from tests.loaders_support import cpu_loaders
 
 # ==============================================================================
@@ -216,6 +218,14 @@ def pod_fit_arrays(well_conditioned_matrix: torch.Tensor) -> tuple[np.ndarray, n
     n = well_conditioned_matrix.shape[0]
     rng = np.random.default_rng(0)
     return rng.standard_normal((4, n)), rng.standard_normal((4, n))
+
+
+@pytest.fixture
+def pod_fit_split() -> InMemorySplitStore:
+    """The pinned split of the four fit rows: three to fit on, one held out."""
+    return InMemorySplitStore(
+        {FIT_DIR: IndexSplit(train=(0, 1, 2), validation=(), test=(3,), predict=None)}
+    )
 
 
 @pytest.fixture
@@ -433,6 +443,7 @@ def test_inline_pod_coarsening_refuses_to_read_its_dataset_during_the_build(
 def test_pod_fit_arrays_are_staged_before_factory_build(
     well_conditioned_matrix: torch.Tensor,
     pod_fit_arrays: tuple[np.ndarray, np.ndarray],
+    pod_fit_split: InMemorySplitStore,
 ) -> None:
     """The service reads the fit arrays once in `preload`; the build itself reads nothing."""
     from neuralls.composition.comparison._preconditioner_setup import PreconditionerService
@@ -440,7 +451,7 @@ def test_pod_fit_arrays_are_staged_before_factory_build(
     config = AMGPreconditionerConfig(coarsening=PODCoarseningConfig(dataset_dir=FIT_DIR, rank=2))
     rhs, solutions = pod_fit_arrays
     fit_data = FakeFitData(rhs=rhs, solutions=solutions)
-    service = PreconditionerService(fit_data)
+    service = PreconditionerService(fit_data, pod_fit_split)
     service.preload(well_conditioned_matrix, config)
 
     precond = service.create_preconditioner(well_conditioned_matrix, config)

@@ -6,19 +6,25 @@ import pytest
 
 from neuralls.domain.solver.models.cost import (
     NO_OFFLINE_COST,
+    FitFolds,
     FitJob,
     FitOrigin,
+    GenerationCost,
     InlineFit,
     Known,
     NoFit,
     NotApplicable,
     OfflineStages,
     StageCost,
+    TrainShare,
+    TrainShareOfGeneration,
     Unavailable,
 )
 from neuralls.shared.types import CostProvenance
 
-GENERATION = Known(10.0, 400, CostProvenance.HISTORICAL)
+WHOLE = TrainShare(1.0, FitFolds.TRAIN)
+GENERATED = Known(10.0, 400, CostProvenance.HISTORICAL)
+GENERATION = TrainShareOfGeneration(GENERATED, WHOLE)
 TRAINING = Known(90.0, 900, CostProvenance.HISTORICAL)
 
 
@@ -30,7 +36,7 @@ def test_total_sums_seconds_and_takes_the_largest_peak_memory() -> None:
 
 def test_total_peak_memory_is_unknown_when_no_stage_recorded_one() -> None:
     stages = OfflineStages(
-        generation=Known(1.0, None, CostProvenance.HISTORICAL),
+        generation=TrainShareOfGeneration(Known(1.0, None, CostProvenance.HISTORICAL), WHOLE),
         training=Known(2.0, None, CostProvenance.HISTORICAL),
     )
 
@@ -39,7 +45,7 @@ def test_total_peak_memory_is_unknown_when_no_stage_recorded_one() -> None:
 
 def test_total_keeps_the_peak_memory_of_the_only_stage_that_recorded_one() -> None:
     stages = OfflineStages(
-        generation=Known(1.0, 700, CostProvenance.HISTORICAL),
+        generation=TrainShareOfGeneration(Known(1.0, 700, CostProvenance.HISTORICAL), WHOLE),
         training=Known(2.0, None, CostProvenance.HISTORICAL),
     )
 
@@ -49,14 +55,17 @@ def test_total_keeps_the_peak_memory_of_the_only_stage_that_recorded_one() -> No
 def test_total_is_measured_only_when_every_stage_was_timed_live() -> None:
     live = Known(1.0, None, CostProvenance.MEASURED)
 
-    assert OfflineStages(live, live).total() == Known(2.0, None, CostProvenance.MEASURED)
-    assert OfflineStages(live, GENERATION).total() == Known(11.0, 400, CostProvenance.HISTORICAL)
+    live_generation = TrainShareOfGeneration(live, WHOLE)
+
+    assert OfflineStages(live_generation, live).total() == Known(2.0, None, CostProvenance.MEASURED)
+    assert OfflineStages(live_generation, TRAINING).total() == Known(
+        91.0, 900, CostProvenance.HISTORICAL
+    )
 
 
-@pytest.mark.parametrize("stage", [GENERATION, TRAINING])
-def test_a_stage_that_does_not_apply_adds_nothing(stage: Known) -> None:
-    assert OfflineStages(stage, NotApplicable()).total() == stage
-    assert OfflineStages(NotApplicable(), stage).total() == stage
+def test_a_stage_that_does_not_apply_adds_nothing() -> None:
+    assert OfflineStages(GENERATION, NotApplicable()).total() == GENERATED
+    assert OfflineStages(NotApplicable(), TRAINING).total() == TRAINING
 
 
 def test_no_stage_applying_totals_to_not_applicable() -> None:
@@ -107,6 +116,6 @@ UNAVAILABLE = Unavailable("not recorded")
     ],
 )
 def test_the_fit_origin_is_read_from_which_stages_apply(
-    generation: StageCost, training: StageCost, expected: FitOrigin
+    generation: GenerationCost, training: StageCost, expected: FitOrigin
 ) -> None:
     assert OfflineStages(generation=generation, training=training).fit_origin() == expected

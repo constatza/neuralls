@@ -34,7 +34,15 @@ from neuralls.domain.solver.models import (
     SolveFailed,
     SystemTag,
 )
-from neuralls.domain.solver.models.cost import NO_OFFLINE_COST, Known, OfflineStages, Unavailable
+from neuralls.domain.solver.models.cost import (
+    NO_OFFLINE_COST,
+    FitFolds,
+    Known,
+    OfflineStages,
+    TrainShare,
+    TrainShareOfGeneration,
+    Unavailable,
+)
 from neuralls.domain.solver.models.group_presentation import SolverTimingContext
 from neuralls.domain.solver.models.workload import (
     CompleteWorkloadSummary,
@@ -195,7 +203,9 @@ def test_method_sink_logs_the_recorded_offline_seconds_of_each_stage(
     writer: RecordingRunWriter,
 ) -> None:
     offline = OfflineStages(
-        generation=Known(8.5, None, CostProvenance.HISTORICAL),
+        generation=TrainShareOfGeneration(
+            Known(8.5, None, CostProvenance.HISTORICAL), TrainShare(1.0, FitFolds.TRAIN)
+        ),
         training=Known(90.25, None, CostProvenance.HISTORICAL),
     )
 
@@ -219,7 +229,9 @@ def test_method_sink_logs_no_number_for_an_unavailable_stage(
     writer: RecordingRunWriter,
 ) -> None:
     offline = OfflineStages(
-        generation=Known(8.5, None, CostProvenance.HISTORICAL),
+        generation=TrainShareOfGeneration(
+            Known(8.5, None, CostProvenance.HISTORICAL), TrainShare(1.0, FitFolds.TRAIN)
+        ),
         training=Unavailable("no recorded training run"),
     )
 

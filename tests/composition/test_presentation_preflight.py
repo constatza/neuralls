@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from dlkit.infrastructure.types.split import IndexSplit
 
 from neuralls.composition.assignments.assignment_subjects import neural_spec_from_assignment
 from neuralls.composition.assignments.presentation_preflight import (
@@ -16,6 +17,7 @@ from neuralls.composition.comparison.method_data_origin import (
     CheckpointBased,
     InlineFit,
     NoFitData,
+    PinnedSplit,
     TrainingDataUnavailable,
     VerifiedTrainingDataset,
 )
@@ -28,6 +30,7 @@ from neuralls.domain.presentation.provenance import DatasetPresentation
 from neuralls.domain.presentation.render import render_method, render_title
 from neuralls.domain.presentation.run_names import MethodRunName, NamedRun
 from neuralls.domain.presentation.titles import ComparisonScopePresentation, EditorialPresentation
+from neuralls.domain.solver.models.cost import FitFolds
 from neuralls.domain.solver.models.figure_scope import DatasetScope
 from neuralls.platform.config.models.coarsening import (
     AggregationCoarseningConfig,
@@ -111,7 +114,14 @@ def test_neural_method_label_follows_checkpoint_provenance(
 ) -> None:
     ref = tuple(ref for _, ref in neural_checkpoint.checkpoint_refs())
     training = (
-        VerifiedTrainingDataset(FIT_DIR, "sha256:abcdef0123456789")
+        VerifiedTrainingDataset(
+            FIT_DIR,
+            "sha256:abcdef0123456789",
+            PinnedSplit(
+                IndexSplit(train=(0,), validation=(), test=(1,), predict=None), "sha256:split"
+            ),
+            FitFolds.TRAIN_AND_VALIDATION,
+        )
         if verified
         else TrainingDataUnavailable("training run has no dataset identity")
     )
