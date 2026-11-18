@@ -25,7 +25,6 @@ from neuralls.platform.reporting.figure_formats import FigureTarget
 from neuralls.platform.reporting.figure_sizing import (
     POINT_JITTER,
     bar_columns_figure_size,
-    with_outside_legend,
 )
 from neuralls.platform.reporting.figure_style import rotate_x_labels
 from neuralls.platform.reporting.figure_text import draw_legend
@@ -45,21 +44,6 @@ _BREAK_EVEN_MARKER_SIZE = 140
 
 class InconsistentBreakEvenError(ValueError):
     """A cost-curve row states a break-even count that contradicts its break-even state."""
-
-
-def _legend_texts(
-    marks: pl.DataFrame, style: GroupStyle, reference_name: PreconditionerName
-) -> list[str]:
-    """The legend entries a break-even figure draws, to size the figure's width for them."""
-    reference_label = style.legend.label(reference_name)
-    texts = []
-    for row in marks.iter_rows(named=True):
-        label = style.legend.label(row["method"])
-        state = BreakEvenState(row["break_even"])
-        texts.append(break_even_legend(label, state, row["breakeven_online_amortized"]))
-        if state is not BreakEvenState.NO_COMMON_SYSTEMS:
-            texts.append(reference_curve_legend(reference_label, label))
-    return texts
 
 
 def break_even_legend(
@@ -112,9 +96,7 @@ def plot_break_even_curves(
     names = marks["method"].to_list()
     series = method_palette(names, style)
     palette = {name: series.color(name) for name in names}
-    fig, ax = plt.subplots(
-        figsize=with_outside_legend((8.0, 5.0), _legend_texts(marks, style, reference_name))
-    )
+    fig, ax = plt.subplots(figsize=(8.0, 5.0))
     sns.lineplot(
         data=plot_frame(drawn),
         x="n_rhs",
@@ -166,7 +148,7 @@ def plot_break_even_curves(
     ax.set_xlabel("Right-hand sides solved on one matrix, n")
     ax.set_ylabel("Cumulative cost: mean setup + n x mean solve-only [s]")
     ax.grid(True, alpha=0.3)
-    draw_legend(ax, style.legend, inside_loc="lower right")
+    draw_legend(ax, style.legend)
     finish_group_figure(
         fig,
         ax,

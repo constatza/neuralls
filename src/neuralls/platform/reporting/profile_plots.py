@@ -17,8 +17,7 @@ from neuralls.domain.benchmarking.profiles import ProfileSeries
 from neuralls.domain.solver.reporting.metrics import MetricId
 from neuralls.platform.reporting.figure_annotations import counted
 from neuralls.platform.reporting.figure_formats import FigureTarget
-from neuralls.platform.reporting.figure_sizing import with_outside_legend
-from neuralls.platform.reporting.figure_text import draw_legend_outside
+from neuralls.platform.reporting.figure_text import draw_legend
 from neuralls.platform.reporting.figure_writer import finish_group_figure
 from neuralls.platform.reporting.group_style import GroupStyle
 from neuralls.platform.reporting.series_style import method_palette
@@ -82,9 +81,7 @@ def _step_profile_figure(
     palette = method_palette(names, style)
     solved = series.frame["x"].to_numpy()
     x_min, x_max = (float(solved.min()), float(solved.max())) if len(solved) else (1.0, 1.0)
-    fig, ax = plt.subplots(
-        figsize=with_outside_legend(_PROFILE_SIZE_IN, [style.legend.label(name) for name in names])
-    )
+    fig, ax = plt.subplots(figsize=_PROFILE_SIZE_IN)
     for row in counts.iter_rows(named=True):
         name = row["method"]
         curve = series.frame.filter(pl.col("method") == name)
@@ -104,7 +101,7 @@ def _step_profile_figure(
     ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel)
     ax.grid(True, which="both", alpha=0.3)
-    draw_legend_outside(ax, style.legend)
+    draw_legend(ax, style.legend)
     finish_group_figure(
         fig,
         ax,

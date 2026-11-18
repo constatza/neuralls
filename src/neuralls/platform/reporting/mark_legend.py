@@ -19,7 +19,7 @@ from matplotlib.path import Path
 from matplotlib.typing import ColorType
 
 from neuralls.domain.benchmarking.uncertainty import BootstrapKind
-from neuralls.platform.reporting.figure_text import LEGEND_ANCHOR, LEGEND_FONT_SIZE
+from neuralls.platform.reporting.figure_text import LEGEND_FONT_SIZE, LEGEND_LOCATION
 from neuralls.shared.constants import CONFIDENCE_LEVEL
 
 _INK: ColorType = "black"
@@ -203,10 +203,8 @@ def mark_handles(marks: Collection[Mark]) -> list[Line2D | Patch]:
 
 
 def draw_mark_legend(ax: Axes, marks: Collection[Mark]) -> None:
-    """Draw the legend of ``marks`` outside ``ax`` on the right, where no mark or label sits."""
+    """Draw the legend of ``marks`` inside ``ax`` where it covers the fewest marks."""
     handles = mark_handles(marks)
     if not handles:
         return
-    ax.legend(
-        handles=handles, loc="upper left", bbox_to_anchor=LEGEND_ANCHOR, fontsize=LEGEND_FONT_SIZE
-    )
+    ax.legend(handles=handles, loc=LEGEND_LOCATION, fontsize=LEGEND_FONT_SIZE)

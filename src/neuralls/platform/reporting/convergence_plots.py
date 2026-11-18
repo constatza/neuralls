@@ -260,7 +260,7 @@ def plot_convergence_curves(
         subtitle_parts.append(f"maxiter={max_iterations}")
 
     ax.grid(True, alpha=0.3)
-    draw_legend(ax, legend, inside_loc="upper right")
+    draw_legend(ax, legend)
 
     finish_group_figure(
         fig,

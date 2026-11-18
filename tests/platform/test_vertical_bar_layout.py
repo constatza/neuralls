@@ -8,9 +8,7 @@ from neuralls.platform.reporting.figure_annotations import ColumnAnnotation, val
 from neuralls.platform.reporting.figure_sizing import (
     AXIS_LABEL_WRAP,
     bar_columns_figure_size,
-    paired_scatter_figure_size,
     rotated_label_overhang_in,
-    with_outside_legend,
     wrap_axis_label,
 )
 
@@ -56,20 +54,6 @@ def test_plain_labels_are_wrapped_at_spaces_and_mathtext_lines_are_kept() -> Non
     assert plain == "Incomplete Cholesky with\nlevel of fill"
     assert max(len(line) for line in plain.split("\n")) <= AXIS_LABEL_WRAP
     assert math == mathtext
-
-
-def test_the_paired_scatter_grows_by_its_legend_only_sideways() -> None:
-    narrow = paired_scatter_figure_size(["a"])
-    wide = paired_scatter_figure_size(["a long method label"])
-
-    assert wide[0] > narrow[0]
-    assert wide[1] == narrow[1]
-
-
-def test_an_outside_legend_widens_a_figure_and_keeps_its_height() -> None:
-    assert with_outside_legend((8.0, 5.0), ["a\nlonger line"])[1] == 5.0
-    assert with_outside_legend((8.0, 5.0), ["a\nlonger line"])[0] > 8.0
-    assert with_outside_legend((8.0, 5.0), []) == (8.0, 5.0)
 
 
 def test_the_height_grows_with_the_longest_label_line_when_rotated() -> None:

@@ -21,7 +21,7 @@ from neuralls.platform.reporting.figure_annotations import ColumnAnnotation, ann
 from neuralls.platform.reporting.figure_formats import FigureTarget
 from neuralls.platform.reporting.figure_sizing import bar_columns_figure_size
 from neuralls.platform.reporting.figure_style import rotate_x_labels
-from neuralls.platform.reporting.figure_text import LEGEND_FONT_SIZE
+from neuralls.platform.reporting.figure_text import LEGEND_FONT_SIZE, LEGEND_LOCATION
 from neuralls.platform.reporting.figure_writer import finish_group_figure
 from neuralls.platform.reporting.group_style import GroupStyle
 from neuralls.platform.reporting.series_style import method_palette
@@ -185,11 +185,9 @@ def plot_workload_bars(
             for position, top, row in zip(positions, bottom, rows, strict=True)
         ],
     )
-    # Outside the axes on the right: below them it would sit on the rotated method labels.
     ax.legend(
         handles=[_key(segment) for segment in segments],
-        loc="upper left",
-        bbox_to_anchor=(1.01, 1.0),
+        loc=LEGEND_LOCATION,
         fontsize=LEGEND_FONT_SIZE,
     )
     ax.set_ylabel(workload_ylabel(total))

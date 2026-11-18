@@ -38,7 +38,6 @@ from neuralls.platform.config.models.preconditioner import (
 from neuralls.platform.reporting import figure_text
 from neuralls.platform.reporting.figure_text import (
     Legend,
-    LegendPlacement,
     method_legend,
     wrap_at_boundaries,
 )
@@ -243,7 +242,7 @@ def test_wrapping_breaks_only_at_the_given_boundaries() -> None:
         wrap_at_boundaries(drawn, RenderedScientificDescription("a=1, b=2", (5,)), limit=3)
 
 
-def test_a_long_legend_moves_outside_the_axes_and_keeps_every_fact(
+def test_a_long_legend_wraps_into_columns_and_keeps_every_fact(
     acceptance_cohort: PreparedComparisonPresentation,
 ) -> None:
     legend = _legend_of_cohort(acceptance_cohort, MATHTEXT)
@@ -252,17 +251,14 @@ def test_a_long_legend_moves_outside_the_axes_and_keeps_every_fact(
         {m.method_id: m.compact for m in acceptance_cohort.methods}, unbounded, MATHTEXT
     ).texts
 
-    assert legend.layout.placement is LegendPlacement.OUTSIDE_RIGHT
-    assert legend.layout.columns >= 1
+    assert legend.columns >= 1
     for method in acceptance_cohort.methods:
         flat = legend.label(method.method_id).replace(",\n", ", ").replace("\n", " ")
         assert flat == facts_of[method.method_id].text
 
 
-def test_a_short_legend_stays_inside(legend_of: Callable[..., Legend]) -> None:
-    layout = legend_of("a", "b").layout
-
-    assert layout == replace(layout, placement=LegendPlacement.INSIDE, columns=1)
+def test_a_short_legend_takes_one_column(legend_of: Callable[..., Legend]) -> None:
+    assert legend_of("a", "b").columns == 1
 
 
 def test_a_standalone_method_label_has_no_dataset_separator(

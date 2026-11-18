@@ -160,24 +160,13 @@ _PAIRED_FRAME_HEIGHT_IN = 1.2
 """Height the x label and tick labels take around the paired scatter's axes."""
 
 
-def paired_scatter_figure_size(labels: Sequence[str]) -> tuple[float, float]:
+def paired_scatter_figure_size() -> tuple[float, float]:
     """Figure size of the paired scatter, whose equal log axes are a square.
 
-    The plotting square keeps its side and the figure grows around it by the legend, which sits
-    right of the axes, and the text above and below, so the square axes box is not shrunk
-    inside a figure that is wider or taller than it needs.
+    The plotting square keeps its side and the figure grows around it by the tick and axis
+    labels, so the square axes box is not shrunk inside a figure wider or taller than it needs.
     """
-    widest = max((len(line) for label in labels for line in label.split("\n")), default=0)
     return (
-        _PAIRED_AXES_SIDE_IN + _PAIRED_FRAME_WIDTH_IN + widest * LABEL_CHAR_WIDTH_IN,
+        _PAIRED_AXES_SIDE_IN + _PAIRED_FRAME_WIDTH_IN,
         _PAIRED_AXES_SIDE_IN + _PAIRED_FRAME_HEIGHT_IN,
     )
-
-
-def with_outside_legend(size: tuple[float, float], labels: Sequence[str]) -> tuple[float, float]:
-    """``size`` widened by the legend entries ``labels``, which sit right of the axes.
-
-    Without the extra width a wide legend takes the room of the plotting area.
-    """
-    widest = max((len(line) for label in labels for line in label.split("\n")), default=0)
-    return (size[0] + widest * LABEL_CHAR_WIDTH_IN, size[1])

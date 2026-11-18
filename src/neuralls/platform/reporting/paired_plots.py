@@ -20,12 +20,11 @@ from neuralls.domain.solver.reporting.metrics import METRICS, MetricId
 from neuralls.platform.reporting.figure_formats import FigureTarget
 from neuralls.platform.reporting.figure_sizing import (
     paired_scatter_figure_size,
-    with_outside_legend,
 )
 from neuralls.platform.reporting.figure_text import (
-    LEGEND_ANCHOR,
     LEGEND_FONT_SIZE,
-    draw_legend_outside,
+    LEGEND_LOCATION,
+    draw_legend,
 )
 from neuralls.platform.reporting.figure_writer import finish_group_figure
 from neuralls.platform.reporting.group_style import GroupStyle
@@ -93,9 +92,7 @@ def plot_paired_time_scatter(
     palette = method_palette(others, style)
     label = METRICS[metric].label
 
-    fig, ax = plt.subplots(
-        figsize=paired_scatter_figure_size([style.legend.label(name) for name in others])
-    )
+    fig, ax = plt.subplots(figsize=paired_scatter_figure_size())
     ax.set_xscale("log")
     ax.set_yscale("log")
     ax.plot([axes.low, axes.high], [axes.low, axes.high], color="gray", linewidth=1, linestyle="--")
@@ -134,7 +131,7 @@ def plot_paired_time_scatter(
     )
     ax.set_ylabel(f"Method: {label}")
     ax.grid(True, which="both", alpha=0.3)
-    draw_legend_outside(ax, style.legend)
+    draw_legend(ax, style.legend)
     finish_group_figure(
         fig,
         ax,
@@ -193,15 +190,7 @@ def plot_speed_ratio_cdf(
         return None
     names = summary["method"].to_list()
     palette = method_palette(names, style)
-    entries = [
-        speed_ratio_legend(
-            style.legend.label(row["method"]),
-            median=row["median_ratio"],
-            ci=None if row["ci_low"] is None else (row["ci_low"], row["ci_high"]),
-        )
-        for row in summary.iter_rows(named=True)
-    ]
-    fig, ax = plt.subplots(figsize=with_outside_legend((8.0, 5.0), entries))
+    fig, ax = plt.subplots(figsize=(8.0, 5.0))
     for row in summary.iter_rows(named=True):
         name = row["method"]
         xs, ys = _speed_ratio_curve(ratios.filter(pl.col("method") == name)["ratio"].to_list())
@@ -227,7 +216,7 @@ def plot_speed_ratio_cdf(
     )
     ax.set_ylabel("Fraction of paired systems")
     ax.grid(True, which="both", alpha=0.3)
-    ax.legend(loc="upper left", bbox_to_anchor=LEGEND_ANCHOR, fontsize=LEGEND_FONT_SIZE)
+    ax.legend(loc=LEGEND_LOCATION, fontsize=LEGEND_FONT_SIZE)
     finish_group_figure(
         fig,
         ax,

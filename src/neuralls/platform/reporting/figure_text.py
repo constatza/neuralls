@@ -12,7 +12,7 @@ import math
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from enum import StrEnum
-from typing import Literal, assert_never
+from typing import assert_never
 
 from matplotlib.axes import Axes
 
@@ -54,12 +54,9 @@ __all__ = [
     "FigureTitle",
     "Legend",
     "LegendEntry",
-    "LegendLayout",
-    "LegendPlacement",
     "ScopeSubtitle",
     "cohort_note",
     "draw_legend",
-    "draw_legend_outside",
     "method_legend",
     "scope_label",
     "series_legend",
@@ -76,13 +73,11 @@ DID_NOT_CONVERGE_MARK = "[did not converge]"
 """Suffix on a failed run's label, so a run stopped by the iteration cap is never read
 as a cheap solve in the cost, iteration and time plots."""
 
-MAX_INLINE_ENTRIES = 6
-"""Most legend entries that stay inside the axes."""
-
 MAX_LINES_PER_COLUMN = 24
-"""Most legend text lines an external legend stacks before it opens another column."""
+"""Most legend text lines a legend stacks before it opens another column."""
 
-LEGEND_ANCHOR = (1.02, 1.0)
+LEGEND_LOCATION = "best"
+"""Every legend sits inside its axes where matplotlib finds it covers the fewest marks."""
 
 LEGEND_FONT_SIZE = 9
 """Point size of every method legend entry and of the method labels on bar-chart axes."""
@@ -141,25 +136,6 @@ class LegendEntry:
                 assert_never(self.convergence)
 
 
-type InsideLegendLocation = Literal["upper right", "lower right"]
-"""Where a legend that fits sits inside the axes."""
-
-
-class LegendPlacement(StrEnum):
-    """Where a legend is drawn relative to the axes."""
-
-    INSIDE = "inside"
-    OUTSIDE_RIGHT = "outside_right"
-
-
-@dataclass(frozen=True, slots=True)
-class LegendLayout:
-    """How a legend is laid out: where it sits and across how many columns."""
-
-    placement: LegendPlacement
-    columns: int
-
-
 @dataclass(frozen=True, slots=True)
 class Legend:
     """The text of every series of a figure, keyed by series name.
@@ -189,14 +165,10 @@ class Legend:
         return entry
 
     @property
-    def layout(self) -> LegendLayout:
-        """Choose where the legend sits from the lines its entries need; never from fewer facts."""
+    def columns(self) -> int:
+        """Columns the legend needs for the lines of its entries; no fact is dropped to fit."""
         lines = sum(entry.drawn.count("\n") + 1 for entry in self.entries.values())
-        if len(self.entries) <= MAX_INLINE_ENTRIES and lines == len(self.entries):
-            return LegendLayout(LegendPlacement.INSIDE, columns=1)
-        return LegendLayout(
-            LegendPlacement.OUTSIDE_RIGHT, columns=max(1, math.ceil(lines / MAX_LINES_PER_COLUMN))
-        )
+        return max(1, math.ceil(lines / MAX_LINES_PER_COLUMN))
 
 
 def method_legend(
@@ -237,37 +209,9 @@ def scope_label(scope: FigureScope, notation: NotationPolicy) -> str:
     return render_figure_scope(scope, LOG_PROFILE, _plain(notation)).text
 
 
-def draw_legend(
-    ax: Axes,
-    legend: Legend,
-    *,
-    inside_loc: InsideLegendLocation,
-    fontsize: float = LEGEND_FONT_SIZE,
-) -> None:
-    """Draw ``ax``'s legend where ``legend.layout`` says: inside, or outside in columns."""
-    layout = legend.layout
-    match layout.placement:
-        case LegendPlacement.INSIDE:
-            ax.legend(loc=inside_loc, fontsize=fontsize)
-        case LegendPlacement.OUTSIDE_RIGHT:
-            ax.legend(
-                loc="upper left",
-                bbox_to_anchor=LEGEND_ANCHOR,
-                ncols=layout.columns,
-                fontsize=fontsize,
-            )
-        case _:
-            assert_never(layout.placement)
-
-
-def draw_legend_outside(ax: Axes, legend: Legend, *, fontsize: float = LEGEND_FONT_SIZE) -> None:
-    """Draw ``ax``'s legend right of the axes in ``legend.layout``'s columns, never over a mark."""
-    ax.legend(
-        loc="upper left",
-        bbox_to_anchor=LEGEND_ANCHOR,
-        ncols=legend.layout.columns,
-        fontsize=fontsize,
-    )
+def draw_legend(ax: Axes, legend: Legend, *, fontsize: float = LEGEND_FONT_SIZE) -> None:
+    """Draw ``ax``'s legend inside the axes at the best location, in ``legend.columns``."""
+    ax.legend(loc=LEGEND_LOCATION, ncols=legend.columns, fontsize=fontsize)
 
 
 @dataclass(frozen=True, slots=True)
