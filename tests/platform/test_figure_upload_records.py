@@ -62,7 +62,9 @@ def test_the_table_beside_a_figure_is_the_one_its_card_names(
     ]
     target = _written_target(tmp_path, plan.stem)
     writer = RecordingRunWriter()
-    uploader = FigureUploader("session-run", notation, SESSION_ENVIRONMENT, writer, ROOT_RUN)
+    uploader = FigureUploader(
+        "session-run", notation, SESSION_ENVIRONMENT, writer, ROOT_RUN, tmp_path / "staging"
+    )
 
     uploader.upload(
         GROUP_RUN, GROUP_DIRECTORY, StagedTabledFigure(StagedFigure(plan, target), table)
@@ -104,7 +106,12 @@ def test_a_table_of_another_kind_than_the_cards_is_not_uploaded(
     )
     target = _written_target(tmp_path, plan.stem)
     uploader = FigureUploader(
-        "session-run", notation, SESSION_ENVIRONMENT, RecordingRunWriter(), ROOT_RUN
+        "session-run",
+        notation,
+        SESSION_ENVIRONMENT,
+        RecordingRunWriter(),
+        ROOT_RUN,
+        tmp_path / "staging",
     )
     other_kind = figure_summaries(profile_report, no_offline_cost(profile_report))[
         "workload_solve_bars"
@@ -119,10 +126,14 @@ def test_a_table_of_another_kind_than_the_cards_is_not_uploaded(
 
 
 def test_the_index_cites_the_split_records_copied_to_the_report_root(
-    notation: NotationPolicy, split_records: tuple[DatasetSplitRecord, ...]
+    notation: NotationPolicy,
+    split_records: tuple[DatasetSplitRecord, ...],
+    tmp_path: Path,
 ) -> None:
     writer = RecordingRunWriter()
-    uploader = FigureUploader("session-run", notation, SESSION_ENVIRONMENT, writer, ROOT_RUN)
+    uploader = FigureUploader(
+        "session-run", notation, SESSION_ENVIRONMENT, writer, ROOT_RUN, tmp_path / "staging"
+    )
 
     uploader.write_index(split_records)
 

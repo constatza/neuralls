@@ -320,6 +320,7 @@ def sink(
     writer: RecordingRunWriter,
     runs: FakeRunTree,
     dataset_presentation: DatasetPresentation,
+    tmp_path: Path,
 ) -> MLflowReportSink:
     return MLflowReportSink(
         notation,
@@ -329,6 +330,7 @@ def sink(
         SESSION_ENVIRONMENT,
         writer,
         ROOT_RUN,
+        tmp_path / "staging",
         methods=stored_methods,
         datasets={DatasetId("ds"): dataset_presentation},
     )
@@ -536,6 +538,7 @@ def test_method_figures_are_drawn_with_the_configured_title_switch(
     monkeypatch: pytest.MonkeyPatch,
     show_titles: bool,
     writer: RecordingRunWriter,
+    tmp_path: Path,
 ) -> None:
     flags: list[bool] = []
     monkeypatch.setattr(
@@ -551,6 +554,7 @@ def test_method_figures_are_drawn_with_the_configured_title_switch(
         SESSION_ENVIRONMENT,
         writer,
         ROOT_RUN,
+        tmp_path / "staging",
         methods=stored_methods,
         figure_style=FigureStyleConfig(show_titles=show_titles),
     )
@@ -794,6 +798,7 @@ def test_group_naming_a_method_without_a_stored_run_is_rejected(
     notation: NotationPolicy,
     split_records: tuple[DatasetSplitRecord, ...],
     dataset_presentation: DatasetPresentation,
+    tmp_path: Path,
 ) -> None:
     with pytest.raises(UnknownStoredMethodError):
         MLflowReportSink(
@@ -804,6 +809,7 @@ def test_group_naming_a_method_without_a_stored_run_is_rejected(
             SESSION_ENVIRONMENT,
             RecordingRunWriter(),
             ROOT_RUN,
+            tmp_path / "staging",
             datasets={DatasetId("ds"): dataset_presentation},
         ).report(group, presentation=presentation)
 
@@ -893,18 +899,27 @@ def test_a_system_is_recorded_inside_its_rhs_type_run(
 
 
 def test_two_system_ids_with_one_sanitized_key_are_rejected(
-    system: System, system_figure: StagedFigure, sink: MLflowReportSink
+    system: System,
+    system_figure: StagedFigure,
+    sink: MLflowReportSink,
+    writer: RecordingRunWriter,
 ) -> None:
-    sink.report_system(replace(system, system_id=SystemId("a b")), {}, [system_figure])
+    metric = parent_run_metric_key("iterations", "amg")
+    sink.report_system(replace(system, system_id=SystemId("a b")), {metric: 3.0}, [system_figure])
+    before = {
+        run_id: (dict(run.metrics), dict(run.artifacts)) for run_id, run in writer.runs.items()
+    }
 
-    # try/except, not pytest.raises: a kept ExceptionInfo would hold the sink alive past this
-    # test, so its staging directory would be removed during a later test.
-    try:
-        sink.report_system(replace(system, system_id=SystemId("a_b")), {}, [system_figure])
-    except SystemKeyCollisionError as error:
-        assert (error.key, error.first, error.second) == ("a_b", "a b", "a_b")
-    else:
-        pytest.fail("a sanitized key collision was not rejected")
+    with pytest.raises(SystemKeyCollisionError) as raised:
+        sink.report_system(
+            replace(system, system_id=SystemId("a_b")), {metric: 4.0}, [system_figure]
+        )
+
+    assert (raised.value.key, raised.value.first, raised.value.second) == ("a_b", "a b", "a_b")
+    after = {
+        run_id: (dict(run.metrics), dict(run.artifacts)) for run_id, run in writer.runs.items()
+    }
+    assert after == before
 
 
 def test_one_stem_may_repeat_across_runs_but_not_within_one(

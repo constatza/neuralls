@@ -312,7 +312,8 @@ class MLflowReportSink:
     ``split_records`` are the session's held-out records, copied beside the index; ``environment`` is the
     session run's recorded device, CPU, versions and revisions, cited in every figure card. ``runs``
     creates the nested scope runs under ``root_run_id``, the report's root run, and ``writer``
-    logs every artifact and metric into the run of its scope.
+    logs every artifact and metric into the run of its scope. Figures are staged under
+    ``staging``, which the caller owns and removes, so a failed report leaves nothing behind.
     """
 
     notation: NotationPolicy
@@ -322,6 +323,7 @@ class MLflowReportSink:
     environment: RuntimeEnvironment
     writer: RunWriter
     root_run_id: str
+    staging: Path
     methods: Sequence[StoredMethod] = ()
     datasets: Mapping[DatasetId, DatasetPresentation] = field(default_factory=dict)
     figure_style: FigureStyleConfig = field(default_factory=FigureStyleConfig)
@@ -330,10 +332,13 @@ class MLflowReportSink:
     def __post_init__(self) -> None:
         """Open the report: its scope run tree and figure uploader start empty."""
         uploader = FigureUploader(
-            self.session_run_id, self.notation, self.environment, self.writer, self.root_run_id
+            self.session_run_id,
+            self.notation,
+            self.environment,
+            self.writer,
+            self.root_run_id,
+            self.staging,
         )
-        # The namer captures values, not `self`: a cycle back to the sink would keep the
-        # uploader's staging directory alive until an arbitrary later garbage collection.
         notation, datasets = self.notation, self.datasets
         self._state = OpenReport(
             self.notation,

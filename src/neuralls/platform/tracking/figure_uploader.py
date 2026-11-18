@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import tempfile
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -57,7 +56,7 @@ class ArtifactSink(Protocol):
 class FigureUploader:
     """Uploads each figure's files with its card (and plotted table) and records what was uploaded.
 
-    Figures are staged in a private temporary directory. File stems only need to be unique
+    Figures are staged under ``staging``, a directory the caller owns and removes. File stems only need to be unique
     inside one run directory; the uploader rejects a name that collides with another one in
     the same ``(run, directory)``. ``write_index`` checks that every figure has its card and
     uploads the index of all figures into the report's root run, ``root_run_id``.
@@ -68,16 +67,18 @@ class FigureUploader:
     environment: RuntimeEnvironment
     artifacts: ArtifactSink
     root_run_id: str
-    _staging: tempfile.TemporaryDirectory[str] = field(
-        default_factory=lambda: tempfile.TemporaryDirectory(prefix="neuralls-figures-")
-    )
+    staging: Path
     _taken: dict[tuple[str, str | None], set[str]] = field(default_factory=dict)
     _uploaded: list[ArtifactLocation] = field(default_factory=list)
     _cards: dict[ArtifactLocation, FigureCard] = field(default_factory=dict)
 
+    def __post_init__(self) -> None:
+        """Create the staging directory."""
+        self.staging.mkdir(parents=True, exist_ok=True)
+
     def staging_dir(self, name: str) -> Path:
         """A directory called ``name`` inside the staging area, created on first request."""
-        path = Path(self._staging.name) / name
+        path = self.staging / name
         path.mkdir(exist_ok=True)
         return path
 
@@ -155,14 +156,12 @@ class FigureUploader:
         """
         index = index_of(self._cards)
         verify_figure_records(self._uploaded, self._cards, index)
-        staging = Path(self._staging.name)
-        splits_path = staging / SPLITS_ARTIFACT
+        splits_path = self.staging / SPLITS_ARTIFACT
         splits_path.write_bytes(encode_split_records(split_records))
-        index_path = staging / FIGURE_INDEX_FILE
+        index_path = self.staging / FIGURE_INDEX_FILE
         write_figure_index(index_path, index, SPLITS_ARTIFACT)
         self.artifacts.log_artifact(self.root_run_id, splits_path, None)
         self.artifacts.log_artifact(self.root_run_id, index_path, None)
-        self._staging.cleanup()
         return index
 
 

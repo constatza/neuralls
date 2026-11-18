@@ -142,6 +142,7 @@ def run_comparison_report(
                 read_environment_params(session_run.data.params),
                 writer,
                 report_run_id,
+                Path(tmp) / "figures",
                 methods=inputs.stored.methods,
                 datasets=inputs.datasets,
                 figure_style=figure_style,
