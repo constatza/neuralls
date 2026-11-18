@@ -1,10 +1,6 @@
 [mlflow]
 tracking_uri = "http://localhost:5000"
 
-[names]
-training = "Train-45x15randomE-POD-StopSearch"
-comparison = "Compare-45x15randomE-POD-StopSearch"
-
 [comparison_baseline]
 rtol = 1.0e-6
 atol = 1.0e-14

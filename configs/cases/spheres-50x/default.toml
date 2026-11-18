@@ -1,10 +1,6 @@
 [mlflow]
 tracking_uri = "http://localhost:5000"
 
-[names]
-training = "Train-Spheres50x-POD-CG"
-comparison = "Compare-Spheres50x-POD-CG"
-
 [comparison_baseline]
 rtol = 1.0e-6
 atol = 1.0e-14
