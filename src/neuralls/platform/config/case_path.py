@@ -5,7 +5,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from neuralls.shared.types import ConfigKey
+
+@dataclass(frozen=True, slots=True)
+class ConfigKey:
+    """One case config's identity, ``<case>/<config>``: the name of its MLflow experiment."""
+
+    case: str
+    config: str
+
+    @property
+    def experiment_name(self) -> str:
+        return f"{self.case}/{self.config}"
 
 
 @dataclass(frozen=True, slots=True)

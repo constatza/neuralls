@@ -205,8 +205,8 @@ def _assert_remote_artifact_location(
         "This is permanent — MLflow experiments' artifact_location cannot be "
         "changed after creation. Delete and recreate the experiment on the "
         "server (mlflow.delete_experiment + a fresh mlflow.create_experiment "
-        "with no local artifact_location), or rename it in the case config's "
-        "[names] section to start a fresh, correctly-configured experiment."
+        "with no local artifact_location), or rename the case config file or its "
+        "directory, which name the experiment, to start a fresh, correctly-configured one."
     )
 
 

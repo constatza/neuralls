@@ -1,7 +1,7 @@
 """Report workflow: read a finished compare session back and log its figures and metrics.
 
-Never solves or times. The session is read from the comparison experiment and everything is
-written to the report experiment, so a failure here cannot invalidate completed compute.
+Never solves or times. The session is read from the case config's experiment and the report
+is written there as new runs, so a failure here cannot invalidate completed compute.
 """
 
 from __future__ import annotations
