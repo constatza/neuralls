@@ -60,6 +60,7 @@ from neuralls.domain.solver.reporting.observations import Outcome, observations_
 from neuralls.domain.solver.reporting.report_levels import ReportLevelName
 from neuralls.domain.solver.reporting.summary import Population
 from neuralls.platform.config.models.preconditioner import (
+    PreconditionerConfig,
     PreconditionerType,
     StandardPreconditionerConfig,
 )
@@ -102,16 +103,20 @@ type WriteMethod = Callable[..., CompletedMethodWorkload]
 def write_method(
     prepared_method: PreparedMethodFactory, dataset_presentation: DatasetPresentation
 ) -> WriteMethod:
-    """Write a complete one-system artifact set for a standard preconditioner."""
+    """Write a complete one-system artifact set for a preconditioner (a bare type is standard)."""
 
     def write(
-        kind: PreconditionerType,
+        kind: PreconditionerType | PreconditionerConfig,
         root: Path,
         *,
         dataset: DatasetPresentation = dataset_presentation,
         offline: OfflineStages = NO_OFFLINE_COST,
     ) -> CompletedMethodWorkload:
-        config = StandardPreconditionerConfig(type=kind)
+        config = (
+            StandardPreconditionerConfig(type=kind)
+            if isinstance(kind, PreconditionerType)
+            else kind
+        )
         method = PreconditionerName(config.name)
         tag = SystemTag(DatasetId("ds"), GAUSSIAN, MatrixId(0), 0, SystemId(f"{method}-0"))
         setup = MatrixSetupEvent(

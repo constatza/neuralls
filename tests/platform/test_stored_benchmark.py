@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 import tomli_w
+from tests.presentation_support import pod_spec
 from tests.provenance_support import provenance_for
 
 from neuralls.composition.comparison.models import (
@@ -56,6 +57,19 @@ def test_session_methods_round_trip_into_one_benchmark(
     ]
     assert stored.datasets == {DatasetId("ds"): dataset_presentation}
     assert stored.methods[0].solve_attempts.get_column("system_id").to_list() == ["jacobi-0"]
+
+
+def test_a_pod_method_keeps_its_recorded_name_though_its_stored_fit_dataset_is_a_digest(
+    tmp_path: Path, write_method: Callable[..., CompletedMethodWorkload]
+) -> None:
+    fit_dataset = tmp_path / "rhc"
+    fit_dataset.mkdir()
+    (fit_dataset / "solutions.npy").write_bytes(b"snapshots")
+    pod = write_method(pod_spec(fit_dataset, 10), tmp_path / "pod")
+
+    (method,) = read_stored_benchmark([_dir(tmp_path / "pod", pod)]).methods
+
+    assert method.name == pod.method
 
 
 def test_a_methods_offline_cost_is_read_back_from_its_summary(

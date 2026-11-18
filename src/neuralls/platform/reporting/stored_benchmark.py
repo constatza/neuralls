@@ -96,9 +96,11 @@ def read_stored_method(
     directory = source.path
     artifacts = MethodBenchmarkArtifacts()
     setup_path = directory / artifacts.setup_events
-    config = parse_preconditioner_config(
-        tomllib.loads((directory / artifacts.method_config).read_text(encoding="utf-8"))
-    )
+    stored_config = tomllib.loads((directory / artifacts.method_config).read_text(encoding="utf-8"))
+    config = parse_preconditioner_config(stored_config)
+    # The stored config holds input digests in place of paths, so a name derived from an
+    # input path (a POD fit dataset) is read as recorded, never re-derived from it.
+    name = PreconditionerName(str(stored_config["name"]))
     stored = read_presentation(directory / artifacts.presentation)
     systems = read_planned_systems(directory / artifacts.planned_systems)
     setup_events = read_setup_events(setup_path)
@@ -108,7 +110,6 @@ def read_stored_method(
     convergence = read_convergence(directory / artifacts.convergence)
 
     summary = tomllib.loads((directory / artifacts.summary).read_text(encoding="utf-8"))
-    name = PreconditionerName(config.name)
     if str(summary["method"]["config_digest"]) != source.config_digest:
         raise ValueError(f"summary in {directory} does not match the digest of run {source.run_id}")
     if summary["method"]["name"] != str(name):
