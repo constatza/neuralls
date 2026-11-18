@@ -83,6 +83,7 @@ from neuralls.platform.tracking.mlflow_client import (
     mark_run_failed,
 )
 from neuralls.platform.tracking.run_names import render_training_label, run_name_text
+from neuralls.platform.tracking.runtime_environment import neuralls_revision
 from neuralls.shared.constants import (
     TRAINING_CHILD_DURATION_METRIC_KEY,
     TRAINING_CHILD_PEAK_MEMORY_METRIC_KEY,
@@ -446,6 +447,7 @@ def run_assignment_sweep(
             case_config_path=case_path,
             experiment_name=mlflow_experiment_name,
             phase="session_training",
+            revision=neuralls_revision(),
         )
 
         resolved, pending = _prepare_assignments(

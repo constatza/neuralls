@@ -23,6 +23,8 @@ from mlflow.tracking import MlflowClient
 from mlflow.tracking.context.registry import resolve_tags
 
 PARENT_RUN_TAG = "mlflow.parentRunId"
+RUN_DESCRIPTION_TAG = "mlflow.note.content"
+"""The reserved tag MLflow shows as a run's description."""
 """The tag MLflow nests a child run under its parent by."""
 
 type RunStatus = Literal["FINISHED", "FAILED"]

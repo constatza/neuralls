@@ -86,6 +86,8 @@ def _run_session(
 ) -> list[ComparisonOutcome]:
     """Execute the batch inside one session parent run and project the workloads to outcomes."""
     pending = batch.items
+    device = resolve_device()
+    environment = collect_runtime_environment(device)
     session_run, session_tags = build_session_run_spec(
         title=summarized_session_title(
             [item.title for item in executions],
@@ -95,6 +97,7 @@ def _run_session(
         case_config_path=case_config_path,
         experiment_name=topology.experiment_name,
         phase=SESSION_PHASE,
+        revision=environment.revision,
     )
     runs = tracking.comparison_runs(
         topology.tracking_uri,
@@ -107,8 +110,7 @@ def _run_session(
     )
     with runs.session(session_run, session_tags.as_mlflow_tags()) as session:
         session.record_splits(batch.split_records)
-        device = resolve_device()
-        session.record_environment(collect_runtime_environment(device))
+        session.record_environment(environment)
         with _batch_phase(session.failures, case_config_path, ComparisonBatchPhase.WARMUP):
             warm_up_device(device)
         with _batch_phase(

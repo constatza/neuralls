@@ -122,6 +122,11 @@ def _torchalg_revision() -> str | Unreported:
     return commit if isinstance(commit, str) and commit else Unreported.UNKNOWN
 
 
+def neuralls_revision() -> str | Unreported:
+    """The git revision of the running neuralls checkout, as a session's environment records it."""
+    return _git_revision(PACKAGE_DIRECTORY)
+
+
 def _device_name(device: torch.device) -> str:
     """The CUDA device name, or `CPU_DEVICE_NAME` for any non-CUDA device."""
     if device.type == "cuda":
@@ -146,6 +151,6 @@ def collect_runtime_environment(
         torch_version=torch.__version__,
         torchalg_version=_torchalg_version(),
         python_version=platform.python_version(),
-        revision=_git_revision(PACKAGE_DIRECTORY),
+        revision=neuralls_revision(),
         torchalg_revision=_torchalg_revision(),
     )

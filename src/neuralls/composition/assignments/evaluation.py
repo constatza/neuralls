@@ -50,6 +50,7 @@ from neuralls.platform.tracking.mlflow import (
     finalize_session_parent_run,
 )
 from neuralls.platform.tracking.run_names import render_training_label, run_name_text
+from neuralls.platform.tracking.runtime_environment import neuralls_revision
 
 EVAL_OUTPUT_DIR_NAME = "eval"
 
@@ -316,6 +317,7 @@ def eval_batch(
             case_config_path=case_config_path.path,
             experiment_name=mlflow_experiment_name,
             phase="session_evaluation",
+            revision=neuralls_revision(),
         )
         session_tag_map = dict(session_tags.as_mlflow_tags())
 

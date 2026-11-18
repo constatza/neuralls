@@ -35,6 +35,7 @@ from neuralls.domain.presentation.run_names import (
     TrainingRunName,
     TrainingSubject,
     Untimed,
+    session_stage,
 )
 from neuralls.domain.presentation.titles import (
     ComparisonScopePresentation,
@@ -47,12 +48,15 @@ from neuralls.platform.config.resolution import MlflowPaths
 from neuralls.platform.reporting.benchmark_events import MethodBenchmarkArtifacts
 from neuralls.platform.tracking.mlflow import MlflowRunConfig
 from neuralls.platform.tracking.run_names import (
+    render_session_title,
     render_training_dataset,
     render_training_subject,
     run_name_text,
 )
+from neuralls.platform.tracking.run_writer import RUN_DESCRIPTION_TAG
 from neuralls.platform.tracking.session_artifacts import METHOD_PHASE
 from neuralls.shared.digest import Digest, ordered_workload_digest
+from neuralls.shared.runtime_environment import Unreported
 from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import PreconditionerName
 
@@ -218,14 +222,16 @@ def build_benchmark_method_run_spec(
 
 @dataclass(frozen=True, slots=True)
 class SessionRunTags:
-    """Structured tags for a batch session parent run (training or comparison).
+    """Structured tags for a session root run (training, evaluation or comparison).
 
     Attributes:
-        phase: "session_training" or "session_comparison".
+        phase: The session phase lookups filter on; its stage word is the ``neuralls.stage`` tag.
         case_config: Stem of the case config file.
         case_config_path: Full path string.
         started_at: ISO timestamp (local).
-        experiment_name: MLflow experiment the session's child runs are grouped under.
+        experiment_name: The config key's experiment name, also the ``neuralls.config`` tag.
+        title: What the session ran on; rendered as the ``title`` tag and the run description.
+        notation: The case notation the title is rendered with.
     """
 
     phase: SessionPhase
@@ -233,10 +239,23 @@ class SessionRunTags:
     case_config_path: str
     started_at: str
     experiment_name: str
+    title: SessionTitle
+    notation: NotationPolicy
 
     def as_mlflow_tags(self) -> dict[str, str]:
         """Serialize to MLflow-compatible string tag dict."""
-        return asdict(self)
+        title = render_session_title(self.title, self.phase, self.notation)
+        return {
+            "phase": self.phase,
+            "case_config": self.case_config,
+            "case_config_path": self.case_config_path,
+            "started_at": self.started_at,
+            "experiment_name": self.experiment_name,
+            "neuralls.config": self.experiment_name,
+            "neuralls.stage": session_stage(self.phase),
+            "title": title,
+            RUN_DESCRIPTION_TAG: title,
+        }
 
 
 def build_training_run_spec(
@@ -307,21 +326,24 @@ def build_session_run_spec(
     case_config_path: Path,
     experiment_name: str,
     phase: SessionPhase,
-    timestamp: str | None = None,
+    revision: str | Unreported,
+    started: datetime | None = None,
 ) -> tuple[NamedRun, SessionRunTags]:
-    """Build (run, SessionRunTags) for one batch session invocation.
+    """Build (run, SessionRunTags) for one session root run.
 
-    Shared by training, evaluation and comparison batches: all wrap their per-entry runs
-    under one parent run named by what the session ran on, plus the launch time.
+    Shared by training, evaluation and comparison batches: the root is named by its stage,
+    start time and code revision; what it ran on is its ``title`` tag and description.
     """
-    ts = timestamp or iso_timestamp()
-    run = NamedRun(SessionRunName(title, RunTimestamp(ts), phase), notation)
+    started = started or datetime.now()
+    run = NamedRun(SessionRunName(session_stage(phase), started, revision), notation)
     tags = SessionRunTags(
         phase=phase,
         case_config=case_config_path.stem,
         case_config_path=case_config_path.as_posix(),
-        started_at=ts,
+        started_at=iso_timestamp(started),
         experiment_name=experiment_name,
+        title=title,
+        notation=notation,
     )
     return run, tags
 

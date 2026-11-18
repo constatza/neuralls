@@ -43,6 +43,7 @@ from neuralls.domain.presentation.titles import (
     SessionTitle,
     SummarizedTitle,
 )
+from neuralls.shared.runtime_environment import Unreported
 from neuralls.shared.scientific_description.policy import (
     NotationPolicy,
     RenderProfile,
@@ -55,6 +56,10 @@ RUN_NAME_PROFILE = RenderProfile(name="run_name", include_context=False)
 _PART_SEPARATOR = " | "
 _COLLECTION_SEPARATOR = "; "
 _MATRIX_SET_PREFIX = "Comparison matrix set: "
+_SESSION_SEPARATOR = " · "
+_SESSION_STARTED_FORMAT = "%Y-%m-%d %H:%M"
+_REVISION_LENGTH = 8
+_DIRTY_SUFFIX = "-dirty"
 
 
 def _stamped(text: str, stamp: RunStamp) -> str:
@@ -93,6 +98,18 @@ def _title_text(
             return render_title(title, profile, policy).text
         case _:
             assert_never(title)
+
+
+def _short_revision(revision: str) -> str:
+    """The first ``_REVISION_LENGTH`` characters of ``revision``, keeping a ``-dirty`` suffix."""
+    clean = revision.removesuffix(_DIRTY_SUFFIX)
+    suffix = _DIRTY_SUFFIX if clean != revision else ""
+    return f"{clean[:_REVISION_LENGTH]}{suffix}"
+
+
+def render_session_title(title: SessionTitle, phase: SessionPhase, notation: NotationPolicy) -> str:
+    """Render a session's scientific title as plain text, for its ``title`` tag and description."""
+    return _title_text(title, RUN_NAME_PROFILE, replace(notation, target=RenderTarget.PLAIN), phase)
 
 
 def _qualifier_text(qualifier: SystemQualifier) -> str:
@@ -165,8 +182,11 @@ def render_run_name(name: RunName, notation: NotationPolicy) -> str:
     policy = replace(notation, target=RenderTarget.PLAIN)
     profile = RUN_NAME_PROFILE
     match name:
-        case SessionRunName(title=title, started=started, phase=phase):
-            return _stamped(_title_text(title, profile, policy, phase), started)
+        case SessionRunName(stage=stage, started=started, revision=revision):
+            parts = [stage, started.strftime(_SESSION_STARTED_FORMAT)]
+            if not isinstance(revision, Unreported):
+                parts.append(_short_revision(revision))
+            return _SESSION_SEPARATOR.join(parts)
         case ComparisonRunName(subject=subject, system=system, stamp=stamp):
             text = _comparison_subject_text(subject, profile, policy)
             if system.parts:

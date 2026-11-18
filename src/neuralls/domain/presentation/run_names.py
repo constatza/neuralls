@@ -9,6 +9,7 @@ string, so no caller can name a run after a registry id.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Literal, assert_never
 
 from neuralls.domain.presentation.methods import (
@@ -19,8 +20,8 @@ from neuralls.domain.presentation.provenance import DatasetPresentation
 from neuralls.domain.presentation.titles import (
     ComparisonScopePresentation,
     EditorialPresentation,
-    SessionTitle,
 )
+from neuralls.shared.runtime_environment import Unreported
 from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import MatrixId
 
@@ -102,16 +103,41 @@ class TrainingPresentation:
     notation: NotationPolicy
 
 
-type SessionPhase = Literal["session_training", "session_comparison", "session_evaluation"]
+type SessionPhase = Literal[
+    "session_training", "session_comparison", "session_evaluation", "report"
+]
+"""The ``phase`` tag of a session root run; lookups filter on these exact values."""
+
+type SessionStage = Literal["train", "eval", "compare", "report"]
+"""The short stage word a session root run is named by."""
+
+
+def session_stage(phase: SessionPhase) -> SessionStage:
+    """The stage word of a session phase."""
+    match phase:
+        case "session_training":
+            return "train"
+        case "session_evaluation":
+            return "eval"
+        case "session_comparison":
+            return "compare"
+        case "report":
+            return "report"
+        case _:
+            assert_never(phase)
 
 
 @dataclass(frozen=True, slots=True)
 class SessionRunName:
-    """The batch parent run: phase, case title, and when the batch started."""
+    """A session root run: its stage, when it started and the code revision it ran.
 
-    title: SessionTitle
-    started: RunTimestamp
-    phase: SessionPhase
+    The scientific title is not part of the name: sessions of one config share an
+    experiment, so stage, start time and revision are what tell them apart.
+    """
+
+    stage: SessionStage
+    started: datetime
+    revision: str | Unreported
 
 
 @dataclass(frozen=True, slots=True)
