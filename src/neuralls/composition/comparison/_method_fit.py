@@ -113,13 +113,14 @@ class _PODFitInputs:
 def _fit_pod(
     cfg: PODCoarseningConfig, *, fit_data: FitDataLoader, splits: SplitStore, device: torch.device
 ) -> FittedPOD | MethodFitFailed:
+    # Only a fit's own failures become the method's setup failures: running out of memory, a
+    # rank the snapshots cannot reach, a weight that is not positive definite. A dataset that
+    # cannot be read is a broken input, already gated as current, and stops the comparison.
     with track_resource_usage(device) as usage:
         try:
             inputs = _pod_fit_inputs(cfg, fit_data=fit_data, splits=splits, device=device)
-            result: torch.Tensor | Exception = compute_pod_basis(
-                inputs.snapshots, cfg.rank, inner_product=inputs.weight
-            )
-        except (ValueError, RuntimeError) as exc:  # LinAlgError and OOM are RuntimeErrors
+            result: torch.Tensor | Exception = _basis_or_failure(cfg, inputs)
+        except torch.OutOfMemoryError as exc:
             # The traceback's frames hold the snapshots and weight on the device; dropping it
             # frees them before the method's matrices run.
             result = exc.with_traceback(None)
@@ -134,6 +135,14 @@ def _fit_pod(
             return MethodFitFailed(result, cost)
         case unreachable:
             assert_never(unreachable)
+
+
+def _basis_or_failure(cfg: PODCoarseningConfig, inputs: _PODFitInputs) -> torch.Tensor | Exception:
+    """The fitted basis, or why ``compute_pod_basis`` rejected the rank or the weight."""
+    try:
+        return compute_pod_basis(inputs.snapshots, cfg.rank, inner_product=inputs.weight)
+    except (ValueError, torch.linalg.LinAlgError) as exc:
+        return exc.with_traceback(None)
 
 
 def _pod_fit_inputs(
