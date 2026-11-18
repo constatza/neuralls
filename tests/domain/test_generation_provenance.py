@@ -57,8 +57,11 @@ def test_krylov_label_states_the_subspace_dimension_and_seed() -> None:
 @pytest.mark.parametrize(
     ("distribution", "expected"),
     [
-        ("gaussian", "Jacobi-Filtered Probes (k=10, N=5000, ω=auto, s=1)"),
-        ("rademacher", "Jacobi-Filtered Probes (k=10, N=5000, 𝒟=Rad, ω=auto, s=1)"),
+        ("gaussian", "Jacobi-Filtered Probes (k=10, N=5000, ‖·‖=ℓ₂, β=1, ω=auto, s=1)"),
+        (
+            "rademacher",
+            "Jacobi-Filtered Probes (k=10, N=5000, ‖·‖=ℓ₂, β=1, 𝒟=Rad, ω=auto, s=1)",
+        ),
     ],
 )
 def test_smoother_probe_label_states_sweeps_count_and_only_a_non_gaussian_distribution(

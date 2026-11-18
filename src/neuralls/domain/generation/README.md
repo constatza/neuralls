@@ -247,7 +247,7 @@ dimension alone — see `composition/README.md`'s generated-RHS-kinds note.
 3. Window selection with the shared `StepWindow` (below); a trajectory shorter
    than the window raises `TrajectoryShortfallError`.
 4. `scale_rows(residuals, errors, scaling)`: the strategy's `snapshot_scaling`
-   (`NoSnapshotScaling`, the default, or `NormSnapshotScaling(norm, power)`)
+   (`NormSnapshotScaling(norm, power)`, by default `norm = "l2"`, `power = 1`, or `NoSnapshotScaling`)
    multiplies each pair by `c_k = ||e_k||^-power`, with `||e_k||_2` or the energy
    norm `||e_k||_A = sqrt(e_k . r_k)` (no extra matrix product, since `r_k = A e_k`;
    `A` is the scaled matrix of the binding). Both rows get the same factor, so

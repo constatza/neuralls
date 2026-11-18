@@ -89,7 +89,10 @@ def generation_order_spec(solver_overrides: dict[str, Any]) -> DatasetSpec:
             counts={"gaussian_forward": 6, "cg_errors": 6},
             seed=1234,
             shuffle=False,
-            strategy_overrides={"cg_errors": {"stop": 3, "start": 1}},
+            # Unscaled rows: the golden values predate the l2 snapshot-scaling default.
+            strategy_overrides={
+                "cg_errors": {"stop": 3, "start": 1, "snapshot_scaling": {"kind": "none"}}
+            },
             solver_overrides=solver_overrides,
         ),
         scaling=GershgorinScaling(),

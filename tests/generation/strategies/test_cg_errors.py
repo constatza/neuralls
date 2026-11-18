@@ -15,7 +15,6 @@ from neuralls.domain.generation.strategy_configs import (
     CgErrorsConfig,
     JacobiProbesConfig,
     NormSnapshotScaling,
-    NoSnapshotScaling,
 )
 from neuralls.domain.normalization import ResidualTraceSamples
 from neuralls.shared.fact_binding import describe_model
@@ -103,10 +102,10 @@ def test_cg_errors_ignore_a_binding_rhs(cg_errors: RunCgErrors, spd_matrix: np.n
 
 
 @pytest.mark.parametrize("config_type", [CgErrorsConfig, JacobiProbesConfig])
-def test_snapshot_scaling_defaults_to_none(config_type: type[CgErrorsConfig]) -> None:
+def test_snapshot_scaling_defaults_to_unit_l2(config_type: type[CgErrorsConfig]) -> None:
     config = config_type.model_validate({"samples": 3, "stop": 5})
 
-    assert config.snapshot_scaling == NoSnapshotScaling()
+    assert config.snapshot_scaling == NormSnapshotScaling(norm="l2", power=1.0)
 
 
 @pytest.mark.parametrize("config_type", [CgErrorsConfig, JacobiProbesConfig])
@@ -155,7 +154,9 @@ def test_cg_errors_facts_show_the_snapshot_scaling() -> None:
 
 
 def test_jacobi_probes_facts_without_snapshot_scaling() -> None:
-    config = JacobiProbesConfig.model_validate({"samples": 3, "stop": 5})
+    config = JacobiProbesConfig.model_validate(
+        {"samples": 3, "stop": 5, "snapshot_scaling": {"kind": "none"}}
+    )
 
     assert describe_model(config) == (
         make_fact(STEPS, 5),

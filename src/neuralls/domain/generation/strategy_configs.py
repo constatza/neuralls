@@ -314,8 +314,8 @@ class _SnapshotTrajectoryConfig(BaseStrategyConfig, _StepWindowFields):
         # source, so samples=-1 ("all") is never meaningful — reject it at construction.
     )
     snapshot_scaling: Annotated[SnapshotScaling, Nested()] = Field(
-        default_factory=NoSnapshotScaling,
-        description="Per-row scaling of the kept (r_k, e_k) pairs.",
+        default=NormSnapshotScaling(norm="l2"),
+        description="Per-row scaling of the kept (r_k, e_k) pairs; unit l2 error norm by default.",
     )
 
 

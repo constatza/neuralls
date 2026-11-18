@@ -199,7 +199,11 @@ def test_build_dataset_persists_cg_error_pairs(tmp_path: Path) -> None:
                 counts={"cg_errors": 4},
                 seed=7,
                 shuffle=False,
-                strategy_overrides={"cg_errors": {"stop": 2, "start": 1}},
+                # Unscaled: a converged row has e_k at rounding level, and unit scaling would
+                # amplify that rounding past the A e = r tolerance checked here.
+                strategy_overrides={
+                    "cg_errors": {"stop": 2, "start": 1, "snapshot_scaling": {"kind": "none"}}
+                },
             ),
             scaling=NoScaling(),
         ),
@@ -260,7 +264,11 @@ def test_build_dataset_marks_residual_error_rows_with_kind_codes(tmp_path: Path)
                 counts={"cg_errors": 2},
                 seed=7,
                 shuffle=False,
-                strategy_overrides={"cg_errors": {"stop": 2, "start": 1}},
+                # Unscaled: a converged row has e_k at rounding level, and unit scaling would
+                # amplify that rounding past the A e = r tolerance checked here.
+                strategy_overrides={
+                    "cg_errors": {"stop": 2, "start": 1, "snapshot_scaling": {"kind": "none"}}
+                },
             ),
             scaling=NoScaling(),
         ),
