@@ -387,7 +387,7 @@ handed a name (`run_name_text`), so a run cannot be named from an id, a slug, a 
 class name. `ComparisonRunName` renders its dataset as "Comparison matrix set: ..."
 after any editorial title. A session root run renders as
 `"{stage} · {YYYY-MM-DD HH:MM} · {revision}"`, the revision cut to 8 characters with
-any `-dirty` suffix kept and omitted when unreported; `render_session_title` renders
+any `-dirty` suffix kept and omitted when unreported; a report root (`tracking/report_run.py::root_report_run`, opened under its session) renders the same with stage `report`; `render_session_title` renders
 its scientific title for the `title` tag and run description, applying the
 "Comparison matrix set: ..." prefix to a dataset title only for a comparison
 session. Method-child names and assignment training/evaluation subjects keep
@@ -473,8 +473,11 @@ runtime lease paths are omitted.
 
 The comparison session run also carries `splits.toml` (`tracking/split_records.py`): one table per dataset id with the pinned split's content digest, train/validation/test row counts, the matrix ids of the fit (train and validation) and test folds, and the separation (`single_matrix_shared`, whose one matrix is in every fold by design, or `matrix_disjoint`). `download_session_splits` reads it back and rejects a session that predates it. The session run writes it (`MlflowSessionRun.record_splits`); `neuralls report` reads it with `download_session_splits` and the report sink copies it to the root report run beside `figure_index.toml`.
 
-A report reads a session back through two modules. `tracking/session_artifacts.py` finds
-the session's FINISHED `comparison_method` children (by `mlflow.parentRunId`), checks each
+A report reads a session back through two modules. `tracking/session_artifacts.py` picks the
+newest FINISHED `session_comparison` run of the config's experiment (`latest_session_run_id`, no
+path tag: the experiment already is the config) and finds
+the session's FINISHED `comparison_method` children (by `mlflow.parentRunId`; the report root,
+also a child of the session, has phase `report` and is never among them), checks each
 holds the full artifact set, and downloads it; the reuse gate lists artifacts through the
 same helper, so run discovery exists once. `reporting/stored_benchmark.py::read_stored_benchmark`
 reads one `MethodDirectory` (local path, the method child run id and its `method_config_digest` tag, as `download_session_methods` returns them) per method into a `StoredBenchmark` of `StoredMethod`s (run id, config digest, parsed method
