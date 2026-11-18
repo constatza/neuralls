@@ -1,6 +1,7 @@
 # POD parametric study, POD inner product W: Euclidean or energy (W = A-bar, the train-fold mean matrix).
-# Baseline: c = 100, k = 20 (POD-CG), k = 10 (POD-JP), N = 5000. Only POD-CG and POD-JP
-# methods are compared; each swept value is its own method, labelled from its facts.
+# Baseline: c = 100, k = 20, N = 1000 for both POD-CG and POD-JP, so a gap between them is due to the
+# snapshot generator alone. Only POD-CG and POD-JP methods are compared; each swept value is its own
+# method, labelled from its facts.
 
 [mlflow]
 tracking_uri = "http://localhost:5000"
@@ -12,11 +13,15 @@ max_iterations = 5000
 stopping_criterion = "residual_norm"
 m_max = 20
 
+# Matrix source of the comparisons only.
 [[datasets]]
 path = "../../datasets/train/rectangular-high-condition/gaussian-cg20.toml"
 
 [[datasets]]
-path = "../../datasets/train/rectangular-high-condition/smoother-filtered-probes-nu10.toml"
+path = "../../datasets/train/rectangular-high-condition/gaussian-cg20-n1000.toml"
+
+[[datasets]]
+path = "../../datasets/train/rectangular-high-condition/smoother-filtered-probes-nu20-n1000.toml"
 
 [[jobs]]
 id = "pod-c100"
@@ -57,17 +62,17 @@ rhs_count = 20
 seed = 45
 
 [[assignments]]
-dataset = "gaussian-cg20-rectangular-high-condition"
+dataset = "gaussian-cg20-n1000-rectangular-high-condition"
 job = "pod-c100"
 
 [[assignments]]
-dataset = "gaussian-cg20-rectangular-high-condition"
+dataset = "gaussian-cg20-n1000-rectangular-high-condition"
 job = "pod-c100-energy"
 
 [[assignments]]
-dataset = "smoother-filtered-probes-nu10-rectangular-high-condition"
+dataset = "smoother-filtered-probes-nu20-n1000-rectangular-high-condition"
 job = "pod-c100"
 
 [[assignments]]
-dataset = "smoother-filtered-probes-nu10-rectangular-high-condition"
+dataset = "smoother-filtered-probes-nu20-n1000-rectangular-high-condition"
 job = "pod-c100-energy"

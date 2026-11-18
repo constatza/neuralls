@@ -1,8 +1,9 @@
-# POD parametric study, generated snapshot count. POD-CG: {125, 250, 500, 1000, 5000} at rank c in
-# {50, 100}, down to N ~ c, to locate its saturation; POD-JP: {500, 1000, 2000, 5000, 10000} at c = 100.
-# N = 5000 is the baseline file, kept outside the sweep so it is generated once.
-# Baseline: c = 100, k = 20 (POD-CG), k = 10 (POD-JP), N = 5000. Only POD-CG and POD-JP
-# methods are compared; each swept value is its own method, labelled from its facts.
+# POD parametric study, generated snapshot count N in {250, 500, 1000, 2000, 5000} at rank c in
+# {50, 100} for both generators. N = 1000 is the tracked baseline file and POD-CG's N = 5000 is
+# gaussian-cg20.toml, both kept outside the sweeps so each is generated once.
+# Baseline: c = 100, k = 20, N = 1000 for both POD-CG and POD-JP, so a gap between them is due to the
+# snapshot generator alone. Only POD-CG and POD-JP methods are compared; each swept value is its own
+# method, labelled from its facts.
 
 [mlflow]
 tracking_uri = "http://localhost:5000"
@@ -14,21 +15,25 @@ max_iterations = 5000
 stopping_criterion = "residual_norm"
 m_max = 20
 
+# Matrix source of the comparisons, and POD-CG's N = 5000 point.
 [[datasets]]
 path = "../../datasets/train/rectangular-high-condition/gaussian-cg20.toml"
 
 [[datasets]]
-path = "../../datasets/train/rectangular-high-condition/smoother-filtered-probes-nu10.toml"
+path = "../../datasets/train/rectangular-high-condition/gaussian-cg20-n1000.toml"
+
+[[datasets]]
+path = "../../datasets/train/rectangular-high-condition/smoother-filtered-probes-nu20-n1000.toml"
 
 [[dataset_sweeps]]
 label = "cg-samples"
 path_template = "../../datasets/train/rectangular-high-condition/_generated/gaussian-cg20-{value}.toml"
-values = [125, 250, 500, 1000]
+values = [250, 500, 2000]
 
 [[dataset_sweeps]]
 label = "jp-samples"
-path_template = "../../datasets/train/rectangular-high-condition/_generated/smoother-filtered-probes-nu10-{value}.toml"
-values = [500, 1000, 2000, 10000]
+path_template = "../../datasets/train/rectangular-high-condition/_generated/smoother-filtered-probes-nu20-{value}.toml"
+values = [250, 500, 2000, 5000]
 
 [[jobs]]
 id = "pod-c50"
@@ -69,19 +74,35 @@ rhs_count = 20
 seed = 45
 
 [[assignments]]
-dataset = "gaussian-cg20-rectangular-high-condition"
-job = "pod-c100"
-
-[[assignments]]
-dataset = "smoother-filtered-probes-nu10-rectangular-high-condition"
-job = "pod-c100"
+dataset = "gaussian-cg20-n1000-rectangular-high-condition"
+job = "pod-c50"
 
 [[assignments]]
 dataset = "gaussian-cg20-rectangular-high-condition"
 job = "pod-c50"
 
+[[assignments]]
+dataset = "smoother-filtered-probes-nu20-n1000-rectangular-high-condition"
+job = "pod-c50"
+
+[[assignments]]
+dataset = "gaussian-cg20-n1000-rectangular-high-condition"
+job = "pod-c100"
+
+[[assignments]]
+dataset = "gaussian-cg20-rectangular-high-condition"
+job = "pod-c100"
+
+[[assignments]]
+dataset = "smoother-filtered-probes-nu20-n1000-rectangular-high-condition"
+job = "pod-c100"
+
 [[assignment_sweeps]]
 dataset_sweep = "cg-samples"
+job = "pod-c50"
+
+[[assignment_sweeps]]
+dataset_sweep = "jp-samples"
 job = "pod-c50"
 
 [[assignment_sweeps]]

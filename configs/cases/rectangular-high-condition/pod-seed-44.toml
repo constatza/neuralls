@@ -1,5 +1,5 @@
-# Snapshot-seed replicate 44 of the POD parametric baseline (c = 100, k = 20 POD-CG, k = 10 POD-JP,
-# N = 5000). Replicates of one configuration render alike, so each seed is its own case; the seed-42
+# Snapshot-seed replicate 44 of the POD parametric baseline (c = 100, k = 20, N = 1000 for both
+# POD-CG and POD-JP). Replicates of one configuration render alike, so each seed is its own case; the seed-42
 # replicate is the baseline in every other sweep. Iterations are compared across seeds; online costs
 # are not (separate runs).
 
@@ -23,7 +23,7 @@ values = [44]
 
 [[dataset_sweeps]]
 label = "jp-seed"
-path_template = "../../datasets/train/rectangular-high-condition/_generated/smoother-filtered-probes-nu10-seed-{value}.toml"
+path_template = "../../datasets/train/rectangular-high-condition/_generated/smoother-filtered-probes-nu20-seed-{value}.toml"
 values = [44]
 
 [[jobs]]

@@ -1,5 +1,5 @@
-id = "smoother-filtered-probes-nu10-seed-rectangular-high-condition"
-id_template = "smoother-filtered-probes-nu10-seed{value}-rectangular-high-condition"
+id = "smoother-filtered-probes-nu20-n1000-seed-rectangular-high-condition"
+id_template = "smoother-filtered-probes-nu20-n1000-seed{value}-rectangular-high-condition"
 
 [source]
 problem = "Rectangular high condition"
@@ -12,8 +12,8 @@ seed = 42
 
 [[generation.strategy]]
 name = "jacobi_probes"
-samples = 5000
-stop = 10
+samples = 1000
+stop = 20
 # Snapshot-seed replicates of the c = 100 baseline; the unswept dataset is the seed-42 replicate.
 seed = [43, 44]
 probe_distribution = "gaussian"

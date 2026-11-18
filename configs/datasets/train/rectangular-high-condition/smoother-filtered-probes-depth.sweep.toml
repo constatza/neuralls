@@ -1,5 +1,5 @@
 id = "smoother-filtered-probes-depth-rectangular-high-condition"
-id_template = "smoother-filtered-probes-nu{value}-rectangular-high-condition"
+id_template = "smoother-filtered-probes-nu{value}-n1000-rectangular-high-condition"
 
 [source]
 problem = "Rectangular high condition"
@@ -12,8 +12,8 @@ seed = 42
 
 [[generation.strategy]]
 name = "jacobi_probes"
-samples = 5000
-stop = [1, 5, 20, 40]
+samples = 1000
+stop = [1, 5, 10, 40]
 probe_distribution = "gaussian"
 
 # Only POD recipes read this dataset; the comparison fits their basis on the

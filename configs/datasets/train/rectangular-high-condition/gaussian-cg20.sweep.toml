@@ -11,7 +11,7 @@ seed = 42
 
 [[generation.strategy]]
 name = "cg_errors"
-samples = [125, 250, 500, 1000]
+samples = [250, 500, 2000]
 stop = 20
 
 # Only POD recipes read this dataset; the comparison fits their basis on the
