@@ -5,13 +5,22 @@ The CLI package defines one public executable: `neuralls`.
 ## Public Surface
 
 - `neuralls config ...`: manage machine-specific profiles
-- `neuralls generate <case.toml> [--force]`: build every dataset declared in one case (skips a dataset that already exists unless `--force`; `--force` also recreates sweep-generated dataset configs, which are otherwise created only when missing)
+- `neuralls generate <case.toml|glob>... [--force]`: build every dataset declared in one case (skips a dataset that already exists unless `--force`; `--force` also recreates sweep-generated dataset configs, which are otherwise created only when missing)
 - `neuralls generate-single <dataset.toml> --case-config <case.toml> [--force]`: build one dataset config
-- `neuralls train <case.toml> [--force]`: train every assignment declared in one case (assumes datasets were already generated — run `generate` first; skips an assignment whose dataset/checkpoint already matches unless `--force`), and log the aggregate metric plot/label map
-- `neuralls eval <case.toml>`: evaluate completed assignment checkpoints on their logged test splits
-- `neuralls run <case.toml> [--force] [--force-expand] [--force-generate] [--force-train] [--force-compare]`: the full per-case pipeline — generate every dataset, train every assignment, then run every comparison and its report, each stage independently skippable/forceable
-- `neuralls compare <case.toml> [--force]`: run every comparison profile declared in one case after their benchmark datasets exist and store each method's raw tables (skips a comparison whose resolved checkpoints already produced a result unless `--force`). Compute only: it draws no figures; run `neuralls report` for them
-- `neuralls report <case.toml> [--force] [--session-run-id ID]`: read the newest finished compare session back and write the nested report run tree (metrics, figures with cards, `figure_index.toml`) into the case config's experiment; a finished report for the same session, notation and schema is skipped unless `--force`. Never solves or times
+- `neuralls train <case.toml|glob>... [--force]`: train every assignment declared in one case (assumes datasets were already generated — run `generate` first; skips an assignment whose dataset/checkpoint already matches unless `--force`), and log the aggregate metric plot/label map
+- `neuralls eval <case.toml|glob>...`: evaluate completed assignment checkpoints on their logged test splits
+- `neuralls run <case.toml|glob>... [--force] [--force-expand] [--force-generate] [--force-train] [--force-compare]`: the full per-case pipeline — generate every dataset, train every assignment, then run every comparison and its report, each stage independently skippable/forceable
+- `neuralls compare <case.toml|glob>... [--force]`: run every comparison profile declared in one case after their benchmark datasets exist and store each method's raw tables (skips a comparison whose resolved checkpoints already produced a result unless `--force`). Compute only: it draws no figures; run `neuralls report` for them
+- `neuralls report <case.toml|glob>... [--force] [--session-run-id ID]` (`--session-run-id` needs exactly one case): read the newest finished compare session back and write the nested report run tree (metrics, figures with cards, `figure_index.toml`) into the case config's experiment; a finished report for the same session, notation and schema is skipped unless `--force`. Never solves or times
+
+Every case command takes one or more case configs, as paths or glob patterns
+(`uv run neuralls run configs/cases/spectral-3d-field/pod-*.toml`). Patterns are
+expanded by the CLI, because cmd and PowerShell pass `*` through unexpanded. Every
+argument must resolve before any case runs. Cases then run one after another, in the
+given order, with matches of one pattern sorted. A failed case does not stop the rest.
+With more than one case, each gets a `[i/n]` header, one summary closes the command, and
+the exit code is non-zero if any case failed. A list of cases is chosen at invocation; no
+config file lists other configs.
 
 ## Package Map
 
@@ -26,7 +35,8 @@ The CLI package defines one public executable: `neuralls`.
 - `report.py`: report generation from a stored compare session
 - `errors.py`: the shared top-level failure renderer; blocking workflow exceptions retain
   their concrete type, message, contextual exception notes, and logged traceback
-- `options.py`: shared option aliases (profile, env file, case config, `--force`) and `require_existing_config`
+- `options.py`: shared option aliases (profile, env file, case configs, `--force`)
+- `batch.py`: case config expansion (paths and globs) and the in-order, continue-on-failure loop every case command runs
 
 ## Printed text
 

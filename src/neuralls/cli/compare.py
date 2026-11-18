@@ -1,15 +1,17 @@
-"""Run every comparison profile declared in one case config."""
+"""Run every comparison profile declared in each given case config."""
 
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from typing import assert_never
 
 import typer
 from loguru import logger
 
+from neuralls.cli.batch import expand_case_configs, run_each
 from neuralls.cli.errors import fail_workflow
-from neuralls.cli.options import CaseConfigArgument, EnvFileOption, ForceOption, ProfileOption
+from neuralls.cli.options import CaseConfigsArgument, EnvFileOption, ForceOption, ProfileOption
 from neuralls.composition.assignments.comparison_batch import run_comparison_batch
 from neuralls.composition.comparison.models import (
     ComparisonCompleted,
@@ -79,20 +81,24 @@ def _log_outcomes(outcomes: list[ComparisonOutcome]) -> None:
 
 
 def compare_case(
-    config: CaseConfigArgument,
+    configs: CaseConfigsArgument,
     force: ForceOption = False,
     env_file: EnvFileOption = None,
     profile: ProfileOption = None,
 ) -> None:
-    """Benchmark classical and neural preconditioners for one case config."""
-    params = ComparisonParams(force=force)
+    """Benchmark classical and neural preconditioners for each case config."""
 
-    try:
-        settings = load_case_settings(env_file, profile=profile)
-        outcomes = run_comparison_batch(
-            CaseConfigPath.resolve(config), params, settings, tracking=MLFLOW_TRACKING
-        )
-    except Exception as exc:  # noqa: BLE001
-        fail_workflow("Comparison workflow", exc)
+    def run_one(config: Path) -> None:
+        params = ComparisonParams(force=force)
 
-    _log_outcomes(outcomes)
+        try:
+            settings = load_case_settings(env_file, profile=profile)
+            outcomes = run_comparison_batch(
+                CaseConfigPath.resolve(config), params, settings, tracking=MLFLOW_TRACKING
+            )
+        except Exception as exc:  # noqa: BLE001
+            fail_workflow("Comparison workflow", exc)
+
+        _log_outcomes(outcomes)
+
+    run_each(expand_case_configs(configs), run_one)

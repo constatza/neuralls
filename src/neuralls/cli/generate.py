@@ -1,13 +1,15 @@
-"""Generate every dataset referenced by one case config."""
+"""Generate every dataset referenced by each given case config."""
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import typer
 
+from neuralls.cli.batch import expand_case_configs, run_each
 from neuralls.cli.error_messages import format_cli_error
-from neuralls.cli.options import CaseConfigArgument, EnvFileOption, ForceOption, ProfileOption
+from neuralls.cli.options import CaseConfigsArgument, EnvFileOption, ForceOption, ProfileOption
 from neuralls.composition.assignments.assembler import load_validated_case_config
 from neuralls.composition.config import load_case_settings, load_raw_toml
 from neuralls.composition.display import generation_label
@@ -22,33 +24,37 @@ def _looks_like_dataset_config(raw_config: dict[str, Any]) -> bool:
 
 
 def generate_case(
-    config: CaseConfigArgument,
+    configs: CaseConfigsArgument,
     force: ForceOption = False,
     env_file: EnvFileOption = None,
     profile: ProfileOption = None,
 ) -> None:
-    """Materialize every dataset declared in one case config."""
-    try:
-        raw_config = load_raw_toml(config)
-        if _looks_like_dataset_config(raw_config):
-            raise ValueError(
-                "Bare 'neuralls generate' expects a case config. "
-                "Use 'neuralls generate-single <dataset.toml> --case-config <case.toml>' "
-                "for one dataset config."
-            )
+    """Materialize every dataset declared in each case config."""
 
-        settings = load_case_settings(env_file, profile=profile)
-        cfg, _ = load_validated_case_config(config, settings, force_expand=force)
-        if not cfg.datasets:
-            raise ValueError(
-                "Case config does not define any [[datasets]] entries for batch generation."
-            )
-        results = generate_batch(
-            cfg=cfg, configs_dir=config.resolve().parent, settings=settings, force=force
-        )
-    except (FileNotFoundError, OSError, RuntimeError, ValueError) as exc:
-        typer.echo(format_cli_error("Error during batch generation", exc), err=True)
-        raise typer.Exit(code=EXIT_FAILURE) from exc
+    def run_one(config: Path) -> None:
+        try:
+            raw_config = load_raw_toml(config)
+            if _looks_like_dataset_config(raw_config):
+                raise ValueError(
+                    "Bare 'neuralls generate' expects a case config. "
+                    "Use 'neuralls generate-single <dataset.toml> --case-config <case.toml>' "
+                    "for one dataset config."
+                )
 
-    for result in results:
-        typer.echo(f"{generation_label(result)} -> {result.output_dir}")
+            settings = load_case_settings(env_file, profile=profile)
+            cfg, _ = load_validated_case_config(config, settings, force_expand=force)
+            if not cfg.datasets:
+                raise ValueError(
+                    "Case config does not define any [[datasets]] entries for batch generation."
+                )
+            results = generate_batch(
+                cfg=cfg, configs_dir=config.resolve().parent, settings=settings, force=force
+            )
+        except (FileNotFoundError, OSError, RuntimeError, ValueError) as exc:
+            typer.echo(format_cli_error("Error during batch generation", exc), err=True)
+            raise typer.Exit(code=EXIT_FAILURE) from exc
+
+        for result in results:
+            typer.echo(f"{generation_label(result)} -> {result.output_dir}")
+
+    run_each(expand_case_configs(configs), run_one)

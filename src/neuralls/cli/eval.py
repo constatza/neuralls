@@ -1,4 +1,4 @@
-"""Evaluate trained assignments declared in one case config."""
+"""Evaluate trained assignments declared in each given case config."""
 
 from __future__ import annotations
 
@@ -7,7 +7,8 @@ from typing import Annotated
 
 import typer
 
-from neuralls.cli.options import CaseConfigArgument, EnvFileOption, ProfileOption
+from neuralls.cli.batch import expand_case_configs, run_each
+from neuralls.cli.options import CaseConfigsArgument, EnvFileOption, ProfileOption
 from neuralls.composition.assignments.assembler import load_validated_case_config
 from neuralls.composition.assignments.evaluation import eval_batch
 from neuralls.composition.assignments.evaluation_metric_report import write_eval_metric_report
@@ -17,7 +18,7 @@ from neuralls.shared.constants import EXIT_FAILURE
 
 
 def eval_case_batch(
-    config: CaseConfigArgument,
+    configs: CaseConfigsArgument,
     metric: Annotated[
         str, typer.Option(help="Evaluation metric key to plot across assignments.")
     ] = "mae",
@@ -42,26 +43,32 @@ def eval_case_batch(
     profile: ProfileOption = None,
 ) -> None:
     """Evaluate trained assignment checkpoints on their logged test splits."""
-    try:
-        settings = load_case_settings(env_file, profile=profile)
-        case = CaseConfigPath.resolve(config)
-        cfg, _ = load_validated_case_config(case.path, settings)
-        batch = eval_batch(
-            cfg=cfg,
-            case_config_path=case,
-            settings=settings,
-            output_root=output_dir.resolve() if output_dir is not None else None,
-            assignment_ids=assignment,
-            tracking=MLFLOW_TRACKING,
-        )
-    except (FileNotFoundError, ValueError, RuntimeError) as exc:
-        typer.echo(f"Error during batch evaluation: {exc}", err=True)
-        raise typer.Exit(code=EXIT_FAILURE) from exc
 
-    plotted = write_eval_metric_report(batch, metric=metric)
-    if plotted:
-        typer.echo(f"Logged batch metric plot for '{metric}' to MLflow run {batch.parent_run_id}.")
-    else:
-        typer.echo(f"No data to plot for metric '{metric}'.", err=True)
+    def run_one(config: Path) -> None:
+        try:
+            settings = load_case_settings(env_file, profile=profile)
+            case = CaseConfigPath.resolve(config)
+            cfg, _ = load_validated_case_config(case.path, settings)
+            batch = eval_batch(
+                cfg=cfg,
+                case_config_path=case,
+                settings=settings,
+                output_root=output_dir.resolve() if output_dir is not None else None,
+                assignment_ids=assignment,
+                tracking=MLFLOW_TRACKING,
+            )
+        except (FileNotFoundError, ValueError, RuntimeError) as exc:
+            typer.echo(f"Error during batch evaluation: {exc}", err=True)
+            raise typer.Exit(code=EXIT_FAILURE) from exc
 
-    typer.echo(f"Logged eval label map to MLflow run {batch.parent_run_id}.")
+        plotted = write_eval_metric_report(batch, metric=metric)
+        if plotted:
+            typer.echo(
+                f"Logged batch metric plot for '{metric}' to MLflow run {batch.parent_run_id}."
+            )
+        else:
+            typer.echo(f"No data to plot for metric '{metric}'.", err=True)
+
+        typer.echo(f"Logged eval label map to MLflow run {batch.parent_run_id}.")
+
+    run_each(expand_case_configs(configs), run_one)

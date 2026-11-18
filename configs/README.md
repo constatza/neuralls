@@ -174,6 +174,8 @@ search: identity/Jacobi/IC0, AMG at coarse dim 10 and 100, and POD at rank 10
 and 100, fitted from `gaussian-cg10` (`cg_errors`) and `smoother-filtered-probes`
 (`jacobi_probes`) snapshots.
 Default cases reference only plain, tracked dataset configs — never sweep output.
+Several cases run as one command, `uv run neuralls run configs/cases/<family>/pod-*.toml`
+(one after another, see `src/neuralls/cli/README.md`); no config file lists other cases.
 Neural network jobs are kept in explicit training/search variants. Parametric
 searches live in sibling case files, one searched axis per file:
 `coarse-dim-search.toml` (AMG dim / POD rank in 10, 100, 200, 300, on

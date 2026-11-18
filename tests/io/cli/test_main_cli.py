@@ -66,7 +66,9 @@ def test_generate_help_shows_batch_mode() -> None:
     assert isinstance(command, Group)
     parameter = cast(Any, command.commands["generate"].params[0])
 
-    assert parameter.help == "Path to a case config TOML."
+    assert parameter.help == (
+        "Case config TOMLs or glob patterns (expanded here, also on Windows); run in order."
+    )
 
 
 def test_generate_single_help_shows_dataset_mode() -> None:
@@ -78,7 +80,7 @@ def test_generate_single_help_shows_dataset_mode() -> None:
 
 
 def test_generate_signature_uses_batch_case_argument() -> None:
-    config = get_args(get_type_hints(generate_case, include_extras=True)["config"])[1]
+    config = get_args(get_type_hints(generate_case, include_extras=True)["configs"])[1]
 
     assert isinstance(config, ArgumentInfo)
     assert config.default is ...
@@ -236,14 +238,14 @@ def test_generate_single_requires_case_config(
 
 
 def test_train_signature_uses_batch_case_argument() -> None:
-    config = get_args(get_type_hints(train_case_batch, include_extras=True)["config"])[1]
+    config = get_args(get_type_hints(train_case_batch, include_extras=True)["configs"])[1]
 
     assert isinstance(config, ArgumentInfo)
     assert config.default is ...
 
 
 def test_eval_signature_uses_batch_case_argument() -> None:
-    config = get_args(get_type_hints(eval_case_batch, include_extras=True)["config"])[1]
+    config = get_args(get_type_hints(eval_case_batch, include_extras=True)["configs"])[1]
 
     assert isinstance(config, ArgumentInfo)
     assert config.default is ...
@@ -256,8 +258,10 @@ def test_train_invokes_batch_workflow(
     mock_load_settings: MagicMock,
     mock_run_assignment_sweep: MagicMock,
     mock_write_metric_report: MagicMock,
+    tmp_path: Path,
 ) -> None:
-    config = Path("case.toml")
+    config = tmp_path / "case.toml"
+    config.write_text("", encoding="utf-8")
     settings = MagicMock()
     sweep_result = MagicMock(results=[], parent_run_id="parent-run-1")
     mock_load_settings.return_value = settings
@@ -286,8 +290,10 @@ def test_eval_invokes_batch_workflow(
     mock_load_case_config: MagicMock,
     mock_eval_batch: MagicMock,
     mock_write_metric_report: MagicMock,
+    tmp_path: Path,
 ) -> None:
-    config = Path("case.toml")
+    config = tmp_path / "case.toml"
+    config.write_text("", encoding="utf-8")
     settings = MagicMock()
     cfg = MagicMock()
     batch = MagicMock()
@@ -316,7 +322,7 @@ def test_eval_invokes_batch_workflow(
 
 
 def test_run_signature_uses_batch_case_argument() -> None:
-    config = get_args(get_type_hints(run_case_pipeline_command, include_extras=True)["config"])[1]
+    config = get_args(get_type_hints(run_case_pipeline_command, include_extras=True)["configs"])[1]
 
     assert isinstance(config, ArgumentInfo)
     assert config.default is ...
@@ -396,7 +402,7 @@ def test_run_per_stage_force_flags_stay_independent(
 
 
 def test_compare_signature_uses_batch_case_argument() -> None:
-    config = get_args(get_type_hints(compare_case, include_extras=True)["config"])[1]
+    config = get_args(get_type_hints(compare_case, include_extras=True)["configs"])[1]
 
     assert isinstance(config, ArgumentInfo)
     assert config.default is ...

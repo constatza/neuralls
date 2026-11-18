@@ -1,12 +1,14 @@
-"""Train every assignment declared in one case config."""
+"""Train every assignment declared in each given case config."""
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Annotated
 
 import typer
 
-from neuralls.cli.options import CaseConfigArgument, EnvFileOption, ForceOption, ProfileOption
+from neuralls.cli.batch import expand_case_configs, run_each
+from neuralls.cli.options import CaseConfigsArgument, EnvFileOption, ForceOption, ProfileOption
 from neuralls.composition.assignments.training_batch import run_assignment_sweep
 from neuralls.composition.assignments.training_metric_report import write_metric_report
 from neuralls.composition.config import CaseConfigPath, load_case_settings
@@ -15,7 +17,7 @@ from neuralls.shared.constants import EXIT_FAILURE
 
 
 def train_case_batch(
-    config: CaseConfigArgument,
+    configs: CaseConfigsArgument,
     force: ForceOption = False,
     metric: Annotated[
         str, typer.Option(help="MLflow metric key to plot across assignments.")
@@ -24,24 +26,28 @@ def train_case_batch(
     profile: ProfileOption = None,
 ) -> None:
     """Train the registry-defined assignment batch and emit aggregate reporting."""
-    try:
-        settings = load_case_settings(env_file, profile=profile)
-        sweep_result = run_assignment_sweep(
-            case_config_path=CaseConfigPath.resolve(config),
-            settings=settings,
-            force=force,
-            tracking=MLFLOW_TRACKING,
-        )
-    except (FileNotFoundError, ValueError, RuntimeError) as exc:
-        typer.echo(f"Error during batch training: {exc}", err=True)
-        raise typer.Exit(code=EXIT_FAILURE) from exc
 
-    plotted = write_metric_report(sweep_result, metric=metric)
-    if plotted:
-        typer.echo(
-            f"Logged batch metric plot for '{metric}' to MLflow run {sweep_result.parent_run_id}."
-        )
-    else:
-        typer.echo(f"No data to plot for metric '{metric}'.", err=True)
+    def run_one(config: Path) -> None:
+        try:
+            settings = load_case_settings(env_file, profile=profile)
+            sweep_result = run_assignment_sweep(
+                case_config_path=CaseConfigPath.resolve(config),
+                settings=settings,
+                force=force,
+                tracking=MLFLOW_TRACKING,
+            )
+        except (FileNotFoundError, ValueError, RuntimeError) as exc:
+            typer.echo(f"Error during batch training: {exc}", err=True)
+            raise typer.Exit(code=EXIT_FAILURE) from exc
 
-    typer.echo(f"Logged batch label map to MLflow run {sweep_result.parent_run_id}.")
+        plotted = write_metric_report(sweep_result, metric=metric)
+        if plotted:
+            typer.echo(
+                f"Logged batch metric plot for '{metric}' to MLflow run {sweep_result.parent_run_id}."
+            )
+        else:
+            typer.echo(f"No data to plot for metric '{metric}'.", err=True)
+
+        typer.echo(f"Logged batch label map to MLflow run {sweep_result.parent_run_id}.")
+
+    run_each(expand_case_configs(configs), run_one)
