@@ -13,8 +13,13 @@ from pathlib import Path
 from loguru import logger
 from mlflow.tracking import MlflowClient
 
+from neuralls.platform.tracking.mlflow import quote_filter_value
+
 # Called as ``factory(tracking_uri=...)``; tests substitute a fake client here.
 type MlflowClientFactory = Callable[..., MlflowClient]
+
+# Phase tag dlkit stamps on a training run at creation (see run_specs.TrainingRunTags).
+_TRAINING_PHASE = "training"
 
 _WORKSPACE_ARTIFACT_DIRS: tuple[str, ...] = (
     "config",
@@ -149,14 +154,18 @@ def find_mlflow_run(
     *,
     tracking_uri: str,
     experiment_name: str,
-    run_name: str | None,
+    run_name: str,
 ) -> tuple[str, str] | None:
-    """Look up the most recent training run by experiment + run name.
+    """Look up the newest training run by experiment + run name.
+
+    The experiment is shared with evaluation and comparison runs, and an
+    evaluation run can carry the same name, so only runs tagged
+    ``phase=training`` match.
 
     Args:
         tracking_uri: MLflow tracking URI.
         experiment_name: Experiment name to search in.
-        run_name: Optional run name filter.
+        run_name: Run name to match.
 
     Returns:
         ``(experiment_id, run_id)`` when found, otherwise ``None``.
@@ -168,19 +177,15 @@ def find_mlflow_run(
 
     runs = client.search_runs(
         experiment_ids=[experiment.experiment_id],
-        max_results=50,
+        filter_string=(
+            f"tags.`phase` = '{_TRAINING_PHASE}' and attributes.run_name = '{quote_filter_value(run_name)}'"
+        ),
+        max_results=1,
         order_by=["attributes.start_time DESC"],
     )
     if not runs:
         return None
-    if run_name is None:
-        return experiment.experiment_id, runs[0].info.run_id
-
-    for run in runs:
-        candidate_name = getattr(run.info, "run_name", None) or run.data.tags.get("mlflow.runName")
-        if candidate_name == run_name:
-            return experiment.experiment_id, run.info.run_id
-    return None
+    return experiment.experiment_id, runs[0].info.run_id
 
 
 def log_diagnostics_to_mlflow(
