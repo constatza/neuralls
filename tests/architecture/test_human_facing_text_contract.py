@@ -124,14 +124,7 @@ SCOPES: dict[str, SinkScope] = {
                 "platform/tracking/run_writer.py",
                 "open_run",
                 "forwards the name its caller passed to create_run; callers render it with "
-                "run_name_text, or are root_report_run and child_run below",
-            ),
-            Allowed(
-                RUN_NAME_TEXT,
-                "platform/tracking/report_run.py",
-                "root_report_run",
-                "the report run carries the name its comparison session already rendered "
-                "from a typed run name, so both runs read the same in their experiments",
+                "run_name_text, or are child_run below",
             ),
             Allowed(
                 RUN_NAME_TEXT,

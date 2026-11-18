@@ -250,7 +250,6 @@ def test_session_run_spec_name_and_tags(
         "case_config": "ffnn",
         "case_config_path": case_config_path.as_posix(),
         "started_at": ISO,
-        "experiment_name": "spectral/ffnn",
         "neuralls.config": "spectral/ffnn",
         "neuralls.stage": stage,
         "title": title_text,

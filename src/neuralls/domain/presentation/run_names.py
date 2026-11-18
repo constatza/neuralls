@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Literal, assert_never
+from typing import Final, Literal, assert_never
 
 from neuralls.domain.presentation.methods import (
     ConfiguredMethodPresentation,
@@ -107,6 +107,11 @@ type SessionPhase = Literal[
     "session_training", "session_comparison", "session_evaluation", "report"
 ]
 """The ``phase`` tag of a session root run; lookups filter on these exact values."""
+
+COMPARISON_SESSION_PHASE: Final[SessionPhase] = "session_comparison"
+"""The phase of a compare session root; typed so a spelling outside ``SessionPhase`` fails."""
+REPORT_PHASE: Final[SessionPhase] = "report"
+"""The phase of a report root, a child of the compare session it renders."""
 
 type SessionStage = Literal["train", "eval", "compare", "report"]
 """The short stage word a session root run is named by."""

@@ -37,10 +37,10 @@ from neuralls.composition.identity.comparison import (
     preconditioner_identities,
 )
 from neuralls.composition.tracking.services import TrackingServices
+from neuralls.domain.presentation.run_names import COMPARISON_SESSION_PHASE
 from neuralls.platform.tracking.mlflow_store import (
     find_reusable_benchmark_method,
 )
-from neuralls.platform.tracking.session_artifacts import SESSION_PHASE
 from neuralls.shared.digest import Digest, canonical_digest
 from neuralls.shared.types import (
     DatasetId,
@@ -218,4 +218,7 @@ def has_complete_reusable_session(
         return False
     parent_id = parent_ids.pop()
     parent = client.get_run(parent_id)
-    return parent.info.status == "FINISHED" and parent.data.tags.get("phase") == SESSION_PHASE
+    return (
+        parent.info.status == "FINISHED"
+        and parent.data.tags.get("phase") == COMPARISON_SESSION_PHASE
+    )

@@ -8,6 +8,7 @@ the platform tracking adapter renders it when the run opens. Tags keep machine i
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
@@ -18,6 +19,7 @@ from neuralls.domain.identity import StageIdentity
 from neuralls.domain.presentation.methods import PreparedMethodPresentation
 from neuralls.domain.presentation.provenance import DatasetPresentation
 from neuralls.domain.presentation.run_names import (
+    REPORT_PHASE,
     ComparisonRunName,
     ComparisonSubject,
     EditorialComparison,
@@ -229,7 +231,7 @@ class SessionRunTags:
         case_config: Stem of the case config file.
         case_config_path: Full path string.
         started_at: ISO timestamp (local).
-        experiment_name: The config key's experiment name, also the ``neuralls.config`` tag.
+        experiment_name: The config key's experiment name, rendered as the ``neuralls.config`` tag.
         title: What the session ran on; rendered as the ``title`` tag and the run description.
         notation: The case notation the title is rendered with.
     """
@@ -244,18 +246,23 @@ class SessionRunTags:
 
     def as_mlflow_tags(self) -> dict[str, str]:
         """Serialize to MLflow-compatible string tag dict."""
-        title = render_session_title(self.title, self.phase, self.notation)
         return {
-            "phase": self.phase,
+            **root_run_tags(self.phase, self.experiment_name),
+            **title_tags(render_session_title(self.title, self.phase, self.notation)),
             "case_config": self.case_config,
             "case_config_path": self.case_config_path,
             "started_at": self.started_at,
-            "experiment_name": self.experiment_name,
-            "neuralls.config": self.experiment_name,
-            "neuralls.stage": session_stage(self.phase),
-            "title": title,
-            RUN_DESCRIPTION_TAG: title,
         }
+
+
+def root_run_tags(phase: SessionPhase, config: str) -> dict[str, str]:
+    """The tags every root run carries: its lookup phase, config key and stage word."""
+    return {"phase": phase, "neuralls.config": config, "neuralls.stage": session_stage(phase)}
+
+
+def title_tags(title: str) -> dict[str, str]:
+    """A root run's rendered title, as its ``title`` tag and its MLflow description."""
+    return {"title": title, RUN_DESCRIPTION_TAG: title}
 
 
 def build_training_run_spec(
@@ -346,6 +353,27 @@ def build_session_run_spec(
         notation=notation,
     )
     return run, tags
+
+
+def build_report_run_spec(
+    *,
+    session_tags: Mapping[str, str],
+    notation: NotationPolicy,
+    config: str,
+    revision: str | Unreported,
+    started: datetime | None = None,
+) -> tuple[NamedRun, dict[str, str]]:
+    """Build (run, root tags) for a report root, the child of the session it renders.
+
+    Named like every session root, with the report's own stage, start and revision; it
+    carries the session's rendered title, when the session has one, as its own.
+    """
+    run = NamedRun(
+        SessionRunName(session_stage(REPORT_PHASE), started or datetime.now(), revision), notation
+    )
+    tags = root_run_tags(REPORT_PHASE, config)
+    title = session_tags.get("title")
+    return run, tags if title is None else {**tags, **title_tags(title)}
 
 
 def build_evaluation_run(presentation: TrainingPresentation) -> NamedRun:

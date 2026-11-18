@@ -63,26 +63,26 @@ def valid_index(tmp_path: Path) -> str:
 
 
 def test_a_finished_report_with_a_valid_index_is_reused(
-    client: MlflowClient, log_report: LogReport, valid_index: str
+    client: MlflowClient, experiment_id: str, log_report: LogReport, valid_index: str
 ) -> None:
     run_id = log_report(index=valid_index)
 
-    assert _finished_report(client, EXPERIMENT, SOURCE_TAGS) == run_id
+    assert _finished_report(client, experiment_id, SOURCE_TAGS) == run_id
 
 
 @pytest.mark.parametrize("index", [None, "not = [valid", "other = 1"])
 def test_a_finished_report_without_a_valid_index_is_not_reused(
-    client: MlflowClient, log_report: LogReport, index: str | None
+    client: MlflowClient, experiment_id: str, log_report: LogReport, index: str | None
 ) -> None:
     log_report(index=index)
 
-    assert _finished_report(client, EXPERIMENT, SOURCE_TAGS) is None
+    assert _finished_report(client, experiment_id, SOURCE_TAGS) is None
 
 
 def test_a_failed_report_is_not_reused_and_an_older_valid_one_is(
-    client: MlflowClient, log_report: LogReport, valid_index: str
+    client: MlflowClient, experiment_id: str, log_report: LogReport, valid_index: str
 ) -> None:
     good = log_report(index=valid_index)
     log_report(index=valid_index, status="FAILED")
 
-    assert _finished_report(client, EXPERIMENT, SOURCE_TAGS) == good
+    assert _finished_report(client, experiment_id, SOURCE_TAGS) == good

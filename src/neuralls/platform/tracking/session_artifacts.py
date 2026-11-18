@@ -12,6 +12,7 @@ from typing import Final
 from mlflow.entities import Run
 from mlflow.tracking import MlflowClient
 
+from neuralls.domain.presentation.run_names import COMPARISON_SESSION_PHASE
 from neuralls.platform.reporting.benchmark_events import (
     METHOD_ARTIFACT_DIR,
     MethodBenchmarkArtifacts,
@@ -22,7 +23,6 @@ from neuralls.platform.tracking.run_writer import PARENT_RUN_TAG
 from neuralls.shared.types import RunId, SessionRunId
 
 METHOD_PHASE: Final = "comparison_method"
-REPORT_PHASE: Final = "report"
 REQUIRED_METHOD_ARTIFACTS = frozenset(MethodBenchmarkArtifacts.file_names())
 _NEWEST_FIRST = ["attributes.start_time DESC", "attributes.run_id ASC"]
 
@@ -89,24 +89,21 @@ def download_session_methods(
     return directories
 
 
-SESSION_PHASE: Final = "session_comparison"
+def latest_session_run_id(client: MlflowClient, experiment_name: str) -> SessionRunId:
+    """The newest FINISHED comparison session in a case config's experiment.
 
-
-def latest_session_run_id(
-    client: MlflowClient, experiment_name: str, case_config_path: str
-) -> SessionRunId:
-    """The newest FINISHED comparison session of a case config.
+    The experiment already is the config, so no path tag is filtered on: the absolute
+    ``case_config_path`` differs between machines that share one store.
 
     Raises:
-        ValueError: The experiment or a finished session for the config does not exist.
+        ValueError: The experiment or a finished session in it does not exist.
     """
     experiment = client.get_experiment_by_name(experiment_name)
     if experiment is None:
         raise ValueError(f"experiment {experiment_name!r} does not exist; run `neuralls compare`")
     clauses = [
         "attributes.status = 'FINISHED'",
-        f"tags.`phase` = '{SESSION_PHASE}'",
-        f"tags.`case_config_path` = '{quote_filter_value(case_config_path)}'",
+        f"tags.`phase` = '{COMPARISON_SESSION_PHASE}'",
     ]
     runs = client.search_runs(
         experiment_ids=[experiment.experiment_id],
@@ -116,6 +113,6 @@ def latest_session_run_id(
     )
     if not runs:
         raise ValueError(
-            f"no finished comparison session for {case_config_path}; run `neuralls compare`"
+            f"no finished comparison session in {experiment_name!r}; run `neuralls compare`"
         )
     return SessionRunId(runs[0].info.run_id)

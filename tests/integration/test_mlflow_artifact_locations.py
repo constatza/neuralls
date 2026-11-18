@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import numpy as np
@@ -20,6 +21,7 @@ from neuralls.composition.assignments.comparison_batch import (
     run_comparison_batch,
 )
 from neuralls.composition.assignments.comparison_report import (
+    REPORT_SCHEMA_VERSION,
     ReportCreated,
     ReportReused,
     _finished_report,
@@ -34,6 +36,7 @@ from neuralls.composition.comparison.models import (
     ComparisonReused,
 )
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
+from neuralls.domain.presentation.run_names import REPORT_PHASE
 from neuralls.domain.solver.models.figure_scope import SystemScope
 from neuralls.domain.solver.reporting.report_levels import ReportLevelName
 from neuralls.platform.config.case_path import CaseConfigPath
@@ -50,7 +53,7 @@ from neuralls.platform.tracking.report_sink import (
     GROUP_REPORT_ARTIFACT_DIR,
     METHOD_FIGURE_ARTIFACT_DIR,
 )
-from neuralls.platform.tracking.session_artifacts import REPORT_PHASE
+from neuralls.platform.tracking.session_artifacts import session_method_runs
 from neuralls.shared.system_scaling import NoScaling
 
 
@@ -415,6 +418,36 @@ def test_comparison_logs_artifacts_to_mlflow_with_sqlite(
     assert isinstance(report, ReportCreated)
     reports = MlflowClient(tracking_uri=tracking_uri)
     report_id = report.report_run_id
+    # The report root is a child of its session, named and tagged like every session root.
+    report_root = client.get_run(report_id)
+    session_tags = client.get_run(session_id).data.tags
+    assert report_root.info.experiment_id == experiment_id
+    assert re.fullmatch(
+        r"report · \d{4}-\d{2}-\d{2} \d{2}:\d{2}( · [0-9a-f]{8}(-dirty)?)?",
+        report_root.data.tags["mlflow.runName"],
+    )
+    # MLflow's own bookkeeping tags (user, source, run name) are not the report's to assert.
+    root_tags = {
+        key: value
+        for key, value in report_root.data.tags.items()
+        if not key.startswith("mlflow.") or key in {"mlflow.parentRunId", "mlflow.note.content"}
+    }
+    assert root_tags == {
+        "mlflow.parentRunId": session_id,
+        "phase": REPORT_PHASE,
+        "report_level": "all_matrix_sets",
+        "source_session_run_id": session_id,
+        "notation_digest": root_tags["notation_digest"],
+        "report_schema_version": REPORT_SCHEMA_VERSION,
+        "neuralls.config": session_tags["neuralls.config"],
+        "neuralls.stage": "report",
+        "title": session_tags["title"],
+        "mlflow.note.content": session_tags["title"],
+    }
+    # Method discovery never picks up the report child.
+    assert [run.info.run_id for run in session_method_runs(client, session_id)] == [
+        method_run.info.run_id
+    ]
     method_figures = reports.list_artifacts(report_id, path=METHOD_FIGURE_ARTIFACT_DIR)
     assert {Path(item.path).name for item in method_figures} == {
         "residual_history_Method_Identity.png",
@@ -564,5 +597,11 @@ def test_comparison_logs_artifacts_to_mlflow_with_sqlite(
         key: failed_tags[key]
         for key in ("source_session_run_id", "notation_digest", "report_schema_version")
     }
-    report_experiment = client.get_experiment(reports_experiment_id).name
-    assert _finished_report(client, report_experiment, source_tags) is None
+    assert _finished_report(client, reports_experiment_id, source_tags) is None
+    # A FAILED report child does not make its session look incomplete to the compare gate.
+    again = run_comparison_batch(
+        case_config_path=CaseConfigPath.resolve(experiments_config),
+        params=ComparisonParams(),
+        settings=neuralls_settings,
+    )
+    assert again and isinstance(again[0], ComparisonReused)

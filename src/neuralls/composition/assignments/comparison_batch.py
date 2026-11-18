@@ -45,6 +45,7 @@ from neuralls.composition.tracking.run_specs import (
     build_session_run_spec,
 )
 from neuralls.composition.tracking.services import MLFLOW_TRACKING, TrackingServices
+from neuralls.domain.presentation.run_names import COMPARISON_SESSION_PHASE
 from neuralls.domain.presentation.titles import (
     summarized_session_title,
 )
@@ -56,7 +57,6 @@ from neuralls.platform.tracking.metrics_logging import (
     setup_comparison_tracking,
 )
 from neuralls.platform.tracking.runtime_environment import collect_runtime_environment
-from neuralls.platform.tracking.session_artifacts import SESSION_PHASE
 from neuralls.shared.device import warm_up_device
 from neuralls.shared.digest import digest_memo
 from neuralls.shared.workflow_failures import (
@@ -96,7 +96,7 @@ def _run_session(
         notation=batch_notation_policy(executions),
         case_config_path=case_config_path,
         experiment_name=topology.experiment_name,
-        phase=SESSION_PHASE,
+        phase=COMPARISON_SESSION_PHASE,
         revision=environment.revision,
     )
     runs = tracking.comparison_runs(

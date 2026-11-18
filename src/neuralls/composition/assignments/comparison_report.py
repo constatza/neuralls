@@ -1,7 +1,7 @@
 """Report workflow: read a finished compare session back and log its figures and metrics.
 
-Never solves or times. The session is read from the case config's experiment and the report
-is written there as new runs, so a failure here cannot invalidate completed compute.
+Never solves or times. The report is written as new runs nested under the session it renders,
+in the session's experiment, so a failure here cannot invalidate completed compute.
 """
 
 from __future__ import annotations
@@ -27,7 +27,9 @@ from neuralls.composition.comparison.postprocessing.report_inputs import (
     report_inputs,
 )
 from neuralls.composition.comparison.postprocessing.system_figures import write_system_figures
+from neuralls.composition.tracking.run_specs import build_report_run_spec
 from neuralls.composition.tracking.services import MLFLOW_TRACKING, TrackingServices
+from neuralls.domain.presentation.run_names import REPORT_PHASE
 from neuralls.domain.solver.models.benchmark_events import SolveConverged
 from neuralls.domain.solver.models.report_scope import System
 from neuralls.platform.config.case_path import CaseConfigPath
@@ -36,18 +38,17 @@ from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.platform.reporting.figure_index import FIGURE_INDEX_FILE, read_figure_index
 from neuralls.platform.reporting.stored_benchmark import read_stored_benchmark
 from neuralls.platform.tracking.failure_reporting import MLflowWorkflowFailureSink
-from neuralls.platform.tracking.metrics_logging import (
-    parent_run_metric_key,
-    setup_comparison_tracking,
-)
+from neuralls.platform.tracking.metrics_logging import parent_run_metric_key
 from neuralls.platform.tracking.mlflow import quote_filter_value
 from neuralls.platform.tracking.report_run import root_report_run
 from neuralls.platform.tracking.report_sink import MLflowReportSink
 from neuralls.platform.tracking.run_writer import MlflowRunWriter
-from neuralls.platform.tracking.runtime_environment import read_environment_params
+from neuralls.platform.tracking.runtime_environment import (
+    neuralls_revision,
+    read_environment_params,
+)
 from neuralls.platform.tracking.scope_run_tree import MlflowRunTree
 from neuralls.platform.tracking.session_artifacts import (
-    REPORT_PHASE,
     download_session_methods,
     latest_session_run_id,
 )
@@ -98,9 +99,8 @@ def run_comparison_report(
     notation = case_notation(master_cfg)
     figure_style = case_figure_style(master_cfg)
     client = tracking.client(topology.tracking_uri)
-    session = session_run_id or latest_session_run_id(
-        client, topology.experiment_name, case_path.as_posix()
-    )
+    session = session_run_id or latest_session_run_id(client, topology.experiment_name)
+    session_run = client.get_run(session)
     notation_digest = canonical_digest(notation).split(":", 1)[1][:NOTATION_DIGEST_LENGTH]
     source_tags = {
         "source_session_run_id": session,
@@ -108,13 +108,9 @@ def run_comparison_report(
         "report_schema_version": REPORT_SCHEMA_VERSION,
     }
 
-    report_experiment = topology.experiment_name
-    report_experiment_id = setup_comparison_tracking(
-        tracking_uri=topology.tracking_uri,
-        artifact_location=topology.artifact_location,
-        experiment_name=report_experiment,
-    )
-    existing = _finished_report(client, report_experiment, source_tags)
+    # The session's own experiment, so a named session of an older experiment still reports.
+    report_experiment_id = session_run.info.experiment_id
+    existing = _finished_report(client, report_experiment_id, source_tags)
     if existing is not None and not force:
         logger.info("Report {} already covers session {}.", existing, session)
         return ReportReused(existing, session)
@@ -123,18 +119,19 @@ def run_comparison_report(
         directories = download_session_methods(client, session, Path(tmp))
         inputs = report_inputs(read_stored_benchmark(directories))
         split_records = download_session_splits(client, session, Path(tmp) / "splits")
-        session_name = client.get_run(session).data.tags.get("mlflow.runName", session)
+        report_run, root_tags = build_report_run_spec(
+            session_tags=session_run.data.tags,
+            notation=notation,
+            config=topology.experiment_name,
+            revision=neuralls_revision(),
+        )
         writer = MlflowRunWriter(client)
         with root_report_run(
             writer,
             report_experiment_id,
-            session_name,
-            {
-                "phase": REPORT_PHASE,
-                "report_level": "all_matrix_sets",
-                "source_experiment": topology.experiment_name,
-                **source_tags,
-            },
+            report_run,
+            {**root_tags, "report_level": "all_matrix_sets", **source_tags},
+            session_run_id=session,
         ) as report_run_id:
             failure_sink = MLflowWorkflowFailureSink(writer, report_run_id)
             sink = MLflowReportSink(
@@ -142,7 +139,7 @@ def run_comparison_report(
                 session,
                 MlflowRunTree(writer, report_experiment_id),
                 split_records,
-                read_environment_params(client.get_run(session).data.params),
+                read_environment_params(session_run.data.params),
                 writer,
                 report_run_id,
                 methods=inputs.stored.methods,
@@ -178,18 +175,13 @@ def run_comparison_report(
     return ReportCreated(report_run_id, session)
 
 
-def _finished_report(
-    client: MlflowClient, experiment_name: str, tags: dict[str, str]
-) -> str | None:
+def _finished_report(client: MlflowClient, experiment_id: str, tags: dict[str, str]) -> str | None:
     """The newest FINISHED report run carrying exactly these source tags and a valid figure index."""
-    experiment = client.get_experiment_by_name(experiment_name)
-    if experiment is None:
-        return None
     clauses = ["attributes.status = 'FINISHED'", f"tags.`phase` = '{REPORT_PHASE}'"] + [
         f"tags.`{key}` = '{quote_filter_value(value)}'" for key, value in tags.items()
     ]
     runs = client.search_runs(
-        experiment_ids=[experiment.experiment_id],
+        experiment_ids=[experiment_id],
         filter_string=" and ".join(clauses),
         order_by=["attributes.start_time DESC"],
     )
