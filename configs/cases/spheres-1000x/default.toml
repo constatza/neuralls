@@ -52,6 +52,16 @@ path = "../../datasets/train/spheres-1000x/gaussian-cg10.toml"
 [[datasets]]
 path = "../../datasets/train/spheres-1000x/smoother-filtered-probes.toml"
 
+# CG depth k in {10, 20, 50, 100}: k = 10 is about 1% of the unpreconditioned CG horizon here, so the
+# deeper trajectories test whether POD-CG trails POD-JP only for lack of depth.
+[[datasets]]
+path = "../../datasets/train/spheres-1000x/gaussian-cg50.toml"
+
+[[dataset_sweeps]]
+label = "cg-depth"
+path_template = "../../datasets/train/spheres-1000x/_generated/gaussian-cg-depth-{value}.toml"
+values = [20, 100]
+
 [[jobs]]
 id = "pod_rank10"
 path = "../../jobs/pod/pod-rank10.toml"
@@ -63,24 +73,31 @@ path = "../../jobs/pod/pod-rank100.toml"
 display_name = "POD (rank 100)"
 
 [[comparisons]]
+id = "gaussian"
 matrix_dataset = "gaussian-cg10-spheres-1000x"
 rhs_source = { kind = "gaussian" }
+rhs_count = 20
 seed = 42
 
 [[comparisons]]
+id = "masked-gaussian"
 matrix_dataset = "gaussian-cg10-spheres-1000x"
 rhs_source = { kind = "gaussian", mask = { kind = "random", density = 0.1 } }
+rhs_count = 20
+seed = 43
 
 [[comparisons]]
 id = "sinusoidal-low-freq"
 matrix_dataset = "gaussian-cg10-spheres-1000x"
 rhs_source = { kind = "sinusoidal", omega = 6.283185307179586 }
+rhs_count = 20
 seed = 44
 
 [[comparisons]]
 id = "sinusoidal-high-freq"
 matrix_dataset = "gaussian-cg10-spheres-1000x"
 rhs_source = { kind = "sinusoidal", omega = 62.83185307179586 }
+rhs_count = 20
 seed = 45
 
 [[assignments]]
@@ -97,4 +114,20 @@ job = "pod_rank10"
 
 [[assignments]]
 dataset = "smoother-filtered-probes-spheres-1000x"
+job = "pod_rank100"
+
+[[assignments]]
+dataset = "gaussian-cg50-spheres-1000x"
+job = "pod_rank10"
+
+[[assignments]]
+dataset = "gaussian-cg50-spheres-1000x"
+job = "pod_rank100"
+
+[[assignment_sweeps]]
+dataset_sweep = "cg-depth"
+job = "pod_rank10"
+
+[[assignment_sweeps]]
+dataset_sweep = "cg-depth"
 job = "pod_rank100"
