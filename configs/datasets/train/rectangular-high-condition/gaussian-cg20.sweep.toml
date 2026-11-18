@@ -14,8 +14,8 @@ name = "cg_errors"
 samples = [500, 1000, 2000, 10000]
 stop = 20
 
-# Only POD fit jobs read this dataset, and a fit has no training loop to
-# serve a validation fold, so the dataset keeps none.
+# Only POD recipes read this dataset; the comparison fits their basis on the
+# train fold, with no training loop to serve a validation fold, so it keeps none.
 [split]
 test_ratio = 0.1
 val_ratio = 0.0

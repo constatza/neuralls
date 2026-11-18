@@ -7,7 +7,11 @@ from pathlib import Path
 import pytest
 
 from neuralls.composition.identity import comparison as identity_module
-from neuralls.composition.identity.comparison import comparison_identity, input_digest
+from neuralls.composition.identity.comparison import (
+    comparison_identity,
+    input_digest,
+    preconditioner_identities,
+)
 from neuralls.platform.config.models.comparison import ComparisonConfig, RandomMask
 from neuralls.shared.constants import DATASET_MANIFEST_FILENAME
 from neuralls.shared.digest import canonical_digest, digest_memo
@@ -86,6 +90,22 @@ def test_checkpoint_content_changes_the_key(baseline: ComparisonConfig) -> None:
     new = {"0:coarsening": canonical_digest("weights-v2")}
     assert _key(baseline, old) == _key(baseline, dict(old))
     assert _key(baseline, old) != _key(baseline, new)
+
+
+def test_pod_fit_dataset_content_changes_the_key_and_the_pod_identity(
+    baseline: ComparisonConfig, snapshot_dir: Path
+) -> None:
+    """A POD basis is fitted in the comparison, so regenerating its dataset is a new result."""
+    key = _key(baseline)
+    identities = preconditioner_identities(baseline.preconditioners, {})
+
+    (snapshot_dir / "solutions.bin").write_bytes(b"regenerated")
+    changed = preconditioner_identities(baseline.preconditioners, {})
+
+    assert _key(baseline) != key
+    assert {name for name in identities if identities[name] != changed[name]} == {
+        baseline.preconditioners[2].name
+    }
 
 
 def test_static_only_comparison_is_keyed_too(make_comparison: ComparisonFactory) -> None:

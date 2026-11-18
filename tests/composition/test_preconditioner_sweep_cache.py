@@ -1,8 +1,9 @@
 """Setup scoping of method-major execution.
 
 Prepared state is built once per matrix and shared by its sibling RHS values, never
-across matrices. Loaded checkpoint weights have their own method-owned store and are
-tested with the preloading tests.
+across matrices. A POD basis is fitted once per method, before those builds. Loaded
+checkpoint weights have their own method-owned store and are tested with the preloading
+tests.
 """
 
 from __future__ import annotations
@@ -21,18 +22,26 @@ from neuralls.composition.comparison._preconditioner_setup import (
     matrix_key,
 )
 from neuralls.composition.comparison.comparison_run import execute_method_workload
-from neuralls.composition.comparison.method_data_origin import NoFitData
-from neuralls.composition.comparison.models import MatrixRef, PlannedSystem, ResolvedMethod
+from neuralls.composition.comparison.method_data_origin import InlineFit, NoFitData
+from neuralls.composition.comparison.models import (
+    CompletedMethodWorkload,
+    MatrixRef,
+    PlannedSystem,
+    ResolvedMethod,
+)
 from neuralls.composition.generation.ports import SplitStore
 from neuralls.domain.presentation.provenance import DatasetPresentation
+from neuralls.domain.solver.models.benchmark_events import SetupCompleted, SetupFailed
 from neuralls.domain.solver.models.config import SolverParams
 from neuralls.domain.solver.models.cost import (
     FitFolds,
     Known,
     OfflineStages,
+    StageCost,
     TrainShare,
     TrainShareOfGeneration,
 )
+from neuralls.domain.solver.models.cost import InlineFit as InlineFitOrigin
 from neuralls.domain.solver.models.provenance import SharedSingleMatrix
 from neuralls.platform.config.models.coarsening import PODCoarseningConfig
 from neuralls.platform.config.models.experiments import ComparisonRegistryEntry
@@ -65,18 +74,92 @@ def _diagonal(values: list[float]) -> torch.Tensor:
     return torch.diag(torch.tensor(values, dtype=torch.float64))
 
 
-def test_inline_pod_staging_reads_arrays_once_per_method() -> None:
-    config = AMGPreconditionerConfig(coarsening=PODCoarseningConfig(dataset_dir=Path("pod-fit")))
-    fit_data = FakeFitData(rhs=np.zeros((1, 1)), solutions=np.zeros((1, 1)))
-    splits = InMemorySplitStore(
-        {Path("pod-fit"): IndexSplit(train=(0,), validation=(), test=(), predict=None)}
+POD_FIT_DIR = Path("pod-fit")
+
+
+@pytest.fixture
+def pod_fit_data(monkeypatch: pytest.MonkeyPatch) -> FakeFitData:
+    """Three train-fold snapshots of the two-dof workload matrices, served without a file."""
+    fit_data = FakeFitData(
+        rhs=np.zeros((4, 2)), solutions=np.array([[1.0, 0.5], [2.0, 1.1], [0.5, 0.2], [9.0, 9.0]])
     )
-    service = PreconditionerService(fit_data, splits)
+    splits = InMemorySplitStore(
+        {POD_FIT_DIR: IndexSplit(train=(0, 1, 2), validation=(), test=(3,), predict=None)}
+    )
+    monkeypatch.setattr(comparison_run, "FS_FIT_DATA", fit_data)
+    monkeypatch.setattr(comparison_run, "FS_SPLIT_STORE", splits)
+    # The stored method config digests its fit dataset's files, which this test has none of.
+    monkeypatch.setattr(comparison_run, "canonical_method_config", lambda cfg: {"name": cfg.name})
+    return fit_data
 
-    service.preload(_diagonal([1.0]), config)
-    service.preload(_diagonal([2.0]), config)
 
-    assert fit_data.dense_reads == [Path("pod-fit")]
+def _run_pod(
+    rank: int,
+    *,
+    settings: NeurallsSettings,
+    prepared_method: PreparedMethodFactory,
+    datasets: dict[DatasetId, DatasetPresentation],
+    training_runs: MlflowClient,
+) -> CompletedMethodWorkload:
+    pod = PODCoarseningConfig(dataset_dir=POD_FIT_DIR, rank=rank)
+    # A resolved identity, as preparation gives it, so nothing digests the fit dataset's files.
+    method = ResolvedMethod(AMGPreconditionerConfig(coarsening=pod), identity_digest="sha256:pod")
+    return execute_method_workload(
+        method,
+        (matrix_bundle(1), matrix_bundle(2)),
+        prepared=prepared_method(str(method.name)),
+        origin=InlineFit(pod),
+        datasets=datasets,
+        notation=NotationPolicy.default(),
+        params=_SOLVER_PARAMS,
+        settings=settings,
+        training_runs=training_runs,
+        device=CPU,
+    )
+
+
+def test_a_pod_method_is_fitted_once_and_its_measured_fit_is_its_offline_fit(
+    pod_fit_data: FakeFitData,
+    neuralls_settings: NeurallsSettings,
+    prepared_method: PreparedMethodFactory,
+    group_datasets: dict[DatasetId, DatasetPresentation],
+    training_runs: MlflowClient,
+) -> None:
+    workload = _run_pod(
+        1,
+        settings=neuralls_settings,
+        prepared_method=prepared_method,
+        datasets=group_datasets,
+        training_runs=training_runs,
+    )
+
+    assert pod_fit_data.dense_reads == [POD_FIT_DIR]
+    assert [type(event.outcome) for event in workload.setup_events] == [SetupCompleted] * 2
+    assert isinstance(workload.offline_cost.fit, Known)
+    assert workload.offline_cost.fit.provenance is CostProvenance.MEASURED
+    assert workload.offline_cost.fit_origin() == InlineFitOrigin()
+
+
+def test_a_failed_pod_fit_is_a_setup_failure_on_every_matrix(
+    pod_fit_data: FakeFitData,
+    neuralls_settings: NeurallsSettings,
+    prepared_method: PreparedMethodFactory,
+    group_datasets: dict[DatasetId, DatasetPresentation],
+    training_runs: MlflowClient,
+) -> None:
+    """A rank above the snapshot and dof counts cannot be fitted; the fit is attempted once."""
+    workload = _run_pod(
+        5,
+        settings=neuralls_settings,
+        prepared_method=prepared_method,
+        datasets=group_datasets,
+        training_runs=training_runs,
+    )
+
+    assert pod_fit_data.dense_reads == [POD_FIT_DIR]
+    assert [type(event.outcome) for event in workload.setup_events] == [SetupFailed] * 2
+    assert workload.solve_attempts == ()
+    assert isinstance(workload.offline_cost.fit, Known)
 
 
 @pytest.fixture
@@ -153,6 +236,7 @@ def test_the_offline_cost_is_resolved_once_per_method_and_shared_by_every_matrix
         *,
         runs: MlflowClient,
         splits: SplitStore,
+        measured_fit: StageCost,
         run_costs: dict[str, Known] | None,
     ) -> OfflineStages:
         resolved.append(runs)

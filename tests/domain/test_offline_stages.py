@@ -101,23 +101,22 @@ def test_combined_is_unavailable_and_names_every_unavailable_stage(
 
 
 UNAVAILABLE = Unavailable("not recorded")
+MEASURED_FIT = Known(3.0, 100, CostProvenance.MEASURED)
 
 
 @pytest.mark.parametrize(
     ("generation", "fit", "expected"),
     [
         (NotApplicable(), NotApplicable(), NoFit()),
-        (GENERATION, NotApplicable(), InlineFit()),
-        (UNAVAILABLE, NotApplicable(), InlineFit()),
-        (NotApplicable(), FIT, FitJob()),
-        (NotApplicable(), UNAVAILABLE, FitJob()),
+        (GENERATION, MEASURED_FIT, InlineFit()),
+        (UNAVAILABLE, MEASURED_FIT, InlineFit()),
         (GENERATION, FIT, FitJob()),
-        (GENERATION, UNAVAILABLE, FitJob()),
         (UNAVAILABLE, FIT, FitJob()),
-        (UNAVAILABLE, UNAVAILABLE, FitJob()),
+        (GENERATION, UNAVAILABLE, FitJob()),
+        (NotApplicable(), UNAVAILABLE, FitJob()),
     ],
 )
-def test_the_fit_origin_is_read_from_which_stages_apply(
+def test_the_fit_origin_is_read_from_the_fit_stage_provenance(
     generation: GenerationCost, fit: StageCost, expected: FitOrigin
 ) -> None:
     assert OfflineStages(generation=generation, fit=fit).fit_origin() == expected

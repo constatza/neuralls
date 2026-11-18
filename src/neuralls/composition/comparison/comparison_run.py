@@ -11,6 +11,14 @@ from loguru import logger
 from mlflow.tracking import MlflowClient
 from torchalg.preconditioners.base import Preconditioner
 
+from neuralls.composition.comparison._method_fit import (
+    FittedPOD,
+    MethodFit,
+    MethodFitFailed,
+    NoMethodFit,
+    fit_cost,
+    fit_method,
+)
 from neuralls.composition.comparison._offline_cost import resolve_offline_cost
 from neuralls.composition.comparison._preconditioner_setup import (
     PreconditionerService,
@@ -143,6 +151,8 @@ class _MethodRun:
     Attributes:
         method: The method being executed.
         service: Builds and preloads the method's preconditioner for each matrix.
+        fit: What the method fitted once before its timed setups; a failed fit fails every
+            matrix's setup with its error.
         params: Solver and timing parameters.
         device: Device the matrices and solves live on.
         offline_cost: One-off generation and fit cost attached to every result.
@@ -153,6 +163,7 @@ class _MethodRun:
 
     method: ResolvedMethod
     service: PreconditionerService
+    fit: MethodFit
     params: SolverParams
     device: torch.device
     offline_cost: OfflineStages
@@ -350,13 +361,17 @@ def _solve_bundle(
     )
 
 
+def _setup_event_id(run: _MethodRun, bundle: MatrixWorkload) -> SetupEventId:
+    return SetupEventId(f"{run.method.name}:{bundle.dataset}:{int(bundle.matrix_id)}")
+
+
 def _execute_on_device(
     run: _MethodRun, bundle: MatrixWorkload, matrix: torch.Tensor, dataset_text: str
 ) -> MatrixBundleResult:
     """Build the method once for ``matrix`` (timed), then solve every right-hand side."""
     method = run.method
     staged_inputs = _load_extra_inputs(bundle.matrix_path, bundle.matrix_index)
-    event_id = SetupEventId(f"{method.name}:{bundle.dataset}:{int(bundle.matrix_id)}")
+    event_id = _setup_event_id(run, bundle)
     try:
         run.service.preload(matrix, method.config)
     except Exception as exc:  # noqa: BLE001
@@ -402,8 +417,21 @@ def _execute_matrix_bundle(
     """Execute one matrix and release all device state on every exit path.
 
     Realized facts are read from the built preconditioner right after its one setup and
-    returned as plain values; only those outlive the release below.
+    returned as plain values; only those outlive the release below. A method whose fit failed
+    records that failure as the matrix's setup failure without building anything.
     """
+    match run.fit:
+        case MethodFitFailed(error=error):
+            return _setup_failed(
+                run,
+                bundle,
+                _setup_event_id(run, bundle),
+                error=error,
+                dataset_text=dataset_text,
+                timing=_SetupTiming(),
+            )
+        case NoMethodFit() | FittedPOD():
+            pass
     try:
         matrix = bundle.matrix.to(run.device)
         # TODO(investigate): neural methods get a dense matrix for setup *and* solve. The
@@ -438,9 +466,11 @@ def execute_method_workload(
     """Execute one method over matrix bundles on ``device``, keeping matrix state RHS-local.
 
     Dataset/checkpoint reads, reference solves, and reporting are outside the
-    setup/solve timers.  Each matrix receives one fresh prepared method object;
-    sibling RHS solves share that exact object.  The method-owned checkpoint
-    store spans matrices and is released before this function returns.
+    setup/solve timers.  A POD method's basis is fitted once, first, and measured as
+    its offline fit (`_method_fit.fit_method`), so no timed setup pays for it.  Each
+    matrix receives one fresh prepared method object; sibling RHS solves share that
+    exact object.  The method-owned checkpoint store spans matrices and is released
+    before this function returns.
 
     Facts read from each built preconditioner right after its one setup are kept with
     ``prepared``, which must belong to ``method``; a method whose every setup failed keeps
@@ -450,6 +480,10 @@ def execute_method_workload(
         raise ValueError(
             f"prepared presentation belongs to method {prepared.method_id!r}, not {method.name!r}"
         )
+    # Fitted before the workload observer starts: the fit is offline, not part of the workload.
+    method_fit = fit_method(
+        method.config, fit_data=FS_FIT_DATA, splits=FS_SPLIT_STORE, device=device
+    )
     observer = WorkloadMemoryObserver.start(device)
     planned_list: list[SystemTag] = []
     setup_events: list[MatrixSetupEvent] = []
@@ -457,7 +491,11 @@ def execute_method_workload(
     diagnostics: list[tuple[SystemId, CGComparisonResult]] = []
     realizations: list[SystemRealization] = []
     offline_cost = resolve_offline_cost(
-        origin, runs=training_runs, splits=FS_SPLIT_STORE, run_costs=training_run_costs
+        origin,
+        runs=training_runs,
+        splits=FS_SPLIT_STORE,
+        measured_fit=fit_cost(method_fit),
+        run_costs=training_run_costs,
     )
     method_text = render_method_label(prepared.configured, notation)
     target = reference_target(params.rtol, params.reference_precision_margin)
@@ -476,10 +514,11 @@ def execute_method_workload(
             method=method,
             service=PreconditionerService(
                 FS_FIT_DATA,
-                FS_SPLIT_STORE,
                 CheckpointLoaders.dlkit(device),
                 checkpoints=checkpoints,
+                pod_basis=method_fit.basis if isinstance(method_fit, FittedPOD) else None,
             ),
+            fit=method_fit,
             params=params,
             device=device,
             offline_cost=offline_cost,

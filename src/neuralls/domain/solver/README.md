@@ -325,7 +325,7 @@ stem against it.
 | `solve` | stage | Measured wall time of the PCG solve of pair (i, q). | $t_{m,i,q}$ |
 | `online` | stage | Setup plus solve of one pair: $s_{m,i} + t_{m,i,q}$. | $t^{\mathrm{online}}_{m,i,q}$ |
 | `generation` | stage | Dataset generation wall time × the share of snapshot rows in the folds the fit read. | $C^{\mathrm{gen}}_m$ |
-| `fit` | stage | Wall-clock span of the job that produced the method's artifact (POD fit or network training). | $C^{\mathrm{fit}}_m$ |
+| `fit` | stage | Wall-clock time to fit the method's artifact: a POD basis fitted once inside the comparison, or the network training job. | $C^{\mathrm{fit}}_m$ |
 | `offline` | stage | `generation + fit` | $C_m$ |
 | `full` | stage | `offline + workload_online` | $T_{\mathrm{full},m}$ |
 | `amortized` | modifier | The setup term is replaced by its per-RHS share $s_{m,i}/n_i$. It belongs only to the multi-RHS path; the paper never uses it. | (none) |
@@ -345,30 +345,33 @@ matrix and `breakeven_matrix_online_amortized_s` is `matrix_online_amortized_s` 
 both methods. `standalone`, `allocated`, `total` (as a cost), `training` (as a cost stage) and `time` as a
 figure-stem word naming a stage are not cost names.
 
-Where the numbers come from: `generation` from the dataset manifest (`HISTORICAL`), `fit` from the
-wall time of the MLflow run a checkpoint was resolved from (`HISTORICAL`), `setup` and `solve` from
-live events (`MEASURED`); `offline` is `OfflineStages.combined()` and `full` is
-`full_cost_seconds`, derived and never stored.
+Where the numbers come from: `generation` from the dataset manifest (`HISTORICAL`), `fit` measured
+live for a POD basis fitted inside the comparison (`MEASURED`) or from the wall time of the MLflow
+run a checkpoint was resolved from (`HISTORICAL`), `setup` and `solve` from live events
+(`MEASURED`); `offline` is `OfflineStages.combined()` and `full` is `full_cost_seconds`, derived and
+never stored.
 
-A stage that does not apply to a method (a classical method has neither offline stage, and a POD basis
-fit inline has no separate fit stage because that fit runs inside its measured setup) is `NotApplicable`
-and adds nothing. A stage that applies but has no recorded number is `Unavailable` and is never read as
+A stage that does not apply to a method (a classical method has neither offline stage) is
+`NotApplicable` and adds nothing. A stage that applies but has no recorded number is `Unavailable` and is never read as
 zero: the full cost is then `OfflineUnavailable`, which carries only the online seconds, and the
 full-cost breakdown figure states that the full cost is unknown. Offline cost is paid once and online
 cost once per workload, so a full cost names the workload it covers and neither is amortized into the
 other.
 
-The fit is not setup. Fit seconds are the start-to-end wall time of the one MLflow run the
-checkpoint was resolved from: the run dlkit opened around the job's `execute()` (for a `search` job the best
-trial's nested run, never the study run; for a `run.type = "fit"` POD job its own run), so they span the whole
-job lifecycle (building the data and model, data loading, epochs or the basis fit, checkpointing), not pure fit
-time. A run's span never includes sibling or parent runs, and the checkpoint is uploaded after the run has
-ended, so upload time is outside it. `OfflineStages.fit_origin()` states where a method's fit happened without
-a stored field: `FitJob` when a fit stage applies, `InlineFit` when only generation applies (the POD fit
-from `dataset_dir` is inside the measured setup, whereas a checkpoint-backed basis is loaded outside it,
-so the two origins are not combined in one cost table), `NoFit` when neither does. Two checkpoints trained in one run count that
-run once. Separating the fit from the rest of the job needs instrumentation in the dlkit fit path and is
-not done.
+The fit is not setup. A POD basis depends on its fit dataset, never on the matrix, so the
+comparison fits it once per method before the method's timed setups
+(`composition/comparison/_method_fit.py`) and measures that fit's wall time and peak memory: reading the
+train fold, forming the energy weight and the SVD. Each matrix's setup then only forms the transfer and
+coarse matrix from the fitted basis. For a network, fit seconds are the start-to-end wall time of the
+one MLflow run the checkpoint was resolved from: the run dlkit opened around the job's `execute()` (for
+a `search` job the best trial's nested run, never the study run), so they span the whole job lifecycle
+(building the data and model, data loading, epochs, checkpointing), not pure fit time. A run's span
+never includes sibling or parent runs, and the checkpoint is uploaded after the run has ended, so upload
+time is outside it. `OfflineStages.fit_origin()` states where a method's fit happened without a stored
+field, from the fit stage's provenance: `InlineFit` for a `MEASURED` fit (inside the comparison),
+`FitJob` for a `HISTORICAL` or `Unavailable` one (a training job), `NoFit` when no fit stage applies.
+Two checkpoints trained in one run count that run once. Separating the fit from the rest of a training
+job needs instrumentation in the dlkit fit path and is not done.
 
 Checkpoint and input-data loading, validation, staging, plotting, persistence, and MLflow work are
 excluded from online timing: **online time per pair** is solve time plus that matrix's measured
@@ -625,15 +628,16 @@ artifacts.
 read as zero). The generation stage is a `GenerationCost`: `NotApplicable`, `Unavailable`, or a
 `TrainShareOfGeneration(dataset, share)` that keeps the whole dataset's `Known` generation and the
 `TrainShare` charged to the artifact: a value in (0, 1], the share of the dataset's rows in the
-`FitFolds` of the pinned split the fit read (`train` for a POD fit, inline or by a job;
+`FitFolds` of the pinned split the fit read (`train` for a POD fit inside the comparison;
 `train_and_validation` for a neural training job, which selects its checkpoint on validation);
 `charged()` scales the seconds by the share. No fit reads the test fold, so a recorded generation
 is never charged whole. `OfflineStages(generation, fit)` pairs the
 two offline stages of a method, `charged_generation()` is the generation as a `StageCost`, and
 `OfflineStages.combined()` adds the charged stages into the `offline` cost: seconds sum, peak memory is
 the largest, and the result is `Unavailable` when either stage is. `composition/comparison/_offline_cost.py` chooses the variants
-from a validated method data origin (`resolve_generation_cost`, `resolve_fit_cost`,
-`resolve_offline_cost`); an unverified checkpoint training dataset has unavailable generation cost.
+from a validated method data origin and the method's measured fit (`resolve_generation_cost`,
+`resolve_fit_cost`, `resolve_offline_cost`); an unverified checkpoint training dataset has unavailable
+generation cost.
 `recorded_seconds` returns the seconds of a `Known` cost and `None` otherwise.
 `MethodWorkload` also requires the resolved method's path-free data evidence; the artifact writer records it with the scientific presentation so a future reuse decision can compare provenance, not rendered text.
 

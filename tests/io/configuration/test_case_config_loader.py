@@ -7,7 +7,11 @@ from pathlib import Path
 
 import pytest
 
-from neuralls.composition.assignments.assembler import load_assignment_batch
+from neuralls.composition.assignments.assembler import (
+    load_assignment_batch,
+    load_validated_case_config,
+)
+from neuralls.composition.assignments.comparison_prepare import pod_fit_dataset_ids
 from neuralls.platform.config.models.workspace import AssignmentWorkspace
 from neuralls.platform.config.settings import NeurallsSettings
 
@@ -46,6 +50,9 @@ def temp_config_structure(tmp_path: Path) -> Path:
         f.write("[[jobs]]\n")
         f.write('id = "exp2_job"\n')
         f.write('path = "jobs/exp2_job.toml"\n\n')
+        f.write("[[jobs]]\n")
+        f.write('id = "pod_job"\n')
+        f.write('path = "jobs/pod_job.toml"\n\n')
         f.write("# Assignment 1: Full config with explicit checkpoint\n")
         f.write("[[assignments]]\n")
         f.write('id = "exp1"\n')
@@ -58,7 +65,16 @@ def temp_config_structure(tmp_path: Path) -> Path:
         f.write("[[assignments]]\n")
         f.write('id = "exp2"\n')
         f.write('dataset = "exp2_data"\n')
-        f.write('job = "exp2_job"\n')
+        f.write('job = "exp2_job"\n\n')
+        f.write("# Assignment 3: POD recipe, fitted inside the comparison, never trained\n")
+        f.write("[[assignments]]\n")
+        f.write('id = "pod1"\n')
+        f.write('dataset = "exp1_data"\n')
+        f.write('job = "pod_job"\n')
+
+    (project_root / "configs" / "jobs" / "pod_job.toml").write_text(
+        '[run]\ntype = "pod"\n\n[pod]\nrank = 4\n', encoding="utf-8"
+    )
 
     # Dataset configs
     with open(project_root / "configs" / "datasets" / "exp1_data.toml", "w", encoding="utf-8") as f:
@@ -144,7 +160,7 @@ def test_load_assignments_success(
         neuralls_settings=neuralls_settings,
     )
 
-    assert len(batch.assignments) == 2
+    assert [assignment.spec.assignment_id for assignment in batch.assignments] == ["exp1", "exp2"]
 
     exp1 = batch.assignments[0]
     exp2 = batch.assignments[1]
@@ -242,3 +258,16 @@ def test_load_assignments_no_assignments(
             case_config_path=temp_config_structure / "configs" / "experiments.toml",
             neuralls_settings=neuralls_settings,
         )
+
+
+def test_the_comparison_gates_the_fit_dataset_of_every_pod_recipe(
+    temp_config_structure: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    neuralls_settings: NeurallsSettings,
+):
+    """A POD basis is fitted from its dataset at compare time, so that dataset is gated too."""
+    monkeypatch.chdir(temp_config_structure)
+    case_path = temp_config_structure / "configs" / "experiments.toml"
+    cfg, config_dir = load_validated_case_config(case_path, neuralls_settings)
+
+    assert pod_fit_dataset_ids(cfg, config_dir, neuralls_settings) == ["exp1_data"]

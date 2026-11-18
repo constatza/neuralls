@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Any, assert_never
 
 from dlkit.infrastructure.config.job_config import (
-    FitJobConfig,
     InferenceJobConfig,
     SearchJobConfig,
     TrainingJobConfig,
@@ -17,11 +16,10 @@ from loguru import logger
 from mlflow.entities import Run
 from mlflow.exceptions import MlflowException
 
-from neuralls.composition.assignments._job_types import AnyJobConfig
 from neuralls.composition.assignments.assembler import load_validated_case_config
 from neuralls.composition.assignments.assignment_subjects import (
     neural_spec_from_assignment,
-    pod_fit_spec_from_assignment,
+    pod_spec_from_assignment,
     resolve_assignment_inputs,
 )
 from neuralls.composition.assignments.comparison_topology import ComparisonTopology
@@ -47,6 +45,7 @@ from neuralls.platform.config.models.experiments import (
     AssignmentEntry,
     CaseConfig,
 )
+from neuralls.platform.config.models.pod_job import PODJobConfig
 from neuralls.platform.config.models.preconditioner import (
     NeuralPreconditionerConfig,
     PreconditionerConfig,
@@ -58,7 +57,6 @@ from neuralls.platform.tracking.extra_features import fetch_extra_feature_names
 from neuralls.platform.tracking.model_registry import build_registered_model_name
 from neuralls.shared.digest import Digest, content_digest
 from neuralls.shared.errors import StageInputsStale
-from neuralls.shared.scientific_description.models import ValidatedLabel
 from neuralls.shared.types import (
     ComparisonRhsSourceKind,
 )
@@ -95,8 +93,8 @@ def _iter_checkpoint_refs(
     consumer that asks a question about a comparison's checkpoint dependencies
     — "does anything need resolving", "which assignments are referenced",
     "what identity do the resolved checkpoints have". Specs that bear no
-    checkpoint ref (static preconditioners, an unfitted POD coarsening) simply
-    contribute nothing.
+    checkpoint ref (static preconditioners, a POD coarsening fitted inside the
+    comparison) simply contribute nothing.
     """
     for spec in specs:
         if not isinstance(spec, CheckpointRefBearing):
@@ -108,10 +106,9 @@ def _iter_checkpoint_refs(
 def needs_model_resolution(specs: tuple[PreconditionerConfig, ...]) -> bool:
     """Return True when any checkpoint-bearing preconditioner needs model_ref lookup.
 
-    Generic over `CheckpointRefBearing` (not `NeuralPreconditionerConfig`-only)
-    so a checkpoint-backed `AMGPreconditionerConfig` (POD fitted ahead of
-    time via a `FitJobConfig` assignment) triggers resolution the same way a
-    neural preconditioner does — one dispatch point, no per-kind branching.
+    Generic over `CheckpointRefBearing` (not `NeuralPreconditionerConfig`-only), so
+    every checkpoint-bearing spec, including a neural coarsening inside AMG, triggers
+    resolution through one dispatch point, no per-kind branching.
     """
     return any(ref.model_ref is not None for _, _, ref in _iter_checkpoint_refs(specs))
 
@@ -196,46 +193,8 @@ def existing_assignment_ids(specs: tuple[PreconditionerConfig, ...]) -> set[str]
     return set(referenced_assignment_ids(specs))
 
 
-@dataclass(frozen=True, slots=True)
-class _AssignmentJobContext:
-    """One assignment's resolved job settings plus its dataset directory."""
-
-    job: AnyJobConfig
-    dataset_dir: Path
-    training: StageIdentity | None
-    architecture: ValidatedLabel | None
-    """The job registry entry's explicit ``architecture``; None when it declares none."""
-
-
-def _resolve_assignment_job_context(
-    entry: AssignmentEntry,
-    *,
-    cfg: CaseConfig,
-    config_dir: Path,
-    settings: NeurallsSettings,
-) -> _AssignmentJobContext:
-    """Load one assignment's declared job and resolve its dataset directory.
-
-    Both are needed to decide *what kind* of auto-generated preconditioner
-    spec an assignment produces (`neural_specs_from_assignments`'s kind
-    dispatch) and, for a `fit`-kind job, to populate the resulting
-    `PODCoarseningConfig`'s required `dataset_dir`/`rank` fields.
-    """
-    inputs = resolve_assignment_inputs(entry, cfg=cfg, config_dir=config_dir, settings=settings)
-    return _AssignmentJobContext(
-        job=inputs.job,
-        architecture=inputs.binding.architecture,
-        dataset_dir=inputs.dataset_dir,
-        training=_assignment_training_identity(
-            job_config_path=inputs.binding.job_config_path,
-            data_config_path=inputs.binding.data_config_path,
-            settings=settings,
-        ),
-    )
-
-
 def _extra_input_names_of_training_run(
-    context: _AssignmentJobContext,
+    training: StageIdentity | None,
     *,
     experiment: str,
     tracking: TrackingServices,
@@ -246,11 +205,11 @@ def _extra_input_names_of_training_run(
     Uses the same identity lookup as model resolution, so the names can never
     come from a different run than the checkpoint that gets loaded.
     """
-    if context.training is None:
+    if training is None:
         return ()
     reused = tracking.identity_store(
         tracking_uri=tracking_uri, experiment=experiment, require_checkpoint=True
-    ).find(context.training)
+    ).find(training)
     if reused is None or reused.run_id is None:
         return ()
     return fetch_extra_feature_names(reused.run_id, client=tracking.client(tracking_uri))
@@ -268,17 +227,14 @@ def neural_specs_from_assignments(
 ) -> list[PreconditionerConfig]:
     """Generate auto preconditioner stubs from assignment entries.
 
-    Dispatches on each assignment's declared job kind: a `fit`-kind job
-    (`FitJobConfig` — e.g. POD basis fitting) yields an unresolved
-    `AMGPreconditionerConfig`/`PODCoarseningConfig` stub; any other kind
-    (today: `train`/`search`) yields the existing unresolved
-    `NeuralPreconditionerConfig` stub. Both stubs reference the most recent
-    run tagged with the assignment's id and get resolved to a concrete
-    checkpoint later, symmetrically, by
-    `resolve_preconditioner_models_with_warnings` (generic over
-    `CheckpointRefBearing`). Closed for modification, open for extension: a
-    future `Fittable` artifact kind adds one more dispatch branch here, not a
-    new isinstance chain elsewhere.
+    Dispatches on each assignment's declared job kind: a POD recipe
+    (`PODJobConfig`) yields a complete `AMGPreconditionerConfig`/`PODCoarseningConfig`
+    over the assignment's dataset, which the comparison fits once per method and
+    which needs no checkpoint resolution; a `train`/`search` job yields an
+    unresolved `NeuralPreconditionerConfig` stub referencing the assignment's
+    training run, resolved to a concrete checkpoint later by
+    `resolve_preconditioner_models_with_warnings`. A future job kind adds one
+    more dispatch branch here, not a new isinstance chain elsewhere.
 
     Args:
         entries: Assignment entries to convert.
@@ -296,25 +252,26 @@ def neural_specs_from_assignments(
     for entry in entries:
         if entry.id in claimed_ids:
             continue
-        context = _resolve_assignment_job_context(
-            entry, cfg=cfg, config_dir=config_dir, settings=settings
-        )
-        match context.job:
-            case FitJobConfig() as job:
-                specs.append(
-                    pod_fit_spec_from_assignment(entry, job=job, dataset_dir=context.dataset_dir)
-                )
+        inputs = resolve_assignment_inputs(entry, cfg=cfg, config_dir=config_dir, settings=settings)
+        match inputs.job:
+            case PODJobConfig() as job:
+                specs.append(pod_spec_from_assignment(job, dataset_dir=inputs.dataset_dir))
             case TrainingJobConfig() | SearchJobConfig() | InferenceJobConfig():
+                training = _assignment_training_identity(
+                    job_config_path=inputs.binding.job_config_path,
+                    data_config_path=inputs.binding.data_config_path,
+                    settings=settings,
+                )
                 specs.append(
                     neural_spec_from_assignment(
                         entry,
                         extra_input_names=_extra_input_names_of_training_run(
-                            context,
+                            training,
                             experiment=cfg.names.training,
                             tracking=tracking,
                             tracking_uri=tracking_uri,
                         ),
-                        architecture=context.architecture,
+                        architecture=inputs.binding.architecture,
                     )
                 )
             case _ as unreachable:
@@ -451,8 +408,7 @@ def checkpoint_digests(specs: Sequence[PreconditionerConfig]) -> dict[str, Diges
     The comparison depends on the checkpoint *bytes* it actually loads, not on
     which run they came from, so a retrained model with a different result
     changes the identity and an identical one does not. Refs without a
-    resolved checkpoint (an unfitted inline POD coarsening) contribute nothing;
-    their fit data is covered by the spec's own identity fields.
+    resolved checkpoint contribute nothing.
     """
     digests: dict[str, Digest] = {}
     for index, spec in enumerate(specs):

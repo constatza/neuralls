@@ -26,6 +26,7 @@ from neuralls.composition.assignments.evaluation_prepare import (
     prepare_eval_run_specs,
     resolve_base_output,
 )
+from neuralls.composition.assignments.job_loader import is_pod_recipe
 from neuralls.composition.generation.default_services import FS_SPLIT_STORE
 from neuralls.composition.tracking.run_specs import (
     build_evaluation_tags,
@@ -36,8 +37,10 @@ from neuralls.domain.presentation.run_names import NamedRun, TrainingPresentatio
 from neuralls.domain.presentation.titles import ComparisonScopePresentation, session_title
 from neuralls.platform.config.case_path import CaseConfigPath
 from neuralls.platform.config.models.experiments import (
+    AssignmentEntry,
     CaseConfig,
 )
+from neuralls.platform.config.registry import resolve_assignment_binding
 from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.platform.storage.manifest_io import load_dataset_presentation
 from neuralls.platform.tracking.environment import scoped_mlflow_environment
@@ -229,6 +232,36 @@ def _resolve_eval_parent_run(
             return sweep_result.parent_run_id, resolved_tracking_uri
 
 
+def _trained_assignments(
+    assignments: list[AssignmentEntry],
+    *,
+    cfg: CaseConfig,
+    config_dir: Path,
+    settings: NeurallsSettings,
+) -> list[AssignmentEntry]:
+    """Leave POD recipe assignments out: the comparison fits them, so no checkpoint exists.
+
+    Raises:
+        ValueError: When every selected assignment is a POD recipe.
+    """
+    pod_ids = [
+        assignment.id
+        for assignment in assignments
+        if is_pod_recipe(
+            resolve_assignment_binding(cfg, config_dir, assignment).job_config_path, settings
+        )
+    ]
+    if pod_ids:
+        logger.info(
+            "Not evaluating POD assignments {}: they are fitted inside the comparison.",
+            ", ".join(pod_ids),
+        )
+    trained = [assignment for assignment in assignments if assignment.id not in pod_ids]
+    if not trained:
+        raise ValueError("No trained assignments to evaluate: POD assignments have no checkpoint.")
+    return trained
+
+
 def eval_batch(
     cfg: CaseConfig,
     case_config_path: CaseConfigPath,
@@ -250,6 +283,9 @@ def eval_batch(
         raise ValueError(f"Unknown assignment ids for eval: {', '.join(missing_ids)}.")
     if not assignments:
         raise ValueError("No [[assignments]] entries found in case config.")
+    assignments = _trained_assignments(
+        assignments, cfg=cfg, config_dir=configs_dir, settings=settings
+    )
 
     presentations = training_presentations(
         cfg,

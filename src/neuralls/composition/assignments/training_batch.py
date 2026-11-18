@@ -260,7 +260,7 @@ def _finalize_assignment_child(
     Args:
         prepared: This assignment's prepared training inputs.
         execution_result: The multirun child's dispatch result — a
-            `TrainingResult` directly for a `train`/`fit` job, or an
+            `TrainingResult` directly for a `train` job, or an
             `OptimizationResult` for a `search` job.
         settings: Runtime settings, used to re-verify the dataset is unchanged.
 
@@ -304,7 +304,7 @@ class _ChildTimingTracker:
     at the end) via `shared.device.begin_resource_usage`/`end_resource_usage`,
     then logs the result onto the child's own MLflow run — see
     `shared.constants.TRAINING_CHILD_DURATION_METRIC_KEY`. Only ever sees
-    `child_id`/`run_id`, generic over `train`/`search`/`fit` alike; a future
+    `child_id`/`run_id`, generic over `train`/`search` alike; a future
     job kind is covered automatically.
 
     Also takes over `_release_device_memory_on_child_outcome`'s old job:
@@ -369,6 +369,8 @@ def run_assignment_sweep(
     model training (with MLflow-backed reuse unless force=True), dispatched
     as one dlkit multirun sweep across every assignment that needs it.
 
+    POD recipe assignments are left out (the comparison fits them), so a case of
+    POD assignments only trains nothing and opens no MLflow session.
     Assignments whose MLflow reuse check finds a completed run are resolved
     immediately without joining the sweep. Failed assignments — whether the
     failure happened during dataset resolution/preparation or during the
@@ -381,7 +383,7 @@ def run_assignment_sweep(
         tracking: Source of the reuse lookups, clients and lease managers.
 
     Returns:
-        `AssignmentSweepResult` with one `AssignmentResult` per assignment
+        `AssignmentSweepResult` with one `AssignmentResult` per trained assignment
         (success or failure, in the same order as the case config's
         `[[assignments]]`), plus the sweep's MLflow session parent run
         identity for aggregate reporting (`training_metric_report.write_metric_report`).
@@ -404,9 +406,11 @@ def run_assignment_sweep(
     """
     case_path = case_config_path.path
 
-    # Load all assignment definitions from the case config
+    # Load every assignment dlkit trains; POD recipes are fitted inside the comparison.
     batch = load_assignment_batch(case_path, settings)
     assignments = batch.assignments
+    if not assignments:
+        return AssignmentSweepResult(results=[], tracking_uri=None, parent_run_id=None)
 
     logger.info(f"Training {len(assignments)} assignments from {case_path}")
 

@@ -46,7 +46,7 @@ type StageCost = NotApplicable | Known | Unavailable
 class FitFolds(StrEnum):
     """The folds of a dataset's pinned split that the job fitting an artifact read.
 
-    A POD basis, fit by a job or inline during setup, reads only the train fold. A neural
+    A POD basis, fit inside the comparison, reads only the train fold. A neural
     training or search job also reads the validation fold, for early stopping and checkpoint
     selection, so those rows served the artifact too.
     """
@@ -121,15 +121,32 @@ class NoFit:
 
 @dataclass(frozen=True, slots=True)
 class InlineFit:
-    """The method is fit from its dataset during setup, so the fit time is inside the setup."""
+    """The method is fit from its dataset inside the comparison, once, before its timed setups.
+
+    The fit is measured as it runs, so its fit stage is `Known` with `MEASURED` provenance.
+    """
 
 
 @dataclass(frozen=True, slots=True)
 class FitJob:
-    """The method's artifact was fit ahead of time by a job whose MLflow run is the fit stage."""
+    """The method's artifact was fit ahead of time by a job whose MLflow run is the fit stage.
+
+    Its fit stage is charged back from that run (`HISTORICAL`), or `Unavailable` when the run
+    recorded no duration.
+    """
 
 
 type FitOrigin = NoFit | InlineFit | FitJob
+
+
+def _origin_of_known_fit(provenance: CostProvenance) -> InlineFit | FitJob:
+    match provenance:
+        case CostProvenance.MEASURED:
+            return InlineFit()
+        case CostProvenance.HISTORICAL:
+            return FitJob()
+        case unreachable:
+            assert_never(unreachable)
 
 
 @dataclass(frozen=True, slots=True)
@@ -137,12 +154,12 @@ class OfflineStages:
     """The one-off costs paid once per method artifact, before any workload runs.
 
     ``generation`` is building the dataset the artifact was fit on (only the share of it in the
-    folds the fit read) and ``fit`` is the job that fit the network or basis; together they are
-    the ``offline`` cost of the vocabulary in ``domain/solver/README.md``.
-    A stage the method does not have is `NotApplicable` (a classical
-    method has neither; a method fit inline during setup has no separate fit stage, because
-    that fit is already part of its measured setup), so a method's stages are always both
-    stated and a missing number is `Unavailable`, never an absent field.
+    folds the fit read) and ``fit`` is fitting the network or basis: the measured fit a POD
+    method runs once inside the comparison, before its timed setups, or the training job that
+    produced a checkpoint. Together they are the ``offline`` cost of the vocabulary in
+    ``domain/solver/README.md``. A stage the method does not have is `NotApplicable` (a
+    classical method has neither), so a method's stages are always both stated and a missing
+    number is `Unavailable`, never an absent field.
     """
 
     generation: GenerationCost
@@ -159,19 +176,18 @@ class OfflineStages:
                 assert_never(unreachable)
 
     def fit_origin(self) -> FitOrigin:
-        """Where the method's fit happened, read from which stages apply.
+        """Where the method's fit happened, read from the fit stage's provenance.
 
-        Any applicable fit stage (`Known` or `Unavailable`) is a fit job, since the fit stage is
-        the wall time of the job that produced the checkpoint. Without one, a dataset to
-        generate means the method is fit inline from it, and that fit is part of its measured
-        setup, not of an offline stage. With neither stage the method has nothing to fit.
+        A fit measured live ran inside the comparison; one charged back from history, or one
+        whose job recorded no duration, was a fit job. A method with no fit stage has nothing
+        to fit.
         """
-        match self.fit, self.charged_generation():
-            case ((Known() | Unavailable()), _):
+        match self.fit:
+            case Known(provenance=provenance):
+                return _origin_of_known_fit(provenance)
+            case Unavailable():
                 return FitJob()
-            case NotApplicable(), (Known() | Unavailable()):
-                return InlineFit()
-            case NotApplicable(), NotApplicable():
+            case NotApplicable():
                 return NoFit()
             case unreachable:
                 assert_never(unreachable)

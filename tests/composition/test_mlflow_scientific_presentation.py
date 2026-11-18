@@ -27,7 +27,6 @@ from neuralls.composition.assignments.comparison_resolution import (
     ResolvedComparisonSpecs,
 )
 from neuralls.composition.assignments.presentation_preflight import (
-    describe_method,
     prepare_comparison_presentation,
 )
 from neuralls.composition.comparison.method_data_origin import InlineFit, NoFitData
@@ -45,7 +44,7 @@ from neuralls.domain.presentation.titles import (
 )
 from neuralls.platform.config.models.coarsening import PODCoarseningConfig
 from neuralls.platform.config.models.preconditioner import (
-    AMGPreconditionerConfig,
+    NeuralPreconditionerConfig,
     PreconditionerType,
     StandardPreconditionerConfig,
 )
@@ -80,25 +79,25 @@ class _StopAfterProvenance(Exception):
 
 
 @pytest.fixture
-def mismatched_pod_spec() -> AMGPreconditionerConfig:
-    return AMGPreconditionerConfig(
-        coarsening=PODCoarseningConfig(
-            dataset_dir=FIT_DIR,
-            checkpoint_path=Path("basis.pt"),
-            resolved_run_id="training-run",
-        )
+def mismatched_checkpoint_spec() -> NeuralPreconditionerConfig:
+    """A checkpoint whose training run recorded another dataset digest than the current one."""
+    return NeuralPreconditionerConfig(
+        architecture="Net",
+        checkpoint_path=Path("network.pt"),
+        resolved_run_id="training-run",
+        data_config_path=Path("training.toml"),
     )
 
 
 @pytest.mark.usefixtures(
     "stub_input_gate", "stub_planning", "stub_matrix_scope", "stub_setup_tracking"
 )
-def test_recorded_pod_digest_mismatch_blocks_before_presentation_reuse_or_run(
-    mismatched_pod_spec: AMGPreconditionerConfig,
+def test_recorded_dataset_digest_mismatch_blocks_before_presentation_reuse_or_run(
+    mismatched_checkpoint_spec: NeuralPreconditionerConfig,
     fake_tracking: RecordingTrackingServices,
 ) -> None:
     case = in_memory_case(with_comparisons=True)
-    config = mock_cfg(preconditioners=[mismatched_pod_spec])
+    config = mock_cfg(preconditioners=[mismatched_checkpoint_spec])
     recorded = {IdentityTag.COMPONENTS: json.dumps({"dataset": "sha256:" + "a" * 16})}
     with (
         patch.object(comparison_prepare, "resolve_comparison_config", return_value=config),
@@ -107,11 +106,14 @@ def test_recorded_pod_digest_mismatch_blocks_before_presentation_reuse_or_run(
             comparison_prepare,
             "resolve_comparison_specs",
             return_value=ResolvedComparisonSpecs(
-                specs=[mismatched_pod_spec], warnings=(), checkpoint_digests={}
+                specs=[mismatched_checkpoint_spec], warnings=(), checkpoint_digests={}
             ),
         ),
         patch.object(
             FakeMlflowClient, "get_run", return_value=MagicMock(data=MagicMock(tags=recorded))
+        ),
+        patch.object(
+            comparison_prepare, "assignment_dataset_dir", return_value=Path("training-dataset")
         ),
         patch.object(
             comparison_prepare, "current_dataset_digest", return_value="sha256:" + "b" * 64
@@ -130,11 +132,11 @@ def test_recorded_pod_digest_mismatch_blocks_before_presentation_reuse_or_run(
     "stub_input_gate", "stub_planning", "stub_matrix_scope", "stub_setup_tracking"
 )
 def test_unavailable_checkpoint_provenance_emits_exact_warning(
-    mismatched_pod_spec: AMGPreconditionerConfig,
+    mismatched_checkpoint_spec: NeuralPreconditionerConfig,
     fake_tracking: RecordingTrackingServices,
 ) -> None:
     case = in_memory_case(with_comparisons=True)
-    config = mock_cfg(preconditioners=[mismatched_pod_spec])
+    config = mock_cfg(preconditioners=[mismatched_checkpoint_spec])
     warnings: list[str] = []
     sink = logger.add(
         lambda message: (
@@ -152,7 +154,7 @@ def test_unavailable_checkpoint_provenance_emits_exact_warning(
                 comparison_prepare,
                 "resolve_comparison_specs",
                 return_value=ResolvedComparisonSpecs(
-                    specs=[mismatched_pod_spec], warnings=(), checkpoint_digests={}
+                    specs=[mismatched_checkpoint_spec], warnings=(), checkpoint_digests={}
                 ),
             ),
             patch.object(
@@ -176,7 +178,7 @@ def test_unavailable_checkpoint_provenance_emits_exact_warning(
         logger.remove(sink)
     assert warnings == [
         (
-            f"Method '{mismatched_pod_spec.name}': training data provenance unavailable: "
+            f"Method '{mismatched_checkpoint_spec.name}': training data provenance unavailable: "
             "training run has no dataset identity"
         )
     ]
@@ -331,22 +333,3 @@ def test_configured_facts_become_stable_parameters_without_rendered_text(
         "training_dataset.strategy_0.standard_deviation": "1.0",
         "training_dataset.strategy_0.sample_count": "8",
     }
-
-
-def test_describing_a_method_yields_a_presentation_with_no_assignment_id(
-    pod_fit_presentation: DatasetPresentation,
-) -> None:
-    load = datasets_by_dir({FIT_DIR: pod_fit_presentation})
-    splits = train_splits(FIT_DIR)
-    method = describe_method(
-        pod_spec(FIT_DIR, 10, assignment="fit-job"),
-        InlineFit(PODCoarseningConfig(dataset_dir=FIT_DIR)),
-        load,
-        splits,
-    )
-    assert method == describe_method(
-        pod_spec(FIT_DIR, 10, assignment="another-job"),
-        InlineFit(PODCoarseningConfig(dataset_dir=FIT_DIR)),
-        load,
-        splits,
-    )

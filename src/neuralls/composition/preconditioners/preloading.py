@@ -18,19 +18,14 @@ import torch
 from neuralls.composition.preconditioners.checkpoint_store import (
     CheckpointLoaders,
     CheckpointStore,
-    PodBasisKey,
     PredictorKey,
     require_loaders,
 )
-from neuralls.composition.preconditioners.coarsening import load_fitted_pod_model
 from neuralls.platform.config.models.checkpoint_refs import (
     CheckpointRefBearing,
     NeuralCheckpointRef,
 )
-from neuralls.platform.config.models.coarsening import (
-    NeuralPODCoarseningConfig,
-    PODCoarseningConfig,
-)
+from neuralls.platform.config.models.coarsening import NeuralPODCoarseningConfig
 from neuralls.platform.config.models.preconditioner import (
     NeuralPreconditionerConfig,
     NeuralTransferConfig,
@@ -40,20 +35,6 @@ from neuralls.platform.config.models.preconditioner import (
 type RefPreloader = Callable[
     [NeuralCheckpointRef, Path, torch.Tensor, CheckpointStore, CheckpointLoaders | None], None
 ]
-
-
-def _preload_pod_basis(
-    ref: NeuralCheckpointRef,
-    path: Path,
-    matrix: torch.Tensor,
-    store: CheckpointStore,
-    loaders: CheckpointLoaders | None,
-) -> None:
-    del ref, loaders
-    key = PodBasisKey(path, matrix.dtype, matrix.device)
-    store.load_pod_basis(
-        key, lambda: load_fitted_pod_model(path).to(dtype=matrix.dtype, device=matrix.device)
-    )
 
 
 def _preload_predictor(
@@ -90,7 +71,6 @@ _REF_PRELOADERS: Mapping[type[NeuralCheckpointRef], RefPreloader] = MappingProxy
     {
         NeuralPreconditionerConfig: _preload_predictor,
         NeuralTransferConfig: _preload_predictor,
-        PODCoarseningConfig: _preload_pod_basis,
         NeuralPODCoarseningConfig: _preload_inference_predictor,
     }
 )
@@ -107,7 +87,7 @@ def preload_checkpoints(
 
     Idempotent per checkpoint, so a later matrix of the same dataset (or a timing
     repeat) finds everything already loaded. ``loaders`` is needed only to load a predictor; a
-    config without one, or a fitted POD basis, loads without them.
+    config without one loads without them.
 
     Raises:
         TypeError: If the config exposes a checkpoint ref of a kind with no preloader.

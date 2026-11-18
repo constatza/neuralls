@@ -4,13 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from dlkit.infrastructure.config.job_config import SearchJobConfig, TrainingJobConfig
-
-from neuralls.composition.assignments._job_types import (
-    AnyJobConfig,
-    TrainableJobConfig,
-    TrainLikeJobConfig,
-)
+from neuralls.composition.assignments._job_types import DlkitJobConfig, TrainLikeJobConfig
 
 
 def _retained_checkpoint_callback(output_dir: Path) -> dict[str, str]:
@@ -61,27 +55,7 @@ def patch_runtime_workspace[T: TrainLikeJobConfig](
     )
 
 
-def patch_runtime_workspace_for_job[T: TrainableJobConfig](
-    settings: T,
-    *,
-    output_dir: Path,
-) -> T:
-    """Apply trainer workspace patching only for job kinds that have a trainer.
-
-    `FitJobConfig` has no `training` section by design (see its docstring) —
-    there is no trainer-owned output directory or checkpoint callback to
-    redirect, so this is a no-op for that job kind rather than hitting
-    `patch_runtime_workspace`'s guard clause. Kept as a sibling dispatch
-    rather than a modification of `patch_runtime_workspace` itself, so that
-    function's contract ("training jobs require [training].trainer") stays
-    exact for its existing train-like callers.
-    """
-    if isinstance(settings, (TrainingJobConfig, SearchJobConfig)):
-        return patch_runtime_workspace(settings, output_dir=output_dir)
-    return settings
-
-
-def patch_dataloader_runtime[T: AnyJobConfig](settings: T, *, dataset_format: str) -> T:
+def patch_dataloader_runtime[T: DlkitJobConfig](settings: T, *, dataset_format: str) -> T:
     """Clamp DataLoader workers to 0 for zarr datasets to avoid local-store multiprocessing hangs.
 
     No-op for every other format, and a no-op if the job already has no workers

@@ -9,6 +9,8 @@ from pathlib import Path
 import pytest
 
 from neuralls.composition.assignments.assembler import AssignmentIdentity, load_assignment
+from neuralls.platform.config.dlkit_bridge import load_job_config
+from neuralls.platform.config.models.pod_job import PODJobConfig
 from neuralls.platform.config.settings import NeurallsSettings
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -189,17 +191,12 @@ def test_training_profiles_reference_existing_dlkit_exports(config_path: Path) -
     tuple((REPO_ROOT / "configs/jobs").rglob("*.toml")),
     ids=_repo_relative_id,
 )
-def test_checked_in_jobs_load_through_dlkit(config_path: Path) -> None:
-    """Every checked-in job config must validate against the installed DLKit schema.
+def test_checked_in_jobs_load(config_path: Path, neuralls_settings: NeurallsSettings) -> None:
+    """Every checked-in job config must validate as one job: a POD recipe or a DLKit job.
 
     Catches upstream DLKit field renames (e.g. training.loss_function -> training.loss)
-    that synthetic test fixtures elsewhere don't exercise.
+    that synthetic test fixtures elsewhere don't exercise. Sweep-level configs are rejected
+    by the loader itself.
     """
-    from dlkit.infrastructure.config.factories import load_job
-    from dlkit.infrastructure.config.job_config import ConvergenceJobConfig, MultiRunJobConfig
-
-    job = load_job(config_path)
-    assert not isinstance(job, (ConvergenceJobConfig, MultiRunJobConfig)), (
-        f"{config_path} is a sweep-level config, not a single job"
-    )
-    assert job.data is not None
+    job = load_job_config(config_path, neuralls_settings)
+    assert isinstance(job, PODJobConfig) or job.data is not None

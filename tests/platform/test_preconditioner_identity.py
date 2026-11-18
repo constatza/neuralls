@@ -96,24 +96,23 @@ def test_amg_target_dim_slug_includes_target() -> None:
     )
 
 
-def test_amg_pod_slug_includes_rank_and_snapshot_count() -> None:
-    """POD coarsening's slug reflects rank and snapshot count."""
+def test_amg_pod_slug_includes_rank_snapshot_count_and_fit_dataset() -> None:
+    """POD coarsening's slug reflects rank, snapshot count and the dataset it is fitted on."""
     cfg = AMGPreconditionerConfig(
         coarsening=PODCoarseningConfig(dataset_dir="data/solutions", rank=8, n_snapshots=200)
     )
-    assert cfg.name == "amg_levels2_pre2_post2_smootheromegaauto_pod_rank8_n200"
+    assert cfg.name == "amg_levels2_pre2_post2_smootheromegaauto_pod_rank8_n200_data_solutions"
 
 
-def test_amg_pod_slug_includes_checkpoint_identity_when_fitted() -> None:
-    """A checkpoint-backed POD basis's slug carries its checkpoint identity, not just rank."""
-    cfg = AMGPreconditionerConfig(
-        coarsening=PODCoarseningConfig(
-            dataset_dir="data/solutions",
-            rank=8,
-            assignment="pod_run1",
+def test_two_pod_methods_differing_only_in_their_fit_dataset_have_distinct_names() -> None:
+    """Equal-rank POD methods fitted on two datasets are two methods, never one merged key."""
+    cg, probes = (
+        AMGPreconditionerConfig(
+            coarsening=PODCoarseningConfig(dataset_dir=f"data/{dataset}", rank=25)
         )
+        for dataset in ("gaussian-cg20", "smoother-filtered-probes")
     )
-    assert cfg.name == "amg_levels2_pre2_post2_smootheromegaauto_pod_rank8_n-1_assignment_pod_run1"
+    assert cg.name != probes.name
 
 
 def test_neural_pod_slug_always_includes_checkpoint_identity() -> None:

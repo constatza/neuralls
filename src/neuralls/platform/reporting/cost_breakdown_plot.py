@@ -5,8 +5,8 @@ cost (each pair's matrix setup and solve) once per workload, so a bar is the ful
 the report's pairs from a fresh artifact. Colour encodes the stage and the method
 is the x tick label, so one fixed colour means one stage in every bar. A stage with no recorded
 number draws no segment and the bar says so instead of ending at a full cost that would read the
-unknown stage as free; a method fit inline has no offline fit segment because that fit is part of
-its setup segment, which the text above the bar says.
+unknown stage as free. A method fit inside the comparison has its measured fit as its offline fit
+segment, and the text above the bar says where the fit ran.
 """
 
 from __future__ import annotations
@@ -117,7 +117,7 @@ def fit_origin_note(row: CostRow) -> tuple[str, ...]:
         case FitOriginKind.NONE:
             return ()
         case FitOriginKind.INLINE:
-            return ("fit inline, counted in setup",)
+            return ("fit in comparison, measured",)
         case FitOriginKind.JOB:
             return ("fit job",)
         case unreachable:

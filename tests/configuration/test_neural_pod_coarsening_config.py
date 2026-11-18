@@ -17,7 +17,6 @@ from neuralls.platform.config.models.coarsening import (
     PODCoarseningConfig,
 )
 from neuralls.platform.config.models.preconditioner import AMGPreconditionerConfig
-from neuralls.shared.types import InnerProductKind
 
 WORKSPACE = Path("workspace")
 
@@ -78,22 +77,23 @@ def test_a_pod_rank_is_a_positive_mode_count(
     assert [item["loc"] for item in error.value.errors()] == [("rank",)]
 
 
-def test_an_energy_inner_product_on_an_inline_fit_is_rejected() -> None:
-    """Only a fit job's checkpoint carries an energy basis; the inline fit is Euclidean."""
-    with pytest.raises(ValidationError) as error:
-        PODCoarseningConfig.model_validate({"dataset_dir": WORKSPACE, "inner_product": "energy"})
-    assert [(item["type"], item["loc"]) for item in error.value.errors()] == [("value_error", ())]
-
-
-def test_an_energy_fit_has_its_own_slug_and_a_euclidean_one_keeps_its_slug() -> None:
-    """The inner product separates two otherwise equal fitted bases in every path."""
-    euclidean = PODCoarseningConfig(dataset_dir=WORKSPACE, rank=10, assignment="fit_job_1")
-    energy = euclidean.model_copy(update={"inner_product": InnerProductKind.ENERGY})
-
-    assert (euclidean.slug(), energy.slug()) == (
-        f"pod_rank10_n-1_{euclidean.checkpoint_slug()}",
-        f"pod_rank10_n-1_energy_{euclidean.checkpoint_slug()}",
+@pytest.mark.parametrize(
+    ("fields", "slug"),
+    [
+        pytest.param({}, "pod_rank10_n-1_data_fit", id="euclidean"),
+        pytest.param({"inner_product": "energy"}, "pod_rank10_n-1_energy_data_fit", id="energy"),
+        pytest.param({"n_snapshots": 5}, "pod_rank10_n5_data_fit", id="cut"),
+    ],
+)
+def test_a_pod_slug_names_its_fit_and_the_dataset_it_is_fitted_on(
+    fields: dict[str, object], slug: str
+) -> None:
+    """The inner product, cut and fit dataset each separate two otherwise equal POD methods."""
+    cfg = PODCoarseningConfig.model_validate(
+        {"dataset_dir": WORKSPACE / "fit", "rank": 10, **fields}
     )
+
+    assert cfg.slug() == slug
 
 
 @pytest.mark.parametrize(
@@ -101,13 +101,13 @@ def test_an_energy_fit_has_its_own_slug_and_a_euclidean_one_keeps_its_slug() -> 
     [
         pytest.param({"n_snapshots": 0}, ("n_snapshots",), id="zero"),
         pytest.param({"n_snapshots": -2}, ("n_snapshots",), id="negative"),
-        pytest.param({"n_snapshots": 5, "assignment": "fit_job_1"}, (), id="checkpoint-backed"),
+        pytest.param({"assignment": "fit_job_1"}, ("assignment",), id="checkpoint-identity"),
     ],
 )
-def test_n_snapshots_is_all_or_a_positive_inline_cut(
+def test_a_pod_config_rejects_a_bad_cut_and_any_checkpoint_identity(
     fields: dict[str, object], loc: tuple[str, ...]
 ) -> None:
-    """-1 keeps every snapshot; a checkpoint's basis is loaded, not refit, so it takes no cut."""
+    """-1 keeps every snapshot; a POD basis is fitted in the comparison, never checkpointed."""
     with pytest.raises(ValidationError) as error:
         PODCoarseningConfig.model_validate({"dataset_dir": WORKSPACE, **fields})
     assert {item["loc"][:1] for item in error.value.errors()} == {loc}

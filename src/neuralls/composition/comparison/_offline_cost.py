@@ -1,4 +1,9 @@
-"""Historical generation and fit costs for a validated method data origin."""
+"""Generation and fit costs for a validated method data origin.
+
+Generation is always historical (the dataset manifest). The fit is the measured fit of a method
+fitted inside the comparison, or the recorded wall time of the training runs a checkpoint came
+from.
+"""
 
 from __future__ import annotations
 
@@ -41,12 +46,17 @@ def resolve_offline_cost(
     *,
     runs: MlflowClient,
     splits: SplitStore,
+    measured_fit: StageCost,
     run_costs: Mapping[str, Known | Unavailable] | None = None,
 ) -> OfflineStages:
-    """Attribute offline stages to the prepared method's validated dependencies."""
+    """Attribute offline stages to the prepared method's validated dependencies.
+
+    ``measured_fit`` is what the method's fit inside the comparison cost
+    (`_method_fit.fit_cost`); it is the fit stage of an `InlineFit` origin.
+    """
     return OfflineStages(
         generation=resolve_generation_cost(origin, splits),
-        fit=resolve_fit_cost(origin, runs=runs, run_costs=run_costs),
+        fit=resolve_fit_cost(origin, runs=runs, measured_fit=measured_fit, run_costs=run_costs),
     )
 
 
@@ -54,11 +64,32 @@ def resolve_fit_cost(
     origin: MethodDataOrigin,
     *,
     runs: MlflowClient,
+    measured_fit: StageCost,
     run_costs: Mapping[str, Known | Unavailable] | None = None,
 ) -> StageCost:
-    """Sum each distinct resolved fit or training run once; an unknown run stays unknown."""
-    if isinstance(origin, NoFitData | InlineFit):
-        return NotApplicable()
+    """The fit stage of ``origin``.
+
+    None for a method with nothing to fit, ``measured_fit`` for one fitted inside the
+    comparison, and for a checkpoint each distinct resolved training run summed once; an
+    unknown run stays unknown.
+    """
+    match origin:
+        case NoFitData():
+            return NotApplicable()
+        case InlineFit():
+            return measured_fit
+        case CheckpointBased():
+            return _training_runs_cost(origin, runs=runs, run_costs=run_costs)
+        case unreachable:
+            assert_never(unreachable)
+
+
+def _training_runs_cost(
+    origin: CheckpointBased,
+    *,
+    runs: MlflowClient,
+    run_costs: Mapping[str, Known | Unavailable] | None,
+) -> StageCost:
     refs = origin.checkpoint_refs
     n_unrecorded = sum(ref.resolved_run_id is None for ref in refs)
     if n_unrecorded:
@@ -84,8 +115,8 @@ def resolve_generation_cost(origin: MethodDataOrigin, splits: SplitStore) -> Gen
     """Charge the share of its dataset's generation that the method's fit read.
 
     Generation produced every row, but a fit reads only some folds of the dataset's pinned
-    split: an inline POD fit the train fold of the split pinned now, a checkpoint the folds its
-    job read of the split its run recorded. The held-out test rows are generated for
+    split: a POD fit inside the comparison the train fold of the split pinned now, a checkpoint
+    the folds its job read of the split its run recorded. The held-out test rows are generated for
     evaluation, so they are never charged to the artifact.
     """
     match origin:

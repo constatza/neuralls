@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Protocol
 
 import numpy as np
+from scipy.sparse import csr_array
 
 
 class FitDataLoader(Protocol):
@@ -17,4 +18,12 @@ class FitDataLoader(Protocol):
 
     def parameters(self, dataset_dir: Path) -> tuple[np.ndarray, ...]:
         """The dataset's parameter arrays, in manifest order."""
+        ...
+
+    def matrix_sample_index(self, dataset_dir: Path) -> np.ndarray:
+        """The matrix id every dataset row is bound to."""
+        ...
+
+    def scaled_matrix(self, dataset_dir: Path, row: int, matrix_id: int) -> csr_array:
+        """The stored (scaled) matrix ``matrix_id`` that dataset row ``row`` binds."""
         ...

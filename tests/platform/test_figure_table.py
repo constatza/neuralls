@@ -13,7 +13,6 @@ from neuralls.domain.solver.models.cost import (
     NO_OFFLINE_COST,
     FitFolds,
     Known,
-    NotApplicable,
     OfflineStages,
     TrainShare,
     TrainShareOfGeneration,
@@ -189,7 +188,7 @@ def test_cost_breakdown_stacks_each_methods_offline_stages_on_its_online_totals(
     ]
 
 
-def test_cost_breakdown_states_a_method_fit_inline_by_its_generation_alone(
+def test_cost_breakdown_states_a_fit_measured_in_the_comparison_as_inline(
     summaries: tuple[MethodWorkloadSummary, ...],
 ) -> None:
     offline = {
@@ -198,13 +197,13 @@ def test_cost_breakdown_states_a_method_fit_inline_by_its_generation_alone(
             generation=TrainShareOfGeneration(
                 Known(10.0, None, CostProvenance.HISTORICAL), TrainShare(1.0, FitFolds.TRAIN)
             ),
-            fit=NotApplicable(),
+            fit=Known(0.5, 64, CostProvenance.MEASURED),
         ),
     }
 
     (amg, _) = build_full_cost_breakdown_table(summaries, offline).to_dicts()
 
-    assert (amg["fit_status"], amg["fit_origin"]) == ("not_applicable", "inline")
+    assert (amg["fit_s"], amg["fit_origin"], amg["full_s"]) == (0.5, "inline", 14.0)
 
 
 def test_cost_breakdown_has_no_full_cost_when_an_offline_stage_is_unavailable(

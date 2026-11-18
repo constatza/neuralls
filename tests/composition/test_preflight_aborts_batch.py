@@ -14,8 +14,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 import tomli_w
+from dlkit.infrastructure.io.index import save_split_indices
+from dlkit.infrastructure.types.split import IndexSplit
 
-from neuralls.composition.assignments import comparison_batch, comparison_prepare
+from neuralls.composition.assignments import comparison_prepare
 from neuralls.composition.assignments.comparison_batch import (
     run_comparison_batch,
 )
@@ -26,10 +28,9 @@ from neuralls.composition.assignments.comparison_resolution import (
     ComparisonResolutionContext,
     ResolvedComparisonSpecs,
 )
-from neuralls.composition.comparison.models import ComparisonParams, ComparisonReused
+from neuralls.composition.comparison.models import ComparisonParams
 from neuralls.composition.preconditioners.descriptions import MissingArchitectureNameError
 from neuralls.domain.generation.specs import DatasetSpec, SourceSpec
-from neuralls.domain.identity import StageIdentity
 from neuralls.domain.presentation.methods import DuplicateMethodPresentationError
 from neuralls.domain.presentation.provenance import DatasetSourceProvenance
 from neuralls.domain.presentation.titles import ComparisonScopePresentation
@@ -45,14 +46,13 @@ from neuralls.platform.config.models.preconditioner import (
 from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.platform.storage.manifest import MissingDatasetProvenanceError
 from neuralls.platform.storage.manifest_io import load_dataset_presentation
-from neuralls.shared.digest import canonical_digest
+from neuralls.shared.constants import SPLIT_FILENAME
 from neuralls.shared.scientific_description.models import ScientificDescription
 from tests.dataset_support import build_test_dataset, strip_provenance
 from tests.fakes.comparison_runs import RecordingTrackingServices
 from tests.presentation_support import pod_spec
 from tests.workflows.comparison_support import (
     make_settings,
-    mock_cfg,
     write_experiments_config,
 )
 
@@ -73,6 +73,10 @@ def twin_pod_dataset_dirs(
     for name in ("copy-a", "copy-b"):
         target = tmp_path / name
         build_test_dataset(atomic_source, atomic_spec, str(target), source_provenance=problem)
+        # A POD method fits the train fold, so its dataset needs a pinned split.
+        save_split_indices(
+            IndexSplit(train=(0,), validation=(), test=(), predict=None), target / SPLIT_FILENAME
+        )
         dirs.append(target)
     return dirs[0], dirs[1]
 
@@ -144,58 +148,6 @@ class TestPresentationFailureAbortsTheBatch:
         assert calls, "resolution ran, so the failure came from presentation"
         assert fake_tracking.runs.sessions == []
 
-    def test_unverified_checkpoint_pod_does_not_read_nearby_stale_dataset(
-        self,
-        tmp_path: Path,
-        neuralls_settings: NeurallsSettings,
-        resolved_specs: ResolvedSpecs,
-        fake_tracking: RecordingTrackingServices,
-        stale_dataset_dir: Path,
-    ) -> None:
-        spec = AMGPreconditionerConfig(
-            coarsening=PODCoarseningConfig(
-                dataset_dir=stale_dataset_dir, checkpoint_path=Path("basis.pt"), rank=10
-            )
-        )
-        calls = resolved_specs([spec])
-        experiments_config = tmp_path / "experiments.toml"
-        write_experiments_config(experiments_config, with_comparisons=True)
-        with (
-            patch.object(
-                comparison_prepare,
-                "resolve_comparison_config",
-                return_value=mock_cfg(preconditioners=[spec]),
-            ),
-            patch.object(
-                comparison_prepare,
-                "load_dataset_presentation",
-                side_effect=AssertionError("unverified fit dataset was read"),
-            ),
-            patch.object(
-                comparison_prepare,
-                "comparison_identity",
-                return_value=StageIdentity.build(
-                    "comparison", {"test": canonical_digest("checkpoint-pod")}
-                ),
-            ),
-            patch.object(
-                comparison_prepare,
-                "preconditioner_identities",
-                return_value={spec.name: canonical_digest("checkpoint-pod")},
-            ),
-            patch.object(comparison_batch, "has_complete_reusable_session", return_value=True),
-        ):
-            outcomes = run_comparison_batch(
-                CaseConfigPath.resolve(experiments_config),
-                ComparisonParams(),
-                neuralls_settings,
-                tracking=fake_tracking,
-            )
-        assert calls
-        assert len(outcomes) == 2
-        assert all(isinstance(outcome, ComparisonReused) for outcome in outcomes)
-        assert fake_tracking.runs.sessions == []
-
     def test_inline_pod_over_a_dataset_without_provenance_aborts(
         self,
         tmp_path: Path,
@@ -216,7 +168,7 @@ class TestPresentationFailureAbortsTheBatch:
         assert calls
         assert fake_tracking.runs.sessions == []
 
-    def test_two_pod_methods_with_distinct_assignments_over_identical_datasets(
+    def test_two_pod_methods_over_identical_datasets(
         self,
         tmp_path: Path,
         neuralls_settings: NeurallsSettings,
@@ -225,9 +177,7 @@ class TestPresentationFailureAbortsTheBatch:
         twin_pod_dataset_dirs: tuple[Path, Path],
     ) -> None:
         first, second = twin_pod_dataset_dirs
-        calls = resolved_specs(
-            [pod_spec(first, 10, assignment="fit-a"), pod_spec(second, 10, assignment="fit-b")]
-        )
+        calls = resolved_specs([pod_spec(first, 10), pod_spec(second, 10)])
 
         _run_expecting_abort(
             tmp_path, neuralls_settings, fake_tracking, DuplicateMethodPresentationError

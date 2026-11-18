@@ -17,7 +17,6 @@ from typing import Self
 import numpy as np
 import pytest
 import torch
-from dlkit.infrastructure.types.split import IndexSplit
 from pydantic import ValidationError
 from torch.testing import assert_close
 from torchalg.preconditioners.base import PreconditionerContext
@@ -35,6 +34,7 @@ from torchalg.preconditioners.implementations.amg import (
     BootstrapAMGPreconditioner,
     TargetDimensionCoarsening,
 )
+from torchalg.preconditioners.implementations.pod import PODCoarseningStrategy
 from torchalg.preconditioners.ports import ExtraInputPredictorPort, PredictorAdapter
 
 from neuralls.composition.preconditioners.factory import create_preconditioner
@@ -59,8 +59,6 @@ from neuralls.platform.config.models.preconditioner import (
     parse_preconditioner_config,
 )
 from neuralls.platform.dlkit.predictor_adapter import OwningDLKitNeuralPreconditioner
-from tests.fakes.fit_data import FakeFitData
-from tests.fakes.split_store import InMemorySplitStore
 from tests.loaders_support import cpu_loaders
 
 # ==============================================================================
@@ -213,18 +211,11 @@ FIT_DIR = Path("pod-fit")
 
 
 @pytest.fixture
-def pod_fit_arrays(well_conditioned_matrix: torch.Tensor) -> tuple[np.ndarray, np.ndarray]:
-    """In-memory (rhs, solutions) fit arrays for the 4x4 system, as the service stages them."""
+def pod_basis(well_conditioned_matrix: torch.Tensor) -> torch.Tensor:
+    """An orthonormal two-mode basis of the 4x4 system, as its method fitted it."""
     n = well_conditioned_matrix.shape[0]
-    rng = np.random.default_rng(0)
-    return rng.standard_normal((4, n)), rng.standard_normal((4, n))
-
-
-@pytest.fixture
-def pod_fit_split() -> InMemorySplitStore:
-    """The pinned split of the four fit rows: three to fit on, one held out."""
-    return InMemorySplitStore(
-        {FIT_DIR: IndexSplit(train=(0, 1, 2), validation=(), test=(3,), predict=None)}
+    return torch.linalg.qr(torch.randn(n, 2, generator=torch.Generator().manual_seed(0)))[0].to(
+        torch.float64
     )
 
 
@@ -416,48 +407,16 @@ def test_factory_creates_amg_preconditioner_with_target_dim_coarsening(
 
 
 def test_factory_creates_amg_preconditioner_with_pod_coarsening(
-    well_conditioned_matrix: torch.Tensor,
-    pod_fit_arrays: tuple[np.ndarray, np.ndarray],
+    well_conditioned_matrix: torch.Tensor, pod_basis: torch.Tensor
 ) -> None:
-    """Factory creates AMGPreconditioner for AMG type with POD coarsening.
-
-    The snapshot ensemble arrives staged, as `PreconditionerService.preload` supplies it.
-    """
+    """The build only forms the transfer from the basis its method fitted beforehand."""
     config = AMGPreconditionerConfig(coarsening=PODCoarseningConfig(dataset_dir=FIT_DIR, rank=2))
 
-    precond = create_preconditioner(well_conditioned_matrix, config, staged_fit_data=pod_fit_arrays)
+    precond = create_preconditioner(well_conditioned_matrix, config, pod_basis=pod_basis)
 
     assert isinstance(precond, AMGPreconditioner)
-
-
-def test_inline_pod_coarsening_refuses_to_read_its_dataset_during_the_build(
-    well_conditioned_matrix: torch.Tensor,
-) -> None:
-    """Unstaged fit data is an error, never a hidden read inside the timed build."""
-    config = AMGPreconditionerConfig(coarsening=PODCoarseningConfig(dataset_dir=FIT_DIR, rank=2))
-
-    with pytest.raises(ValueError, match="not staged"):
-        create_preconditioner(well_conditioned_matrix, config)
-
-
-def test_pod_fit_arrays_are_staged_before_factory_build(
-    well_conditioned_matrix: torch.Tensor,
-    pod_fit_arrays: tuple[np.ndarray, np.ndarray],
-    pod_fit_split: InMemorySplitStore,
-) -> None:
-    """The service reads the fit arrays once in `preload`; the build itself reads nothing."""
-    from neuralls.composition.comparison._preconditioner_setup import PreconditionerService
-
-    config = AMGPreconditionerConfig(coarsening=PODCoarseningConfig(dataset_dir=FIT_DIR, rank=2))
-    rhs, solutions = pod_fit_arrays
-    fit_data = FakeFitData(rhs=rhs, solutions=solutions)
-    service = PreconditionerService(fit_data, pod_fit_split)
-    service.preload(well_conditioned_matrix, config)
-
-    precond = service.create_preconditioner(well_conditioned_matrix, config)
-
-    assert isinstance(precond, AMGPreconditioner)
-    assert fit_data.dense_reads == [FIT_DIR]
+    assert isinstance(precond._coarsening, PODCoarseningStrategy)
+    assert precond._coarsening.rank == 2
 
 
 def test_factory_creates_amg_preconditioner_with_neural_pod_coarsening(

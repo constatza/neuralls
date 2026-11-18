@@ -71,15 +71,6 @@ def require_loaders(loaders: CheckpointLoaders | None, what: str) -> CheckpointL
 
 
 @dataclass(frozen=True, slots=True)
-class PodBasisKey:
-    """A fitted POD basis module, already moved to the matrix's dtype and device."""
-
-    path: Path
-    dtype: torch.dtype
-    device: torch.device
-
-
-@dataclass(frozen=True, slots=True)
 class PredictorKey:
     """A predictor (adapter-style or batch-inference) loaded from one checkpoint."""
 
@@ -88,10 +79,6 @@ class PredictorKey:
 
 class PreloadedCheckpoints(Protocol):
     """Read side: what a builder may ask for before falling back to loading itself."""
-
-    def pod_basis(self, key: PodBasisKey) -> torch.nn.Module | None:
-        """The preloaded fitted POD module, or ``None`` when it was not preloaded."""
-        ...
 
     def predictor(self, key: PredictorKey) -> ExtraInputPredictorPort | None:
         """The preloaded predictor (owned by the store; borrow it, never release it), or ``None``."""
@@ -104,10 +91,6 @@ class PreloadedCheckpoints(Protocol):
 
 class NoPreloadedCheckpoints:
     """Null object: nothing is preloaded, so every builder loads inside its own build."""
-
-    def pod_basis(self, key: PodBasisKey) -> torch.nn.Module | None:
-        del key
-        return None
 
     def predictor(self, key: PredictorKey) -> ExtraInputPredictorPort | None:
         del key
@@ -131,7 +114,6 @@ class CheckpointStore:
     """
 
     def __init__(self) -> None:
-        self._pod_bases: dict[PodBasisKey, torch.nn.Module] = {}
         self._predictors: dict[PredictorKey, ExtraInputPredictorPort] = {}
         self._inference_predictors: dict[PredictorKey, InferencePredictorPort] = {}
 
@@ -149,14 +131,6 @@ class CheckpointStore:
         del exc_type, exc, tb
         self.release()
 
-    def load_pod_basis(
-        self, key: PodBasisKey, loader: Callable[[], torch.nn.Module]
-    ) -> torch.nn.Module:
-        """Load (once) the POD module for ``key``."""
-        if key not in self._pod_bases:
-            self._pod_bases[key] = self._load(key.path, loader)
-        return self._pod_bases[key]
-
     def load_predictor(
         self, key: PredictorKey, loader: Callable[[], ExtraInputPredictorPort]
     ) -> ExtraInputPredictorPort:
@@ -173,9 +147,6 @@ class CheckpointStore:
             self._inference_predictors[key] = self._load(key.path, loader)
         return self._inference_predictors[key]
 
-    def pod_basis(self, key: PodBasisKey) -> torch.nn.Module | None:
-        return self._pod_bases.get(key)
-
     def predictor(self, key: PredictorKey) -> ExtraInputPredictorPort | None:
         return self._predictors.get(key)
 
@@ -187,7 +158,6 @@ class CheckpointStore:
         """Release every owned predictor exactly once and drop all loaded objects."""
         for predictor in (*self._predictors.values(), *self._inference_predictors.values()):
             predictor.cleanup()
-        self._pod_bases.clear()
         self._predictors.clear()
         self._inference_predictors.clear()
 

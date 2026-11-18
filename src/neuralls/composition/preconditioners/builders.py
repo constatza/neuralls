@@ -85,11 +85,16 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True, slots=True)
 class _BuildDeps:
-    """Injected collaborators shared by every preconditioner builder."""
+    """Injected collaborators shared by every preconditioner builder.
+
+    ``staged_fit_data`` holds the parameter arrays a neural POD predicts its snapshots from;
+    ``pod_basis`` is the basis a POD method fitted once, before its timed setups.
+    """
 
     loaders: CheckpointLoaders | None
     preloaded: PreloadedCheckpoints = NO_PRELOADED
     staged_fit_data: tuple[np.ndarray, ...] | None = None
+    pod_basis: torch.Tensor | None = None
 
 
 type PreconditionerBuilder = Callable[
@@ -165,8 +170,8 @@ def _build_sparse_amg(
     """Sparse CSR AMG: A stays CSR in every level and in the transfer operators.
 
     Aggregation coarsening uses torchalg's sparse V-cycle preset. POD and neural
-    POD use the same multigrid engine with torchalg's sparse POD strategy, so the
-    coarse operator is formed as P.T A P without densifying A. Target-dimension
+    POD use the same multigrid engine with torchalg's POD strategy, which forms the
+    coarse operator as Φᵀ(AΦ) without densifying A. Target-dimension
     coarsening has no sparse counterpart and is rejected. The sparse AMG preset builds
     its aggregation internally and does not expose a coarsening object, so this always
     returns `None` for the coarsening, even on the POD/neural-POD path.
@@ -193,6 +198,7 @@ def _build_sparse_amg(
         sparse=True,
         preloaded=deps.preloaded,
         staged_fit_data=deps.staged_fit_data,
+        pod_basis=deps.pod_basis,
     )
     cycle = MultigridVCycle(
         resolve_jacobi_default(None, config.smoother_omega),
@@ -212,6 +218,7 @@ def _build_amg(
     loaders: CheckpointLoaders | None = None,
     preloaded: PreloadedCheckpoints = NO_PRELOADED,
     staged_fit_data: tuple[np.ndarray, ...] | None = None,
+    pod_basis: torch.Tensor | None = None,
 ) -> tuple[Preconditioner, CoarseningStrategy]:
     """Assemble an `AMGPreconditioner` and return it alongside its coarsening strategy.
 
@@ -222,13 +229,15 @@ def _build_amg(
     preconditioner after the fact without reaching into private state.
     Returning both from the same build call means diagnostics reuse the
     exact coarsening object already used to build the hierarchy — no
-    duplicate POD fit, no duplicate checkpoint load.
+    duplicate transfer build, no duplicate checkpoint load.
 
     Args:
         matrix: System matrix A.
         config: AMG preconditioner configuration.
         loaders: Checkpoint loaders, needed only by neural POD coarsening.
         preloaded: Checkpoints loaded ahead of the build; the default loads inside it.
+        staged_fit_data: Parameter arrays a neural POD predicts its snapshots from.
+        pod_basis: The basis a POD method fitted before its timed setups.
 
     Returns:
         The assembled preconditioner and the coarsening strategy used to build it.
@@ -239,6 +248,7 @@ def _build_amg(
         loaders,
         preloaded=preloaded,
         staged_fit_data=staged_fit_data,
+        pod_basis=pod_basis,
     )
     smoother = JacobiSmoother(omega=config.smoother_omega)
     cycle = VCycle(
@@ -264,6 +274,7 @@ def _build_dense_amg(
         deps.loaders,
         deps.preloaded,
         deps.staged_fit_data,
+        deps.pod_basis,
     )
 
 

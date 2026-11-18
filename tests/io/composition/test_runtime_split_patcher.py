@@ -8,14 +8,13 @@ import numpy as np
 import pytest
 from dlkit.infrastructure.config.data_entries import DataRole, ValueEntry
 from dlkit.infrastructure.config.data_settings import DataModuleSelector, DataSettings
-from dlkit.infrastructure.config.job_config import FitJobConfig, TrainingJobConfig
+from dlkit.infrastructure.config.job_config import TrainingJobConfig
 from dlkit.infrastructure.config.model_components import ModelComponentSettings
 from dlkit.infrastructure.config.run_settings import RunSettings
 from dlkit.infrastructure.config.split_settings import IndexSplitSettings
 from dlkit.infrastructure.config.trainer_settings import TrainerSettings
 from dlkit.infrastructure.config.training_settings import TrainingSettings
 
-from neuralls.composition.assignments._job_types import TrainableJobConfig
 from neuralls.composition.assignments.runtime_split_patcher import patch_split_settings
 from neuralls.shared.constants import SPLIT_FILENAME
 
@@ -55,13 +54,6 @@ def training_job(tmp_path: Path) -> TrainingJobConfig:
 
 
 @pytest.fixture
-def fit_job() -> FitJobConfig:
-    return FitJobConfig(
-        run=RunSettings(type="fit", seed=42), data=_data_settings(), model=_model_settings()
-    )
-
-
-@pytest.fixture
 def split_file(tmp_path: Path) -> Path:
     """dlkit validates that the split file exists, so the patcher's target must be real."""
     path = tmp_path / SPLIT_FILENAME
@@ -69,13 +61,10 @@ def split_file(tmp_path: Path) -> Path:
     return path
 
 
-@pytest.mark.parametrize("job_fixture", ["training_job", "fit_job"])
-def test_every_job_kind_reads_the_pinned_split(
-    job_fixture: str, split_file: Path, request: pytest.FixtureRequest
+def test_a_training_job_reads_the_pinned_split(
+    training_job: TrainingJobConfig, split_file: Path
 ) -> None:
-    job: TrainableJobConfig = request.getfixturevalue(job_fixture)
-
-    patched = patch_split_settings(job, split_file=split_file)
+    patched = patch_split_settings(training_job, split_file=split_file)
 
     assert patched.data is not None
     assert str(patched.data.splits.filepath) == str(split_file)

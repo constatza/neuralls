@@ -5,16 +5,14 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from dlkit.infrastructure.config.job_config import FitJobConfig, SearchJobConfig, TrainingJobConfig
+from dlkit.infrastructure.config.job_config import SearchJobConfig, TrainingJobConfig
 from loguru import logger
 
-from neuralls.composition.assignments._job_types import AnyJobConfig, TrainableJobConfig
-from neuralls.composition.assignments.job_loader import load_experiment_job
+from neuralls.composition.assignments._job_types import DlkitJobConfig, TrainLikeJobConfig
+from neuralls.composition.assignments.job_loader import is_pod_recipe, load_dlkit_job
 from neuralls.composition.assignments.job_materializer import materialize_inference_job
 from neuralls.composition.assignments.runtime_tracking_patcher import patch_training_tracking
-from neuralls.composition.assignments.runtime_workspace_patcher import (
-    patch_runtime_workspace_for_job,
-)
+from neuralls.composition.assignments.runtime_workspace_patcher import patch_runtime_workspace
 from neuralls.platform.config.loaders import (
     load_case_config,
     load_data_config,
@@ -40,7 +38,7 @@ from neuralls.platform.tracking.mlflow import (
 )
 
 
-def _base_name_from_settings(settings: AnyJobConfig, job_config_path: Path) -> str:
+def _base_name_from_settings(settings: DlkitJobConfig, job_config_path: Path) -> str:
     """Resolve a stable run/base name from one lower-case DLKit job."""
     job_experiment = settings.experiment
     job_experiment_name = (
@@ -57,13 +55,12 @@ def _base_name_from_settings(settings: AnyJobConfig, job_config_path: Path) -> s
     return job_config_path.stem
 
 
-def _require_trainable_job(settings: AnyJobConfig) -> TrainableJobConfig:
+def _require_trainable_job(settings: DlkitJobConfig) -> TrainLikeJobConfig:
     """Narrow one loaded job to a kind runnable via the assignment/training pipeline."""
-    if isinstance(settings, (TrainingJobConfig, SearchJobConfig, FitJobConfig)):
+    if isinstance(settings, (TrainingJobConfig, SearchJobConfig)):
         return settings
     raise TypeError(
-        f"Training mode requires a DLKit training, search, or fit job, got "
-        f"{type(settings).__name__}."
+        f"Training mode requires a DLKit training or search job, got {type(settings).__name__}."
     )
 
 
@@ -228,7 +225,7 @@ def load_assignment(
     )
 
     with scoped_mlflow_environment(mlflow_topology.env):
-        job_cfg = load_experiment_job(job_config_path, neuralls_settings)
+        job_cfg = load_dlkit_job(job_config_path, neuralls_settings)
 
     if identity.dataset_registry_id is None:
         raise ValueError(
@@ -259,7 +256,7 @@ def load_assignment(
         logger.debug("Loaded inference settings")
     else:
         trainable_job = _require_trainable_job(job_cfg)
-        settings = patch_runtime_workspace_for_job(trainable_job, output_dir=workspace.root_dir)
+        settings = patch_runtime_workspace(trainable_job, output_dir=workspace.root_dir)
         settings = patch_training_tracking(
             settings,
             uri=mlflow_topology.env.get("MLFLOW_TRACKING_URI"),
@@ -278,7 +275,12 @@ def load_assignment_batch(
     case_config_path: Path,
     neuralls_settings: NeurallsSettings,
 ) -> AssignmentBatch:
-    """Load all assignments from one case config file."""
+    """Load every assignment dlkit trains from one case config file.
+
+    A POD recipe assignment is left out with one log line: the comparison fits it, so
+    training has nothing to run for it. A case of POD assignments only loads an empty
+    batch.
+    """
     if not case_config_path.exists():
         raise FileNotFoundError(f"Case config not found: {case_config_path}")
 
@@ -291,6 +293,7 @@ def load_assignment_batch(
         )
 
     resolved_assignments: list[RunnableAssignment] = []
+    pod_assignment_ids: list[str] = []
     for binding in bindings:
         if not binding.data_config_path.exists():
             raise FileNotFoundError(
@@ -302,6 +305,9 @@ def load_assignment_batch(
             raise FileNotFoundError(
                 f"Assignment '{binding.assignment_id}': Job config not found: {binding.job_config_path}"
             )
+        if is_pod_recipe(binding.job_config_path, neuralls_settings):
+            pod_assignment_ids.append(binding.assignment_id)
+            continue
 
         assignment = load_assignment(
             job_config_path=binding.job_config_path,
@@ -328,6 +334,11 @@ def load_assignment_batch(
 
         resolved_assignments.append(assignment)
 
+    if pod_assignment_ids:
+        logger.info(
+            "Not training POD assignments {}: they are fitted inside the comparison.",
+            ", ".join(pod_assignment_ids),
+        )
     return AssignmentBatch(
         output_root=output_root,
         assignments=resolved_assignments,

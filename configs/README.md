@@ -140,7 +140,7 @@ Current checked-in examples:
 
 Jobs are thin runnable entrypoints.
 
-They own:
+A train or search job owns:
 
 - `run.type`
 - references to one model profile and one training profile
@@ -149,6 +149,13 @@ They own:
 
 They should not duplicate the shared training block unless a job has a genuine
 job-specific override.
+
+A POD recipe (`configs/jobs/pod/*.toml`) is not a dlkit job: `[run]` holds only
+`type = "pod"`, and `[pod]` holds `rank`, an optional `inner_product` and an
+optional `n_snapshots`. It has no seed, precision or data profile. An assignment
+pairs it with a dataset; `neuralls train` and `neuralls eval` skip it, and the
+comparison fits its basis once per method from the dataset's pinned train fold.
+Any other key is rejected.
 
 ### `configs/cases/**/*.toml`
 
@@ -232,7 +239,7 @@ figures compare them directly. Every case solves the same 80 systems: four
 RHS recipes (Gaussian, masked Gaussian, low- and high-frequency sinusoidal,
 seeds 42-45) with `rhs_count = 20` each, on `gaussian-cg20`'s matrix.
 
-- `pod-rank.toml`: c in `{5, 10, 20, 50, 100}`, one fit job per rank. Every
+- `pod-rank.toml`: c in `{5, 10, 20, 50, 100}`, one POD recipe per rank. Every
   case sweeps at most five values per input.
 - `pod-samples.toml`: N in `{500, 1000, 2000, 5000, 10000}`
   (`gaussian-cg20.sweep.toml`, `smoother-filtered-probes-nu10.sweep.toml`).
@@ -256,8 +263,8 @@ fitted rank, an energy fit's inner product and its fit dataset's recorded
 provenance, so a static name would duplicate them. (A neural job needs a short `display_name` for its architecture;
 without one it cannot be described and the comparison is rejected before it runs.)
 
-POD rank belongs to the fit job, so `pod-rank.toml` crosses the two baseline
-datasets with one job per rank instead of pretending rank is a dataset axis.
+POD rank belongs to the POD recipe, so `pod-rank.toml` crosses the two baseline
+datasets with one recipe per rank instead of pretending rank is a dataset axis.
 
 ## Case Anatomy
 
@@ -370,7 +377,7 @@ changing what a dataset config or case config *is*:
 
   **Caveat**: `[[assignment_sweeps]]` still binds one `job` to *every* entry
   a `dataset_sweep` produces — if different axis values need different jobs
-  (e.g. each `cg` variant has its own POD fit job, as in
+  (e.g. each `cg` variant has its own POD recipe, as in
   `rectangular-high-condition/sample-sweep.toml`), keep that axis as
   separate `[[dataset_sweeps]]`/`[[assignment_sweeps]]` blocks per job
   rather than folding it into one multi-axis block.
@@ -479,16 +486,18 @@ artifacts are not evaluable until the training run is rerun or repaired.
 - keep shared training policy small and reusable
 - keep jobs thin
 - a job with no family-specific content (e.g. `configs/jobs/pod/pod-rank{100,200,300}.toml`
-  — a POD fit job's `rank` is a hyperparameter independent of any matrix
+  — a POD recipe's `rank` is a hyperparameter independent of any matrix
   family) lives once under its own shared directory, referenced by every
   case that needs it, rather than duplicated per family
-- a POD fit job's `[model] rank` is a positive integer mode count (the coarse
+- a POD recipe's `[pod] rank` is a positive integer mode count (the coarse
   dimension `c`); the fit warns when the basis captures under 95% of the
   snapshot energy
-- a POD fit job's `[model] inner_product` is `"euclidean"` (default) or
+- a POD recipe's `[pod] inner_product` is `"euclidean"` (default) or
   `"energy"`; the energy weight is the mean of the fit dataset's train-fold
-  matrices, wired in at run time, so the job names only the kind. An energy
-  fit's comparison label carries `W=Ā`
+  matrices, which the comparison computes, so the recipe names only the kind. An
+  energy fit's comparison label carries `W=Ā`
+- a POD recipe's `[pod] n_snapshots` is `-1` (default, all train-fold rows) or a
+  positive count of the first train-fold rows the fit reads
 - only special model families should define custom `data.features` / `data.targets`
 - keep case configs as registries and bindings, not payload containers
 

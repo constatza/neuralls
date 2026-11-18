@@ -8,10 +8,9 @@ construction to platform adapters.
 from __future__ import annotations
 
 from dlkit.infrastructure.config.data_entries import DataEntry
-from dlkit.infrastructure.config.job_config import FitJobConfig
 from loguru import logger
 
-from neuralls.composition.assignments._job_types import AnyJobConfig
+from neuralls.composition.assignments._job_types import DlkitJobConfig
 from neuralls.composition.assignments.runtime_dataset_contract import RuntimeDatasetContract
 from neuralls.platform.config.dataset_entries import entry_from_path
 from neuralls.platform.config.models.workspace import AssignmentWorkspace
@@ -22,7 +21,7 @@ from neuralls.platform.storage.training_artifacts import (
 )
 
 
-def _validate_dataset_section(settings: AnyJobConfig) -> None:
+def _validate_dataset_section(settings: DlkitJobConfig) -> None:
     """Validate that the job config has a data section."""
     if settings.data is None:
         raise ValueError("Config is missing [data] section")
@@ -42,7 +41,7 @@ def _find_duplicate_entry_names(entries: tuple[DataEntry, ...]) -> set[str]:
 
 
 def validate_runtime_dataset_contract(
-    settings: AnyJobConfig,
+    settings: DlkitJobConfig,
     contract: RuntimeDatasetContract,
 ) -> None:
     """Validate the local runtime dataset-entry contract for training."""
@@ -71,13 +70,6 @@ def validate_runtime_dataset_contract(
             f"target name '{contract.target_name}', got {unsupported_target_names}."
         )
 
-    if isinstance(settings, FitJobConfig) and _wants_matrix_feature(settings, contract):
-        raise ValueError(
-            f"A run.type='fit' job cannot declare a '{contract.matrix_input_name}' data "
-            "feature — fit jobs are matrix-free by design (see PODCoarseningFittable's "
-            "module docstring); the matrix is only ever available at comparison time."
-        )
-
     training_cfg = getattr(settings, "training", None)
     loss_cfg = getattr(training_cfg, "loss", None) if training_cfg else None
     target_key = getattr(loss_cfg, "target_key", None)
@@ -91,7 +83,7 @@ def validate_runtime_dataset_contract(
 
 
 def _primary_feature_name_from_settings(
-    settings: AnyJobConfig,
+    settings: DlkitJobConfig,
     contract: RuntimeDatasetContract,
 ) -> str:
     """Resolve the dispatch name for the primary input feature."""
@@ -106,7 +98,7 @@ def _primary_feature_name_from_settings(
 
 
 def _extra_feature_names_from_settings(
-    settings: AnyJobConfig,
+    settings: DlkitJobConfig,
     contract: RuntimeDatasetContract,
 ) -> list[str]:
     """Extract extra feature names declared in ``[[data.features]]``."""
@@ -119,7 +111,7 @@ def _extra_feature_names_from_settings(
 
 
 def _wants_matrix_feature(
-    settings: AnyJobConfig,
+    settings: DlkitJobConfig,
     contract: RuntimeDatasetContract,
 ) -> bool:
     """Whether the model opted into the system matrix via ``[[data.features]]``.
@@ -188,7 +180,7 @@ def resolve_dataset_format(arrays: TrainingArrays) -> str:
 
 
 def _load_and_prepare_data(
-    settings: AnyJobConfig,
+    settings: DlkitJobConfig,
     workspace: AssignmentWorkspace,
     contract: RuntimeDatasetContract,
 ) -> tuple[TrainingArrays, list[DataEntry], list[DataEntry]]:

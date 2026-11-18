@@ -70,7 +70,7 @@ def make_neural_spec() -> NeuralSpecFactory:
 
 @pytest.fixture
 def make_pod_amg_spec() -> AmgSpecFactory:
-    """Build an AMG spec whose POD coarsening carries optional checkpoint identity."""
+    """Build an AMG spec whose neural POD coarsening carries optional checkpoint identity."""
 
     def _build(
         *,
@@ -80,8 +80,9 @@ def make_pod_amg_spec() -> AmgSpecFactory:
     ) -> AMGPreconditionerConfig:
         return AMGPreconditionerConfig(
             type=PreconditionerType.AMG,
-            coarsening=PODCoarseningConfig(
-                dataset_dir=WORKSPACE / "snapshots",
+            coarsening=NeuralPODCoarseningConfig(
+                dataset_dir=WORKSPACE / "params",
+                input_names=("params",),
                 rank=4,
                 assignment=assignment,
                 model_ref=model_ref,
@@ -118,7 +119,7 @@ def test_model_resolution_needed_for_neural_model_ref(
 def test_model_resolution_needed_for_checkpoint_backed_pod_coarsening(
     make_pod_amg_spec: AmgSpecFactory, logged_ref: LoggedModelRefConfig
 ) -> None:
-    """A POD basis fitted ahead of time triggers resolution like a neural spec."""
+    """A neural POD's predicting model triggers resolution like a neural spec."""
     assert needs_model_resolution((make_pod_amg_spec(model_ref=logged_ref),)) is True
 
 
@@ -162,39 +163,6 @@ def test_existing_assignment_ids_ignores_unassigned_refs(
     assert existing_assignment_ids((make_neural_spec(),)) == set()
 
 
-def test_pod_coarsening_without_checkpoint_identity_is_invisible_to_resolution(
-    make_pod_amg_spec: AmgSpecFactory,
-) -> None:
-    """A plain dataset_dir+rank POD config must keep falling through to the inline fit."""
-    assert make_pod_amg_spec().checkpoint_refs() == ()
-
-
-def test_pod_coarsening_with_assignment_exposes_its_ref(
-    make_pod_amg_spec: AmgSpecFactory,
-) -> None:
-    spec = make_pod_amg_spec(assignment="pod")
-    assert spec.checkpoint_refs() == (("coarsening", spec.coarsening),)
-
-
-def test_pod_coarsening_with_model_ref_exposes_its_ref(
-    make_pod_amg_spec: AmgSpecFactory, logged_ref: LoggedModelRefConfig
-) -> None:
-    spec = make_pod_amg_spec(model_ref=logged_ref)
-    assert spec.checkpoint_refs() == (("coarsening", spec.coarsening),)
-
-
-def test_pod_coarsening_with_checkpoint_path_exposes_its_ref() -> None:
-    spec = AMGPreconditionerConfig(
-        type=PreconditionerType.AMG,
-        coarsening=PODCoarseningConfig(
-            dataset_dir=WORKSPACE / "snapshots",
-            rank=4,
-            checkpoint_path=WORKSPACE / "basis.ckpt",
-        ),
-    )
-    assert spec.checkpoint_refs() == (("coarsening", spec.coarsening),)
-
-
 def test_neural_pod_coarsening_is_always_checkpoint_backed() -> None:
     """Its snapshot ensemble only exists via a checkpoint, so it needs no identity fields."""
     spec = AMGPreconditionerConfig(
@@ -208,17 +176,17 @@ def test_neural_pod_coarsening_is_always_checkpoint_backed() -> None:
     assert spec.checkpoint_refs() == (("coarsening", spec.coarsening),)
 
 
-def test_aggregation_coarsening_exposes_no_checkpoint_ref() -> None:
-    spec = AMGPreconditionerConfig(
-        type=PreconditionerType.AMG,
-        coarsening=AggregationCoarseningConfig(),
-    )
-    assert spec.checkpoint_refs() == ()
-
-
-def test_target_dim_coarsening_exposes_no_checkpoint_ref() -> None:
-    spec = AMGPreconditionerConfig(
-        type=PreconditionerType.AMG,
-        coarsening=TargetDimCoarseningConfig(target_coarse_dim=8),
-    )
+@pytest.mark.parametrize(
+    "coarsening",
+    [
+        PODCoarseningConfig(dataset_dir=WORKSPACE / "snapshots", rank=4),
+        AggregationCoarseningConfig(),
+        TargetDimCoarseningConfig(target_coarse_dim=8),
+    ],
+    ids=["pod-fitted-in-the-comparison", "aggregation", "target-dimension"],
+)
+def test_a_coarsening_without_a_model_exposes_no_checkpoint_ref(
+    coarsening: PODCoarseningConfig | AggregationCoarseningConfig | TargetDimCoarseningConfig,
+) -> None:
+    spec = AMGPreconditionerConfig(type=PreconditionerType.AMG, coarsening=coarsening)
     assert spec.checkpoint_refs() == ()

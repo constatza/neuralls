@@ -45,6 +45,7 @@ from neuralls.platform.tracking.evaluation_artifacts import (
     TrainingEvaluationArtifacts,
 )
 from neuralls.platform.tracking.run_names import render_training_label
+from tests.workflows.conftest import _MINIMAL_TRAINING_JOB_TOML
 
 pytestmark = pytest.mark.deferred_io("dataset-fixture-io")
 
@@ -182,7 +183,7 @@ def test_materialize_inference_settings_uses_staged_config_paths(
         load_assignment,
     )
     monkeypatch.setattr(
-        "neuralls.composition.assignments.evaluation_prepare.load_experiment_job",
+        "neuralls.composition.assignments.evaluation_prepare.load_dlkit_job",
         lambda path, settings: job,
     )
     np.save(tmp_path / "rhs.npy", np.zeros((4, 3)))
@@ -244,7 +245,7 @@ def test_materialize_inference_settings_uses_staged_config_paths(
 
 @pytest.fixture
 def two_assignment_case_config(tmp_path: Path) -> Path:
-    """Case config TOML with two eval assignments, for partial-failure tests."""
+    """Case config TOML with two eval assignments and a POD one eval leaves out."""
     path = tmp_path / "case.toml"
     path.write_text(
         "\n".join(
@@ -255,6 +256,10 @@ def two_assignment_case_config(tmp_path: Path) -> Path:
                 "[[jobs]]",
                 'id = "ffnn"',
                 'path = "jobs/ffnn.toml"',
+                "",
+                "[[jobs]]",
+                'id = "pod"',
+                'path = "jobs/pod.toml"',
                 "",
                 "[[datasets]]",
                 'id = "test-solutions"',
@@ -270,12 +275,20 @@ def two_assignment_case_config(tmp_path: Path) -> Path:
                 'job = "ffnn"',
                 'dataset = "test-solutions"',
                 "",
+                "[[assignments]]",
+                'id = "assign-pod"',
+                'job = "pod"',
+                'dataset = "test-solutions"',
+                "",
             ]
         ),
         encoding="utf-8",
     )
     (tmp_path / "jobs").mkdir()
-    (tmp_path / "jobs" / "ffnn.toml").write_text("", encoding="utf-8")
+    (tmp_path / "jobs" / "ffnn.toml").write_text(_MINIMAL_TRAINING_JOB_TOML, encoding="utf-8")
+    (tmp_path / "jobs" / "pod.toml").write_text(
+        '[run]\ntype = "pod"\n\n[pod]\nrank = 4\n', encoding="utf-8"
+    )
     (tmp_path / "datasets").mkdir()
     (tmp_path / "datasets" / "test-solutions.toml").write_text(
         'id = "test-solutions"\n', encoding="utf-8"
@@ -360,7 +373,10 @@ def test_eval_batch_continues_after_one_assignment_fails(
             case_config_path=CaseConfigPath.resolve(two_assignment_case_config),
         )
 
-    assert mock_prepare.call_count == 2
+    assert [call.kwargs["assignment"].id for call in mock_prepare.call_args_list] == [
+        "assign-ok",
+        "assign-fail",
+    ]
     assert mock_sweep.called
     assert [result.assignment_id for result in batch.results] == ["assign-ok"]
 

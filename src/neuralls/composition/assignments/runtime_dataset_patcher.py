@@ -6,12 +6,12 @@ from dlkit.config import DataSettings
 from dlkit.infrastructure.config.data_entries import DataEntry
 
 from neuralls.composition.assignments._dataset_assembly import validate_runtime_dataset_contract
-from neuralls.composition.assignments._job_types import AnyJobConfig
+from neuralls.composition.assignments._job_types import DlkitJobConfig
 from neuralls.composition.assignments.runtime_dataset_contract import RuntimeDatasetContract
 from neuralls.platform.config.dataset_entries import apply_placeholder_metadata
 
 
-def patch_runtime_dataset[T: AnyJobConfig](
+def patch_runtime_dataset[T: DlkitJobConfig](
     settings: T,
     *,
     features: list[DataEntry],
