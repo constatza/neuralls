@@ -231,23 +231,54 @@ scale-equivariant initialization/gain parameters.
 
 The four `pod-<axis>.toml` cases share one matrix and vary one input each,
 over POD-CG and POD-JP only; their comparisons contain no classical
-preconditioners. Every other input stays at
-the baseline: rank c = 100, CG depth k = 20 (`gaussian-cg20.toml`), Jacobi
-sweeps k = 10 (`smoother-filtered-probes-nu10.toml`), N = 5000 rows. Each
-swept value is its own method, labelled from its facts, so the per-method
-figures compare them directly. Every case solves the same 80 systems: four
-RHS recipes (Gaussian, masked Gaussian, low- and high-frequency sinusoidal,
-seeds 42-45) with `rhs_count = 20` each, on `gaussian-cg20`'s matrix.
+preconditioners. Every other input stays at one baseline shared by both
+generators: rank c = 100, depth k = 20, N = 1000 rows
+(`gaussian-cg20-n1000.toml`, `smoother-filtered-probes-nu20-n1000.toml`).
+With one baseline, a gap between POD-CG and POD-JP comes from the snapshot
+generator alone, not from a depth or budget difference; one CG iteration and
+one Jacobi sweep each cost about one matvec, so equal k is an equal
+generation budget. Each swept value is its own method, labelled from its
+facts, so the per-method figures compare them directly. Every case solves
+the same 80 systems: four RHS recipes (Gaussian, masked Gaussian, low- and
+high-frequency sinusoidal, seeds 42-45) with `rhs_count = 20` each, on
+`gaussian-cg20`'s matrix. `pod-seed-43.toml` and `pod-seed-44.toml` replicate
+the baseline with other snapshot seeds, one case per seed because replicates
+render alike.
 
 - `pod-rank.toml`: c in `{5, 10, 20, 50, 100}`, one POD recipe per rank. Every
   case sweeps at most five values per input.
-- `pod-samples.toml`: N in `{500, 1000, 2000, 5000, 10000}`
-  (`gaussian-cg20.sweep.toml`, `smoother-filtered-probes-nu10.sweep.toml`).
-- `pod-depth.toml`: depth k (CG iterations or Jacobi sweeps) in `{1, 2, 5, 10, 20}`
-  (`gaussian-cg-depth.sweep.toml`, `smoother-filtered-probes-depth.sweep.toml`,
-  plus the tracked `gaussian-cg10.toml`).
+- `pod-samples.toml`: N in `{250, 500, 1000, 2000, 5000}` at c in `{50, 100}`
+  (`gaussian-cg20.sweep.toml` plus the tracked `gaussian-cg20.toml` for
+  N = 5000, `smoother-filtered-probes-nu20.sweep.toml`).
+- `pod-depth.toml`: depth k (CG iterations or Jacobi sweeps) in `{1, 5, 10, 20, 40}`
+  at c in `{20, 100}` (`gaussian-cg-depth.sweep.toml`,
+  `smoother-filtered-probes-depth.sweep.toml`).
 - `pod-metric.toml`: the Euclidean and the energy inner product
   (`pod-rank100-energy.toml`).
+
+### Spectral-3D POD parameter studies
+
+`spectral-3d-field/pod-{rank,depth,samples}.toml` follow the same rules on
+the 200-matrix spectral family, with the same shared baseline c = 100,
+k = 20, N = 1000. Here N counts fit rows: the matrix-level split fits on 180
+matrices, which receive about 0.9 of the generated rows, so N = 1000 is 1120
+generated rows. The baseline is the 1120-row point of
+`gaussian-cg20-samples.sweep.toml` and
+`smoother-filtered-probes-k20-samples.sweep.toml`, assigned explicitly and
+left out of the case's sweep values. Every count is at least one row per
+matrix, so all fit datasets hold out the same 20 test matrices.
+
+- `pod-rank.toml`: c in `{10, 50, 100, 200, 300}`.
+- `pod-samples.toml`: N in `{250, 500, 1000, 2000, 4000}` fit rows
+  (280, 560, 1120, 2230, 4460 generated).
+- `pod-depth.toml`: k in `{1, 5, 10, 20, 40}` (`gaussian-cg-depth.sweep.toml`,
+  `smoother-filtered-probes-depth.sweep.toml`).
+
+`default.toml` is not a study point: it fits POD-CG on 500 rows and POD-JP on
+4000, with its own depths. Its tracked `gaussian-cg20-n560.toml` and
+`smoother-filtered-probes-k20-n4460.toml` carry the ids and fields of those
+sweep points, so their data is generated once. `pod-sensitivity.toml` keeps the older rank and
+depth study around 5000 generated rows, with Jacobi and AMG as anchors.
 
 A sweep file lists only the non-baseline values. The baseline point is the
 tracked baseline file, assigned explicitly, so the same data is never
