@@ -1,0 +1,92 @@
+# POD parametric study, fitted snapshot count N in {250, 500, 1000, 2000, 4000} fit rows
+# (280, 560, 1120, 2230, 4460 generated: the 180-matrix fit fold gets ~0.9x).
+# Baseline: c = 100, k = 20, N = 1000 fit rows (1120 generated) for both POD-CG and POD-JP. Only
+# POD-CG and POD-JP methods are compared; each swept value is its own method, labelled from its facts.
+# Every fit dataset pins the same 20 held-out matrices (matrix-level split, same seed, every matrix
+# bound).
+
+[mlflow]
+tracking_uri = "http://localhost:5000"
+
+[comparison_baseline]
+rtol = 1.0e-6
+atol = 1.0e-14
+max_iterations = 5000
+stopping_criterion = "residual_norm"
+m_max = 20
+
+# Matrix source of the comparison sweeps only.
+[[datasets]]
+path = "../../datasets/train/spectral-3d-field/gaussian-cg20.toml"
+
+# Shared baseline: k = 20, N = 1000 fit rows (1120 generated) for both generators.
+[[datasets]]
+path = "../../datasets/train/spectral-3d-field/_generated/gaussian-cg20-samples-1120.toml"
+
+[[datasets]]
+path = "../../datasets/train/spectral-3d-field/_generated/smoother-filtered-probes-k20-samples-1120.toml"
+
+[[dataset_sweeps]]
+label = "cg-samples"
+path_template = "../../datasets/train/spectral-3d-field/_generated/gaussian-cg20-samples-{value}.toml"
+values = [280, 560, 2230, 4460]
+
+[[dataset_sweeps]]
+label = "jp-samples"
+path_template = "../../datasets/train/spectral-3d-field/_generated/smoother-filtered-probes-k20-samples-{value}.toml"
+values = [280, 560, 2230, 4460]
+
+[[jobs]]
+id = "pod-c100"
+path = "../../jobs/pod/pod-rank100.toml"
+
+# The dataset is a glob over many matrices (`*/K_ff.mtx`), so every recipe is one
+# [[comparison_sweeps]] entry solving on all 20 matrices of the pinned test
+# fold. Systems of one recipe form one reporting group.
+[[comparison_sweeps]]
+id_prefix = "gaussian"
+display_name = "Gaussian RHS"
+matrix_dataset = "gaussian-cg20-spectral-3d-field"
+selector = { kind = "first_n", n = 20 }
+rhs_source = { kind = "gaussian" }
+seed = 42
+
+[[comparison_sweeps]]
+id_prefix = "gaussian-masked"
+display_name = "Sparse Gaussian RHS"
+matrix_dataset = "gaussian-cg20-spectral-3d-field"
+selector = { kind = "first_n", n = 20 }
+rhs_source = { kind = "gaussian", mask = { kind = "random", density = 0.1 } }
+seed = 43
+
+[[comparison_sweeps]]
+id_prefix = "sinusoidal-low-freq"
+display_name = "Sinusoidal RHS (low freq)"
+matrix_dataset = "gaussian-cg20-spectral-3d-field"
+selector = { kind = "first_n", n = 20 }
+rhs_source = { kind = "sinusoidal", omega = 6.283185307179586 }
+seed = 44
+
+[[comparison_sweeps]]
+id_prefix = "sinusoidal-high-freq"
+display_name = "Sinusoidal RHS (high freq)"
+matrix_dataset = "gaussian-cg20-spectral-3d-field"
+selector = { kind = "first_n", n = 20 }
+rhs_source = { kind = "sinusoidal", omega = 62.83185307179586 }
+seed = 45
+
+[[assignments]]
+dataset = "gaussian-cg20-n1120-spectral-3d-field"
+job = "pod-c100"
+
+[[assignments]]
+dataset = "smoother-filtered-probes-k20-n1120-spectral-3d-field"
+job = "pod-c100"
+
+[[assignment_sweeps]]
+dataset_sweep = "cg-samples"
+job = "pod-c100"
+
+[[assignment_sweeps]]
+dataset_sweep = "jp-samples"
+job = "pod-c100"

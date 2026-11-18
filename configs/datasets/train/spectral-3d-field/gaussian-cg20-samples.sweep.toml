@@ -16,7 +16,7 @@ seed = 42
 name = "cg_errors"
 # Every count is at least one row per matrix, so all 200 matrices are bound and the matrix-level
 # split holds out the same 20 as the 5000-row dataset; N is the 180-matrix train share (~0.9x).
-samples = [560, 1120, 2230]
+samples = [280, 560, 1120, 2230, 4460]
 stop = 20
 
 # The POD fit has no training loop to serve a validation fold, so the

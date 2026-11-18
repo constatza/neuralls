@@ -1,0 +1,31 @@
+id = "smoother-filtered-probes-k20-samples-spectral-3d-field"
+id_template = "smoother-filtered-probes-k20-n{value}-spectral-3d-field"
+
+[source]
+problem = "Spectral 3D field"
+matrix_path = "${NEURALLS_RAW_DIR}/SpectralData/spectral-3d-field/*/K_ff.mtx"
+
+[generation]
+scaling = { kind = "gershgorin", dimension_factor = "sqrt_n" }
+shuffle = true
+seed = 42
+
+# `start` left unset (default -1): keeps only the final, fully-damped sweep
+# per probe. See domain/generation/README.md's "Jacobi-Filtered Probes"
+# section for why `stop` here isn't comparable to CG's `stop`.
+[[generation.strategy]]
+name = "jacobi_probes"
+# Generated rows; the 180-matrix fit fold gets ~0.9x, so N = 250/500/1000/2000/4000 fit rows. Every
+# count is at least one row per matrix, so all 200 matrices are bound and the same 20 are held out.
+samples = [280, 560, 1120, 2230, 4460]
+stop = 20
+probe_distribution = "gaussian"
+
+# The POD fit has no training loop to serve a validation fold, so the
+# dataset keeps none: 180 fit / 20 test matrices.
+[split]
+test_ratio = 0.1
+val_ratio = 0.0
+
+[output]
+data_dir = "${NEURALLS_PROCESSED_DIR}"

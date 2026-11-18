@@ -1,7 +1,7 @@
-# Sensitivity of POD-CG and POD-JP on the spectral-3d family around the default case's c = 100 methods
+# Sensitivity of POD-CG and POD-JP on the spectral-3d family around c = 100 methods
 # (CG k = 20, probes k = 10, 5000 generated rows): rank c in {50, 100, 200, 300} for both generators,
-# POD-CG snapshot budget (560, 1120, 2230 and 5000 generated rows) and depth k = 40 for both. The
-# default case keeps the pre-set configuration the paper reports; this one reports how the iterations,
+# POD-CG snapshot budget (560, 1120, 2230 and 5000 generated rows) and depth k = 40 for both. This
+# case reports how the iterations,
 # online cost and break-even move around it. Jacobi and aggregation AMG are the online anchors, so the
 # break-even against them is comparable within this run. Every fit dataset pins the same held-out
 # matrices (matrix-level split, same seed, every matrix bound).
