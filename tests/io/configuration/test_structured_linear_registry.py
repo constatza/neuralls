@@ -77,10 +77,6 @@ def _write_master_registry(
         "[mlflow]",
         'tracking_uri = "http://127.0.0.1:5000"',
         "",
-        "[names]",
-        'training = "Train"',
-        'comparison = "Comparisons"',
-        "",
     ]
 
     for dataset_id, dataset_path in datasets:

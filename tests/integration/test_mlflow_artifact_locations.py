@@ -283,10 +283,6 @@ def _write_experiments_config(
         "mlflow": {
             "tracking_uri": tracking_uri,
         },
-        "names": {
-            "training": "neuralls-training",
-            "comparison": "Comparisons",
-        },
         "comparison_baseline": {
             "rtol": 1e-6,
             "atol": 1e-14,
@@ -370,7 +366,7 @@ def test_comparison_logs_artifacts_to_mlflow_with_sqlite(
     client = MlflowClient(tracking_uri=tracking_uri)
     experiment_id = _ensure_experiment(
         client=client,
-        name="Comparisons",
+        name=CaseConfigPath.resolve(experiments_config).key.experiment_name,
         artifact_root=artifact_root,
     )
     legacy = client.create_run(experiment_id, tags={"phase": "comparison"})

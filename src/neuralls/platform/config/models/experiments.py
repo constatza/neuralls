@@ -80,21 +80,6 @@ class SharedTrackingSettings(BaseModel):
     artifacts_destination: str | None = None
 
 
-class ExperimentNamesConfig(BaseModel):
-    """MLflow experiment names configuration.
-
-    Attributes:
-        training: Name for training experiments.
-        comparison: Name for comparison experiments.
-        report: Name for the experiment holding reports derived from comparison sessions.
-    """
-
-    training: str = "Train"
-    comparison: str = "Comparisons"
-    report: str = "Reports"
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-
 class RegistryEntry(BaseModel):
     """Single registry entry with an explicit config path.
 
@@ -161,7 +146,7 @@ class AssignmentEntry(BaseModel):
 
     An assignment pairs one job with one dataset — the intent "run this job
     on this dataset." Not to be confused with an MLflow Experiment (a bucket
-    grouping many runs) — see ``ExperimentNamesConfig`` for that concept.
+    grouping many runs), which is named by the case config's path.
 
     Attributes:
         id: Stable assignment identifier.
@@ -446,7 +431,6 @@ class CaseConfig(BaseModel):
             many ``ComparisonRegistryEntry`` objects via a ``TestSetSelector``.
         assignments: Assignment entries referencing registry ids.
         mlflow: MLflow topology config (tracking URI, etc.).
-        names: MLflow experiment names for training and comparison.
         comparison_baseline: Shared solver params and preconditioner list applied to
             all comparisons unless overridden by a per-entry ``method`` file.
     """
@@ -457,7 +441,6 @@ class CaseConfig(BaseModel):
     comparison_sweeps: list[ComparisonSweepEntry] = Field(default_factory=list)
     assignments: list[AssignmentEntry] = Field(default_factory=list)
     mlflow: MlflowTopologyConfig = Field(default_factory=MlflowTopologyConfig)
-    names: ExperimentNamesConfig = Field(default_factory=ExperimentNamesConfig)
     comparison_baseline: ComparisonBaseline | None = None
 
     model_config = ConfigDict(extra="allow", frozen=True)

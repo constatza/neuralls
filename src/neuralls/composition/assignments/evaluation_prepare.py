@@ -197,6 +197,7 @@ def _build_eval_context(
     cfg: CaseConfig,
     configs_dir: Path,
     assignment: AssignmentEntry,
+    experiment_name: str,
     tracking_uri: str,
     tracking: TrackingServices,
     artifact_leases: ArtifactLeaseManager,
@@ -206,7 +207,7 @@ def _build_eval_context(
     training_run_id = _resolve_training_run_id(
         tracking=tracking,
         tracking_uri=tracking_uri,
-        experiment_name=cfg.names.training,
+        experiment_name=experiment_name,
         assignment_id=assignment.id,
         identity=training_identity(
             job_config_path=job_config_path,
@@ -238,7 +239,7 @@ def _build_eval_context(
 
 def _materialize_inference_settings(
     *,
-    cfg: CaseConfig,
+    experiment_name: str,
     settings: NeurallsSettings,
     assignment: AssignmentEntry,
     output_root: Path,
@@ -269,7 +270,7 @@ def _materialize_inference_settings(
         targets=targets,
         dataset_format=resolve_dataset_format(arrays),
     )
-    eval_settings = eval_settings.patch({"experiment": {"name": cfg.names.training}})
+    eval_settings = eval_settings.patch({"experiment": {"name": experiment_name}})
     return _as_inference_job(eval_settings)
 
 
@@ -295,6 +296,7 @@ def prepare_evaluation_settings(
     presentation: TrainingPresentation,
     output_root: Path,
     case_config_path: Path,
+    experiment_name: str,
     tracking_uri: str,
     artifact_leases: ArtifactLeaseManager,
     tracking: TrackingServices = MLFLOW_TRACKING,
@@ -309,13 +311,14 @@ def prepare_evaluation_settings(
         cfg=cfg,
         configs_dir=configs_dir,
         assignment=assignment,
+        experiment_name=experiment_name,
         tracking_uri=tracking_uri,
         tracking=tracking,
         artifact_leases=artifact_leases,
         settings=settings,
     )
     inference_settings = _materialize_inference_settings(
-        cfg=cfg,
+        experiment_name=experiment_name,
         settings=settings,
         assignment=assignment,
         output_root=output_root,
@@ -377,6 +380,7 @@ def prepare_eval_run_specs(
     settings: NeurallsSettings,
     output_root: Path,
     case_config_path: Path,
+    experiment_name: str,
     tracking: TrackingServices,
     tracking_uri: str,
     artifact_leases: ArtifactLeaseManager,
@@ -394,6 +398,7 @@ def prepare_eval_run_specs(
                 presentation=presentations[assignment.id],
                 output_root=output_root,
                 case_config_path=case_config_path,
+                experiment_name=experiment_name,
                 tracking=tracking,
                 tracking_uri=tracking_uri,
                 artifact_leases=artifact_leases,

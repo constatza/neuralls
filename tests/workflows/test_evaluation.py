@@ -38,7 +38,7 @@ from neuralls.domain.presentation.run_names import TrainingPresentation
 from neuralls.platform.config.case_path import CaseConfigPath
 from neuralls.platform.config.dataset_entries import entry_from_path
 from neuralls.platform.config.loaders import load_case_config
-from neuralls.platform.config.models.experiments import AssignmentEntry, CaseConfig
+from neuralls.platform.config.models.experiments import AssignmentEntry
 from neuralls.platform.config.resolution import build_sqlite_tracking_uri
 from neuralls.platform.tracking.evaluation_artifacts import (
     TrainingConfigArtifacts,
@@ -231,7 +231,7 @@ def test_materialize_inference_settings_uses_staged_config_paths(
     )
 
     _materialize_inference_settings(
-        cfg=CaseConfig(),
+        experiment_name="case/config",
         settings=MagicMock(),
         assignment=AssignmentEntry(id="a1", dataset="d1", job="j1"),
         output_root=tmp_path,

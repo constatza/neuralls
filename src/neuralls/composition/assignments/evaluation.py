@@ -302,7 +302,7 @@ def eval_batch(
         default_output_root=base_output,
         config_dir=configs_dir,
     )
-    mlflow_experiment_name = cfg.names.training
+    mlflow_experiment_name = case_config_path.key.experiment_name
 
     with scoped_mlflow_environment(eval_mlflow_env.env):
         session_run, session_tags = build_session_run_spec(
@@ -328,6 +328,7 @@ def eval_batch(
                 settings=settings,
                 output_root=base_output,
                 case_config_path=case_config_path.path,
+                experiment_name=mlflow_experiment_name,
                 tracking=tracking,
                 tracking_uri=eval_mlflow_env.tracking_uri,
                 artifact_leases=artifact_leases,

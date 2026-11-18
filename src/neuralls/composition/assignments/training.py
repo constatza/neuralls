@@ -329,7 +329,7 @@ def prepare_training_settings(
     output_root: Path | str | None = None,
     identity: AssignmentIdentity,
     presentation: TrainingPresentation,
-    mlflow_experiment_name: str | None = None,
+    mlflow_experiment_name: str,
     batched: bool = False,
     extra_tags: Mapping[str, str] | None = None,
 ) -> PreparedTraining:
@@ -396,7 +396,7 @@ def prepare_training_settings(
         run_config = _build_training_run_config(
             identity=AssignmentIdentity.from_spec(assignment.spec),
             presentation=presentation,
-            mlflow_experiment_name=mlflow_experiment_name,
+            experiment_name=mlflow_experiment_name,
             runtime_mlflow_env=runtime_mlflow_env,
             workspace_root=workspace.root_dir,
             include_timestamp=not batched,

@@ -94,7 +94,7 @@ def run_comparison_report(
     """Render the newest (or the named) comparison session of a case config into a report run."""
     case_path = case_config_path.path
     master_cfg, _ = load_validated_case_config(case_path, settings)
-    topology = resolve_comparison_topology(master_cfg, case_path, settings)
+    topology = resolve_comparison_topology(master_cfg, case_config_path, settings)
     notation = case_notation(master_cfg)
     figure_style = case_figure_style(master_cfg)
     client = tracking.client(topology.tracking_uri)
@@ -108,7 +108,7 @@ def run_comparison_report(
         "report_schema_version": REPORT_SCHEMA_VERSION,
     }
 
-    report_experiment = topology.report_experiment_name
+    report_experiment = topology.experiment_name
     report_experiment_id = setup_comparison_tracking(
         tracking_uri=topology.tracking_uri,
         artifact_location=topology.artifact_location,

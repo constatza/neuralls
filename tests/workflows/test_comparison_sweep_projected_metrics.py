@@ -40,7 +40,6 @@ _N_PLANNED_RHS = 4
 def _write_sweep_config(path: Path, tmp_path: Path) -> None:
     payload: dict[str, object] = {
         "mlflow": {"tracking_uri": build_sqlite_tracking_uri(tmp_path / "mlruns" / "mlflow.db")},
-        "names": {"training": "neuralls-training", "comparison": "Comparisons"},
         "comparison_baseline": {
             "rtol": 1.0e-6,
             "atol": 1.0e-14,

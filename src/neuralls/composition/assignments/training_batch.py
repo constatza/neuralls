@@ -102,7 +102,7 @@ def run_assignment(
     output_root: Path,
     force: bool,
     presentation: TrainingPresentation,
-    mlflow_experiment_name: str | None = None,
+    mlflow_experiment_name: str,
     tracking_uri: str | None = None,
     tracking: TrackingServices = MLFLOW_TRACKING,
 ) -> AssignmentResult | PreparedTraining:
@@ -192,7 +192,7 @@ def run_assignment(
         # those inputs changes the key, so training reruns automatically.
         existing = (
             None
-            if mlflow_experiment_name is None or tracking_uri is None
+            if tracking_uri is None
             else reuse_lookup(
                 tracking,
                 tracking_uri=tracking_uri,
@@ -432,7 +432,7 @@ def run_assignment_sweep(
         default_output_root=batch.output_root,
         config_dir=config_dir,
     )
-    mlflow_experiment_name = cfg.names.training
+    mlflow_experiment_name = case_config_path.key.experiment_name
 
     with scoped_mlflow_environment(training_mlflow_env.env):
         session_run, session_tags = build_session_run_spec(

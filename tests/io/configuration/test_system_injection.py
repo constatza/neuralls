@@ -63,10 +63,6 @@ def test_load_experiment_injects_mlflow_from_case_config(
         "mlflow": {
             "tracking_uri": tracking_uri,
         },
-        "names": {
-            "training": "Train",
-            "comparison": "Comparisons",
-        },
     }
     with open(experiments_path, "wb") as fh:
         tomli_w.dump(experiments_config, fh)

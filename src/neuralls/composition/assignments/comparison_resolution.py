@@ -157,6 +157,7 @@ def _build_master_assignment_contexts(
     *,
     master_cfg: CaseConfig,
     config_dir: Path,
+    experiment: str,
 ) -> dict[str, AssignmentModelContext]:
     """Resolve dataset/model identity for all case-config assignments.
 
@@ -177,7 +178,7 @@ def _build_master_assignment_contexts(
             dataset_alias=dataset_id,
             model_name=build_registered_model_name(assignment_id),
             training=TrainingLookup(
-                experiment=master_cfg.names.training,
+                experiment=experiment,
                 identity=_assignment_training_identity(
                     job_config_path=binding.job_config_path,
                     data_config_path=binding.data_config_path,
@@ -221,6 +222,7 @@ def neural_specs_from_assignments(
     *,
     tracking: TrackingServices,
     tracking_uri: str,
+    experiment: str,
     cfg: CaseConfig,
     config_dir: Path,
     settings: NeurallsSettings,
@@ -241,6 +243,7 @@ def neural_specs_from_assignments(
         claimed_ids: Assignment ids already covered by explicit preconditioners.
         tracking: Source of the clients and reuse lookups for the training runs.
         tracking_uri: Tracking store holding the training runs.
+        experiment: The case config's experiment, holding the training runs.
         cfg: The assignments' owning case config, for job/dataset resolution.
         config_dir: Directory `cfg`'s registry paths resolve relative to.
         settings: Runtime settings used to load each assignment's job/dataset config.
@@ -267,7 +270,7 @@ def neural_specs_from_assignments(
                         entry,
                         extra_input_names=_extra_input_names_of_training_run(
                             training,
-                            experiment=cfg.names.training,
+                            experiment=experiment,
                             tracking=tracking,
                             tracking_uri=tracking_uri,
                         ),
@@ -390,6 +393,7 @@ def _resolve_specs(
             context.settings,
             master_cfg=resolved_master_cfg,
             config_dir=context.case_config_path.parent,
+            experiment=context.topology.experiment_name,
         )
     resolution = resolve_preconditioner_models_with_warnings(
         specs=specs,

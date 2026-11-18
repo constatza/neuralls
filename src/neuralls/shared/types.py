@@ -44,6 +44,18 @@ PreconditionerName = NewType("PreconditionerName", str)
 
 
 @dataclass(frozen=True, slots=True)
+class ConfigKey:
+    """One case config's identity, ``<case>/<config>``: the name of its MLflow experiment."""
+
+    case: str
+    config: str
+
+    @property
+    def experiment_name(self) -> str:
+        return f"{self.case}/{self.config}"
+
+
+@dataclass(frozen=True, slots=True)
 class NoFitDataEvidence:
     """The method has no fit or training dataset."""
 

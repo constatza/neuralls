@@ -178,7 +178,7 @@ def run_loaded_comparison_batch(
         )
 
     case_path = case_config_path.path
-    topology = resolve_comparison_topology(master_cfg, case_path, settings)
+    topology = resolve_comparison_topology(master_cfg, case_config_path, settings)
     experiment_id = setup_comparison_tracking(
         tracking_uri=topology.tracking_uri,
         artifact_location=topology.artifact_location,

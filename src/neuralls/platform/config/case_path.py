@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from neuralls.shared.types import ConfigKey
+
 
 @dataclass(frozen=True, slots=True)
 class CaseConfigPath:
@@ -25,3 +27,8 @@ class CaseConfigPath:
     @property
     def config_dir(self) -> Path:
         return self.path.parent
+
+    @property
+    def key(self) -> ConfigKey:
+        """The case directory and the config file's stem: one experiment per config."""
+        return ConfigKey(case=self.path.parent.name, config=self.path.stem)
