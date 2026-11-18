@@ -499,7 +499,7 @@ def test_comparison_logs_artifacts_to_mlflow_with_sqlite(
         f"ecdf_solve_{recipe_stem}.png",
         f"ecdf_online_{recipe_stem}.png",
     } <= set(group_artifacts(cohort_id))
-    system_keys = ("matrix-0_rhs-0", "matrix-0_rhs-1")
+    system_keys = ("benchmark-comparison-0", "benchmark-comparison-1")
     system_figures = {
         f"{SYSTEM_ARTIFACT_DIR}/{key}/{name}"
         for key in system_keys

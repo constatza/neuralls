@@ -59,11 +59,12 @@ from neuralls.platform.reporting.method_figures import METHOD_PLOTS, draw_method
 from neuralls.platform.reporting.stored_benchmark import StoredMethod
 from neuralls.platform.tracking.figure_uploader import FigureUploader
 from neuralls.platform.tracking.metrics_logging import comparison_metrics, convergence_metrics
+from neuralls.platform.tracking.mlflow import sanitize_metric_key_segment
 from neuralls.platform.tracking.run_writer import RunWriter
 from neuralls.platform.tracking.scope_run_tree import RunTree, ScopeRunTree
 from neuralls.shared.runtime_environment import RuntimeEnvironment
 from neuralls.shared.scientific_description.policy import NotationPolicy
-from neuralls.shared.types import DatasetId, PreconditionerName, SessionRunId
+from neuralls.shared.types import DatasetId, PreconditionerName, SessionRunId, SystemId
 
 METHOD_FIGURE_ARTIFACT_DIR = "method_figures"
 """Report-run artifact directory holding every method's convergence figures."""
@@ -109,8 +110,23 @@ def scope_run_name(
 
 
 def system_key(scope: System) -> str:
-    """The segment naming ``scope`` in its RHS-type run's artifact paths and metric keys."""
-    return f"matrix-{int(scope.matrix_id)}_rhs-{scope.rhs_ordinal}"
+    """The segment naming ``scope`` in its RHS-type run's artifact paths and metric keys.
+
+    It is the planned system id, unique per comparison; (matrix, RHS ordinal) is not, since
+    two entries on one dataset and RHS recipe may differ only in seed, method or selection.
+    The id comes from user config, so it is made MLflow-safe and a ``/`` adds no level.
+    """
+    return sanitize_metric_key_segment(scope.system_id)
+
+
+class SystemKeyCollisionError(ValueError):
+    """Two system ids of one RHS-type run sanitize to the same metric and artifact key."""
+
+    def __init__(self, key: str, first: SystemId, second: SystemId) -> None:
+        self.key = key
+        self.first = first
+        self.second = second
+        super().__init__(f"systems {first!r} and {second!r} share the report key {key!r}")
 
 
 @dataclass(frozen=True, slots=True)
@@ -140,6 +156,7 @@ class OpenReport:
     writer: RunWriter
     root_run_id: str
     slugs: FigureSlugs = field(default_factory=FigureSlugs)
+    _system_keys: dict[tuple[str, str], SystemId] = field(default_factory=dict)
 
     def _run_of(self, scope: ReportScope) -> str:
         """The id of the run of ``scope``, created on first use."""
@@ -268,12 +285,15 @@ class OpenReport:
         """
         run_id = self._run_of(scope.rhs_type)
         key = system_key(scope)
+        owner = self._system_keys.setdefault((run_id, key), scope.system_id)
+        if owner != scope.system_id:
+            raise SystemKeyCollisionError(key, owner, scope.system_id)
         directory = f"{SYSTEM_ARTIFACT_DIR}/{key}"
+        self.uploader.check_free(run_id, directory, [staged.plan.stem for staged in figures])
         self.writer.log_metrics(
             run_id,
             {f"{SYSTEM_METRIC_PREFIX}/{key}/{name}": value for name, value in metrics.items()},
         )
-        self.uploader.check_free(run_id, directory, [staged.plan.stem for staged in figures])
         for staged in figures:
             self.uploader.upload(run_id, directory, staged)
 

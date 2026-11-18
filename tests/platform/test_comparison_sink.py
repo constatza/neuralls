@@ -97,6 +97,7 @@ from neuralls.platform.tracking.report_sink import (
     METHOD_FIGURE_ARTIFACT_DIR,
     SYSTEM_ARTIFACT_DIR,
     MLflowReportSink,
+    SystemKeyCollisionError,
     UnknownStoredMethodError,
 )
 from neuralls.platform.tracking.split_records import SPLITS_ARTIFACT
@@ -869,23 +870,41 @@ def test_a_system_is_recorded_inside_its_rhs_type_run(
     runs: FakeRunTree,
 ) -> None:
     metric = parent_run_metric_key("iterations", "amg")
+    sibling = replace(system, system_id=SystemId("entry/b 1"))  # same matrix, RHS and recipe
     sink.report_system(system, {metric: 3.0}, [system_figure])
+    sink.report_system(sibling, {metric: 4.0}, [system_figure])
 
     assert [created.tags["report_level"] for created in runs.created] == [
         ReportLevelName.MATRIX_SET.value,
         ReportLevelName.MATRIX_SET_RHS_TYPE.value,
     ]
     run = _scope_run(runs, writer, ReportLevelName.MATRIX_SET_RHS_TYPE)
-    directory = f"{SYSTEM_ARTIFACT_DIR}/matrix-7_rhs-0"
+    keys = ("s0", "entry_b_1")
     assert set(run.artifacts) == {
-        (directory, "residual_history.png"),
-        (directory, "residual_history.toml"),
+        (f"{SYSTEM_ARTIFACT_DIR}/{key}", name)
+        for key in keys
+        for name in ("residual_history.png", "residual_history.toml")
     }
-    assert run.metrics == {f"system/matrix-7_rhs-0/{metric}": 3.0}
+    assert run.metrics == {f"system/s0/{metric}": 3.0, f"system/entry_b_1/{metric}": 4.0}
     assert ROOT_RUN not in writer.runs
     card = _cards(_texts(run))["residual_history.toml"]
     assert card.metadata.scope == SystemScope(dataset_presentation, GAUSSIAN, MatrixId(7), 0)
     assert card.metadata.report_level is ReportLevelName.SYSTEM
+
+
+def test_two_system_ids_with_one_sanitized_key_are_rejected(
+    system: System, system_figure: StagedFigure, sink: MLflowReportSink
+) -> None:
+    sink.report_system(replace(system, system_id=SystemId("a b")), {}, [system_figure])
+
+    # try/except, not pytest.raises: a kept ExceptionInfo would hold the sink alive past this
+    # test, so its staging directory would be removed during a later test.
+    try:
+        sink.report_system(replace(system, system_id=SystemId("a_b")), {}, [system_figure])
+    except SystemKeyCollisionError as error:
+        assert (error.key, error.first, error.second) == ("a_b", "a b", "a_b")
+    else:
+        pytest.fail("a sanitized key collision was not rejected")
 
 
 def test_one_stem_may_repeat_across_runs_but_not_within_one(
@@ -894,7 +913,7 @@ def test_one_stem_may_repeat_across_runs_but_not_within_one(
     sink: MLflowReportSink,
     writer: RecordingRunWriter,
 ) -> None:
-    other = replace(system, matrix_id=MatrixId(8))
+    other = replace(system, matrix_id=MatrixId(8), system_id=SystemId("s1"))
     sink.report_system(system, {}, [system_figure])
     sink.report_system(other, {}, [system_figure])
 

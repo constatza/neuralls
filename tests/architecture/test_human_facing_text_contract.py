@@ -149,6 +149,14 @@ SCOPES: dict[str, SinkScope] = {
                 "user's checkpoint reference, not a name given to a new run",
             ),
             Allowed(
+                FILE_NAME_ID,
+                "platform/tracking/report_sink.py",
+                "system_key",
+                "a system's metric keys and artifact directory inside its RHS-type run need a "
+                "machine key unique per run; only the planned system id is, and the figure "
+                "file names in that directory stay rendered slugs",
+            ),
+            Allowed(
                 RUN_NAME_TEXT,
                 "composition/assignments/model_resolution.py",
                 "_resolve_logged_ref",
