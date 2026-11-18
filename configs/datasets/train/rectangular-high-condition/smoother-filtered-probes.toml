@@ -26,7 +26,7 @@ seed = 42
 # rule, so "smooth" means the same thing here as it does in POD's actual
 # AMG V-cycle smoother. `start` is left unset (default: keep only
 # the final, fully-damped sweep — the original behavior). `snapshot_scaling` is left unset
-# (rows stored as generated).
+# (default: each row pair scaled to a unit l2 error norm).
 [[generation.strategy]]
 name = "jacobi_probes"
 samples = 5000

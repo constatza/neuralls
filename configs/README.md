@@ -37,8 +37,8 @@ and so the fitted method (POD-CG or POD-JP):
   `stop` weighted-Jacobi sweeps (`omega`, default auto); rows `(A e_k, e_k)`.
 
 Both keep the steps `start`/`stop`/`step` select and accept an optional
-`snapshot_scaling` (default `{ kind = "none" }`). `{ kind = "norm", norm = "l2" }`
-or `norm = "energy"` scales each row pair by `||e_k||^-power` (`power`, default 1),
+`snapshot_scaling` (default `{ kind = "norm", norm = "l2" }`; `{ kind = "none" }` keeps
+the rows as generated). `{ kind = "norm", norm = "l2" }` or `norm = "energy"` scales each row pair by `||e_k||^-power` (`power`, default 1),
 with the energy norm taken in the scaled matrix the rows were generated with. Both
 `r_k` and `e_k` get the same factor, so every stored pair still satisfies `A e = r`.
 
@@ -179,7 +179,7 @@ searches live in sibling case files, one searched axis per file:
 `coarse-dim-search.toml` (AMG dim / POD rank in 10, 100, 200, 300, on
 `gaussian-cg50`) and `stop-search.toml` (`gaussian-cg0`/`cg10`/`cg50` snapshots
 at POD rank 100). The rectangular-high-condition family adds the legacy
-`sample-sweep.toml` plus the five `pod-<axis>.toml` POD parametric study cases. The 45x15randomE cases are parametric — the underlying
+`sample-sweep.toml` plus the four `pod-<axis>.toml` POD parametric study cases. The 45x15randomE cases are parametric — the underlying
 problem is a family of ~100 stiffness matrices with randomized Young's moduli
 (E1-E4), not one fixed matrix. These CG cases use the `gaussian-cg*` datasets as
 POD snapshot inputs, with
@@ -229,7 +229,7 @@ scale-equivariant initialization/gain parameters.
 
 ### Rectangular POD parameter studies
 
-The five `pod-<axis>.toml` cases share one matrix and vary one input each,
+The four `pod-<axis>.toml` cases share one matrix and vary one input each,
 over POD-CG and POD-JP only; their comparisons contain no classical
 preconditioners. Every other input stays at
 the baseline: rank c = 100, CG depth k = 20 (`gaussian-cg20.toml`), Jacobi
@@ -246,8 +246,6 @@ seeds 42-45) with `rhs_count = 20` each, on `gaussian-cg20`'s matrix.
 - `pod-depth.toml`: depth k (CG iterations or Jacobi sweeps) in `{1, 2, 5, 10, 20}`
   (`gaussian-cg-depth.sweep.toml`, `smoother-filtered-probes-depth.sweep.toml`,
   plus the tracked `gaussian-cg10.toml`).
-- `pod-snapshot-scaling.toml`: per-row scaling none, `l2` or `energy` norm at
-  power 1 (`*-rows-l2.toml`, `*-rows-energy.toml`).
 - `pod-metric.toml`: the Euclidean and the energy inner product
   (`pod-rank100-energy.toml`).
 
