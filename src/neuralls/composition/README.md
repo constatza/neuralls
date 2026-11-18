@@ -318,7 +318,7 @@ it must not absorb low-level IO mechanics, config normalization policy, or
 tensor-level runtime behavior.
 
 For MLflow naming, composition propagates one experiment name per case config:
-`CaseConfigPath.key.experiment_name`, `<case>/<config>` from the config's path.
+`CaseConfigPath.experiment_name`, `<case>/<config>` from the config's path.
 
 Every entry point takes `NeurallsSettings` as a required argument: only the CLI loads settings, and composition never reads `NEURALLS_CASE_CONFIG` to find the case config or builds settings of its own. The case config path is a `CaseConfigPath` (`platform/config/case_path.py`, re-exported by `composition/config.py`): its constructor rejects a relative path, and the CLI builds it once with `CaseConfigPath.resolve(config)`. `run_case_pipeline`, `run_comparison_batch`, `run_loaded_comparison_batch`, `run_assignment_sweep`, `run_comparison_report` and `eval_batch` take it instead of a `Path`, unwrap `.path` (or `.config_dir`) for the planning, preparation and identity code below them, and never resolve anything themselves. The session tag `case_config_path` therefore always carries the absolute spelling, and no new entry point can forget to resolve it; the tag is informational only, since `report` finds sessions by experiment and phase and an absolute path differs between machines. Dataset input digests memoize on the path as given; the digest itself is path-independent.
 
