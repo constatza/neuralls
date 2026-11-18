@@ -380,6 +380,7 @@ def prepare_comparison_batch(
             settings=settings,
             tracking=tracking,
             tracking_uri=topology.model_store_tracking_uri,
+            experiment_name=topology.experiment_name,
         )
         prepared = prepare_comparison_entry(cfg, planned, context)
         if isinstance(prepared, PreparedComparisonExecution):
@@ -400,6 +401,7 @@ def _with_assignment_preconditioners(
     settings: NeurallsSettings,
     tracking: TrackingServices,
     tracking_uri: str,
+    experiment_name: str,
 ) -> ComparisonConfig:
     """Append the auto-generated preconditioners of the assignments no explicit one claims."""
     entry = planned.entry
@@ -413,6 +415,7 @@ def _with_assignment_preconditioners(
         existing_assignment_ids(cfg.preconditioners),
         tracking=tracking,
         tracking_uri=tracking_uri,
+        experiment_name=experiment_name,
         cfg=master_cfg,
         config_dir=config_dir,
         settings=settings,

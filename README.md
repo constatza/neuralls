@@ -220,8 +220,8 @@ binds:
   `rhs_count` RHS draws. The dataset's matrix shape decides which array a
   dataset may appear in; `matrix_index` and `test_position` no longer exist
 - `[[assignments]]` — pairs one dataset with one job
-- optional `[mlflow]` topology and `[names]` for training/comparison experiment
-  buckets
+- optional `[mlflow]` topology; the MLflow experiment is named `<case>/<config>`
+  after the case config's path
 
 Relative paths inside a case config resolve against the case file's own
 directory, and `${NEURALLS_*}` placeholders expand from resolved settings. If

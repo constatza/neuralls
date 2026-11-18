@@ -17,7 +17,6 @@ from neuralls.composition.assignments.runtime_dataset_contract import RuntimeDat
 from neuralls.composition.tracking.run_specs import build_training_run_spec, training_run_name
 from neuralls.composition.tracking.services import TrackingServices
 from neuralls.domain.presentation.run_names import NamedRun, TrainingPresentation
-from neuralls.platform.config.models.experiments import ExperimentNamesConfig
 from neuralls.platform.reporting.training_diagnostics import (
     compute_diagnostics,
 )
@@ -61,25 +60,11 @@ class MlflowCoordinates:
     run_id: str
 
 
-def _resolve_training_experiment_name(mlflow_experiment_name: str | None) -> str:
-    """Resolve the training MLflow experiment name from caller input or config defaults.
-
-    Args:
-        mlflow_experiment_name: Caller-supplied name, or None to use the config default.
-
-    Returns:
-        Resolved experiment name.
-    """
-    if mlflow_experiment_name is not None:
-        return mlflow_experiment_name
-    return ExperimentNamesConfig().training
-
-
 def _build_training_run_config(
     *,
     identity: AssignmentIdentity,
     presentation: TrainingPresentation,
-    mlflow_experiment_name: str | None,
+    experiment_name: str,
     runtime_mlflow_env: Mapping[str, str],
     workspace_root: Path,
     include_timestamp: bool = True,
@@ -92,7 +77,7 @@ def _build_training_run_config(
             registry ids are all present; otherwise it falls back to a bare,
             untagged run.
         presentation: What the run trains and the notation its name is rendered with.
-        mlflow_experiment_name: Override for the MLflow experiment bucket name.
+        experiment_name: The case config's MLflow experiment.
         runtime_mlflow_env: MLflow environment variable mapping.
         workspace_root: Root directory for the training workspace.
         include_timestamp: Whether to append a timestamp to the run name.
@@ -102,7 +87,6 @@ def _build_training_run_config(
     Returns:
         Fully configured MlflowRunConfig.
     """
-    experiment_name = _resolve_training_experiment_name(mlflow_experiment_name)
     paths = runtime_paths_from_env(runtime_mlflow_env)
     if identity.assignment_id and identity.dataset_registry_id and identity.job_registry_id:
         return build_training_run_spec(

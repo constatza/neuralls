@@ -31,7 +31,6 @@ from neuralls.composition.assignments.presentation_preflight import (
 )
 from neuralls.composition.comparison.method_data_origin import InlineFit, NoFitData
 from neuralls.composition.comparison.models import ComparisonParams, PlannedSystem
-from neuralls.composition.tracking import run_specs
 from neuralls.domain.identity import IdentityTag, StageIdentity
 from neuralls.domain.presentation.methods import PreparedComparisonPresentation
 from neuralls.domain.presentation.provenance import DatasetPresentation
@@ -70,7 +69,6 @@ from tests.workflows.comparison_support import (
 
 PLAIN = NotationPolicy.default()
 FIT_DIR = Path("pod-fit")
-STAMP = "2026-01-02T03:04:05"
 DATASET_TEXT = "Test problem | CG Errors (k=20, N=100)"
 
 
@@ -210,7 +208,7 @@ def _execution(
     )
 
 
-def _session_run_names(
+def _session_titles(
     presentation: PreparedComparisonPresentation,
     title: ComparisonTitle,
     fake_tracking: RecordingTrackingServices,
@@ -228,7 +226,6 @@ def _session_run_names(
         patch.object(comparison_batch, "has_complete_reusable_session", return_value=False),
         patch.object(comparison_batch, "execute_all", return_value=()),
         patch.object(comparison_batch, "outcomes_from_workloads", return_value=[]),
-        patch.object(run_specs, "iso_timestamp", return_value=STAMP),
     ):
         run_loaded_comparison_batch(
             case,
@@ -237,31 +234,29 @@ def _session_run_names(
             virtual_settings(),
             tracking=fake_tracking,
         )
-    return [run_name_text(session.run) for session in fake_tracking.runs.sessions]
+    return [session.tags["title"] for session in fake_tracking.runs.sessions]
 
 
 @pytest.mark.usefixtures("stub_input_gate", "stub_planning", "stub_setup_tracking")
-def test_session_run_is_named_by_the_dataset_not_the_case_file(
+def test_session_run_is_titled_by_the_dataset_not_the_case_file(
     prepared_presentation: PreparedComparisonPresentation,
     fake_tracking: RecordingTrackingServices,
 ) -> None:
-    (name,) = _session_run_names(prepared_presentation, prepared_presentation.scope, fake_tracking)
+    (title,) = _session_titles(prepared_presentation, prepared_presentation.scope, fake_tracking)
 
-    assert name == (
-        f"Comparison matrix set: {DATASET_TEXT} | 2 systems (1 RHS type x 1 matrix) | {STAMP}"
-    )
+    assert title == f"Comparison matrix set: {DATASET_TEXT} | 2 systems (1 RHS type x 1 matrix)"
 
 
 @pytest.mark.usefixtures("stub_input_gate", "stub_planning", "stub_setup_tracking")
-def test_session_run_is_named_by_the_editorial_title_when_one_is_configured(
+def test_session_run_is_titled_by_the_editorial_title_when_one_is_configured(
     prepared_presentation: PreparedComparisonPresentation,
     fake_tracking: RecordingTrackingServices,
 ) -> None:
-    (name,) = _session_run_names(
+    (title,) = _session_titles(
         prepared_presentation, EditorialPresentation("Spectral comparison"), fake_tracking
     )
 
-    assert name == f"Spectral comparison | 2 systems (1 RHS type x 1 matrix) | {STAMP}"
+    assert title == "Spectral comparison | 2 systems (1 RHS type x 1 matrix)"
 
 
 def test_a_method_run_and_a_plot_legend_render_the_same_presentation(

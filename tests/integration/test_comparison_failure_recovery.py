@@ -39,12 +39,10 @@ def _write_case(
     path: Path,
     *,
     tracking_uri: str,
-    experiment: str,
     max_iterations: int = 20,
 ) -> None:
     payload = {
         "mlflow": {"tracking_uri": tracking_uri},
-        "names": {"comparison": experiment},
         "comparison_baseline": {
             "rtol": 1e-6,
             "atol": 1e-14,
@@ -81,7 +79,6 @@ def _write_case(
 def test_failed_report_finalization_is_retried_on_the_next_call(
     tmp_path: Path,
     mlflow_tracking_uri: str,
-    mlflow_experiment: str,
     sparse_id_dataset: Path,
     pin_test_fold: Callable[[Path, tuple[int, ...]], None],
     monkeypatch: pytest.MonkeyPatch,
@@ -96,7 +93,7 @@ def test_failed_report_finalization_is_retried_on_the_next_call(
     datasets_dir.mkdir()
     write_dataset_config(datasets_dir / "solutions.toml", "solutions")
     case_path = tmp_path / "report-recovery.toml"
-    _write_case(case_path, tracking_uri=mlflow_tracking_uri, experiment=mlflow_experiment)
+    _write_case(case_path, tracking_uri=mlflow_tracking_uri)
     original_finalize = MLflowReportSink.finalize
     finalizations = 0
 
@@ -118,15 +115,13 @@ def test_failed_report_finalization_is_retried_on_the_next_call(
     assert all(isinstance(outcome, ComparisonCompleted) for outcome in computed)
     assert all(isinstance(outcome, ComparisonReused) for outcome in reused)
     client = MlflowClient(tracking_uri=mlflow_tracking_uri)
-    compute = client.get_experiment_by_name(mlflow_experiment)
+    compute = client.get_experiment_by_name(CaseConfigPath.resolve(case_path).experiment_name)
     assert compute is not None
     sessions = client.search_runs(
         [compute.experiment_id], filter_string="tags.phase = 'session_comparison'"
     )
     assert [run.info.status for run in sessions] == ["FINISHED"]
-    reports = client.get_experiment_by_name("Reports")
-    assert reports is not None
-    report_runs = client.search_runs([reports.experiment_id], filter_string="tags.phase = 'report'")
+    report_runs = client.search_runs([compute.experiment_id], filter_string="tags.phase = 'report'")
     assert sorted(run.info.status for run in report_runs) == ["FAILED", "FINISHED"]
     failed = next(run for run in report_runs if run.info.status == "FAILED")
     assert _artifact_names(client, failed.info.run_id, "failure") == {
@@ -142,7 +137,6 @@ def test_failed_report_finalization_is_retried_on_the_next_call(
 def test_blocking_matrix_load_failure_marks_child_and_parent_with_exact_diagnostics(
     tmp_path: Path,
     mlflow_tracking_uri: str,
-    mlflow_experiment: str,
     sparse_id_dataset: Path,
     pin_test_fold: Callable[[Path, tuple[int, ...]], None],
     monkeypatch: pytest.MonkeyPatch,
@@ -156,7 +150,7 @@ def test_blocking_matrix_load_failure_marks_child_and_parent_with_exact_diagnost
     datasets_dir.mkdir()
     write_dataset_config(datasets_dir / "solutions.toml", "solutions")
     case_path = tmp_path / "matrix-load-failure.toml"
-    _write_case(case_path, tracking_uri=mlflow_tracking_uri, experiment=mlflow_experiment)
+    _write_case(case_path, tracking_uri=mlflow_tracking_uri)
     original = RuntimeError("injected matrix input failure")
 
     def fail_matrix_load(*args: object, **kwargs: object) -> None:
@@ -170,7 +164,7 @@ def test_blocking_matrix_load_failure_marks_child_and_parent_with_exact_diagnost
 
     assert raised.value is original
     client = MlflowClient(tracking_uri=mlflow_tracking_uri)
-    experiment = client.get_experiment_by_name(mlflow_experiment)
+    experiment = client.get_experiment_by_name(CaseConfigPath.resolve(case_path).experiment_name)
     assert experiment is not None
     runs = client.search_runs([experiment.experiment_id])
     parent = next(run for run in runs if "mlflow.parentRunId" not in run.data.tags)
@@ -202,7 +196,6 @@ def test_blocking_matrix_load_failure_marks_child_and_parent_with_exact_diagnost
 def test_recoverable_setup_failure_warns_persists_and_allows_later_method(
     tmp_path: Path,
     mlflow_tracking_uri: str,
-    mlflow_experiment: str,
     sparse_id_dataset: Path,
     pin_test_fold: Callable[[Path, tuple[int, ...]], None],
     monkeypatch: pytest.MonkeyPatch,
@@ -216,7 +209,7 @@ def test_recoverable_setup_failure_warns_persists_and_allows_later_method(
     datasets_dir.mkdir()
     write_dataset_config(datasets_dir / "solutions.toml", "solutions")
     case_path = tmp_path / "recoverable-setup.toml"
-    _write_case(case_path, tracking_uri=mlflow_tracking_uri, experiment=mlflow_experiment)
+    _write_case(case_path, tracking_uri=mlflow_tracking_uri)
     original_build = comparison_run._build_scheduled
 
     def fail_identity(
@@ -233,7 +226,7 @@ def test_recoverable_setup_failure_warns_persists_and_allows_later_method(
 
     assert outcomes and all(isinstance(outcome, ComparisonCompleted) for outcome in outcomes)
     client = MlflowClient(tracking_uri=mlflow_tracking_uri)
-    experiment = client.get_experiment_by_name(mlflow_experiment)
+    experiment = client.get_experiment_by_name(CaseConfigPath.resolve(case_path).experiment_name)
     assert experiment is not None
     children = client.search_runs(
         [experiment.experiment_id], filter_string="tags.phase = 'comparison_method'"

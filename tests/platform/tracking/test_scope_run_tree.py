@@ -11,11 +11,10 @@ from neuralls.domain.solver.models.report_scope import (
     MatrixSet,
     MatrixSetRhsType,
     ReportScope,
-    System,
 )
 from neuralls.platform.tracking.scope_params import scope_params
 from neuralls.platform.tracking.scope_run_tree import REPORT_SCOPE_PHASE, ScopeRunTree
-from neuralls.shared.types import DatasetId, MatrixId, SystemId
+from neuralls.shared.types import DatasetId
 
 ROOT = "root-run"
 
@@ -31,8 +30,8 @@ def tree(runs: FakeRunTree) -> ScopeRunTree:
 
 
 @pytest.fixture
-def system() -> System:
-    return System(DatasetId("ds"), GAUSSIAN, MatrixId(1), 0, SystemId("s0"))
+def rhs_type() -> MatrixSetRhsType:
+    return MatrixSetRhsType(DatasetId("ds"), GAUSSIAN)
 
 
 def test_the_root_scope_is_the_open_run_and_creates_nothing(
@@ -42,34 +41,29 @@ def test_the_root_scope_is_the_open_run_and_creates_nothing(
     assert runs.created == []
 
 
-def test_a_system_creates_its_ancestors_first_in_order(
-    tree: ScopeRunTree, runs: FakeRunTree, system: System
+def test_an_rhs_type_creates_its_ancestors_first_in_order(
+    tree: ScopeRunTree, runs: FakeRunTree, rhs_type: MatrixSetRhsType
 ) -> None:
-    run_id = tree.run_id(system, ROOT)
+    run_id = tree.run_id(rhs_type, ROOT)
 
-    expected: list[ReportScope] = [
-        MatrixSet(system.dataset),
-        MatrixSetRhsType(system.dataset, system.recipe),
-        system,
-    ]
+    expected: list[ReportScope] = [MatrixSet(rhs_type.dataset), rhs_type]
     assert tree.created_scopes == tuple(expected)
     assert [(run.parent_run_id, run.name) for run in runs.created] == [
         (ROOT, "MatrixSet"),
         ("child-1", "MatrixSetRhsType"),
-        ("child-2", "System"),
     ]
-    assert run_id == "child-3"
+    assert run_id == "child-2"
 
 
 def test_a_scope_is_created_once_and_carries_its_identity(
-    tree: ScopeRunTree, runs: FakeRunTree, system: System
+    tree: ScopeRunTree, runs: FakeRunTree, rhs_type: MatrixSetRhsType
 ) -> None:
-    first = tree.run_id(system, ROOT)
-    again = tree.run_id(system, ROOT)
+    first = tree.run_id(rhs_type, ROOT)
+    again = tree.run_id(rhs_type, ROOT)
 
     assert first == again
-    assert len(runs.created) == 3
+    assert len(runs.created) == 2
     created = runs.created[-1]
-    assert dict(created.params) == scope_params(system)
+    assert dict(created.params) == scope_params(rhs_type)
     assert created.tags["phase"] == REPORT_SCOPE_PHASE
-    assert created.tags["report_level"] == scope_params(system)["report_level"]
+    assert created.tags["report_level"] == scope_params(rhs_type)["report_level"]

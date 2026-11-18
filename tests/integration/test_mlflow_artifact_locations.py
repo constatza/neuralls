@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import numpy as np
@@ -20,6 +21,7 @@ from neuralls.composition.assignments.comparison_batch import (
     run_comparison_batch,
 )
 from neuralls.composition.assignments.comparison_report import (
+    REPORT_SCHEMA_VERSION,
     ReportCreated,
     ReportReused,
     _finished_report,
@@ -34,6 +36,7 @@ from neuralls.composition.comparison.models import (
     ComparisonReused,
 )
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
+from neuralls.domain.presentation.run_names import REPORT_PHASE
 from neuralls.domain.solver.models.figure_scope import SystemScope
 from neuralls.domain.solver.reporting.report_levels import ReportLevelName
 from neuralls.platform.config.case_path import CaseConfigPath
@@ -41,7 +44,11 @@ from neuralls.platform.config.resolution import build_sqlite_tracking_uri
 from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.platform.reporting.benchmark_events import MethodBenchmarkArtifacts
 from neuralls.platform.reporting.figure_card import read_figure_card
-from neuralls.platform.reporting.figure_index import FIGURE_INDEX_FILE, read_figure_index
+from neuralls.platform.reporting.figure_index import (
+    FIGURE_INDEX_FILE,
+    FigureIndexEntry,
+    read_figure_index,
+)
 from neuralls.platform.reporting.figure_metadata import TABLE_SCHEMAS, NoTable, SiblingTable
 from neuralls.platform.reporting.figure_table import read_group_table
 from neuralls.platform.reporting.training_diagnostics import compute_diagnostics
@@ -49,8 +56,9 @@ from neuralls.platform.tracking.mlflow_client import log_diagnostics_to_mlflow
 from neuralls.platform.tracking.report_sink import (
     GROUP_REPORT_ARTIFACT_DIR,
     METHOD_FIGURE_ARTIFACT_DIR,
+    SYSTEM_ARTIFACT_DIR,
 )
-from neuralls.platform.tracking.session_artifacts import REPORT_PHASE
+from neuralls.platform.tracking.session_artifacts import session_method_runs
 from neuralls.shared.system_scaling import NoScaling
 
 
@@ -87,7 +95,7 @@ def _assert_report_tree_is_documented(
     session_id: str,
     method_run_ids: set[str],
     download_root: Path,
-) -> None:
+) -> tuple[FigureIndexEntry, ...]:
     """Every figure of the tree has a same-stem card, an index entry and real provenance."""
     figures: set[tuple[str, str]] = set()
     for run_id in _report_tree_run_ids(client, report_id):
@@ -142,6 +150,7 @@ def _assert_report_tree_is_documented(
     assert len(systems) == 2
     assert len({card.metadata.scope for card in systems}) == 2
     assert all(isinstance(card.metadata.scope, SystemScope) for card in systems)
+    return index
 
 
 def _sqlite_tracking_uri(db_path: Path) -> str:
@@ -283,10 +292,6 @@ def _write_experiments_config(
         "mlflow": {
             "tracking_uri": tracking_uri,
         },
-        "names": {
-            "training": "neuralls-training",
-            "comparison": "Comparisons",
-        },
         "comparison_baseline": {
             "rtol": 1e-6,
             "atol": 1e-14,
@@ -370,7 +375,7 @@ def test_comparison_logs_artifacts_to_mlflow_with_sqlite(
     client = MlflowClient(tracking_uri=tracking_uri)
     experiment_id = _ensure_experiment(
         client=client,
-        name="Comparisons",
+        name=CaseConfigPath.resolve(experiments_config).experiment_name,
         artifact_root=artifact_root,
     )
     legacy = client.create_run(experiment_id, tags={"phase": "comparison"})
@@ -419,6 +424,37 @@ def test_comparison_logs_artifacts_to_mlflow_with_sqlite(
     assert isinstance(report, ReportCreated)
     reports = MlflowClient(tracking_uri=tracking_uri)
     report_id = report.report_run_id
+    # The report root is a child of its session, named and tagged like every session root.
+    report_root = client.get_run(report_id)
+    session_tags = client.get_run(session_id).data.tags
+    assert report_root.info.experiment_id == experiment_id
+    assert re.fullmatch(
+        r"report · \d{4}-\d{2}-\d{2} \d{2}:\d{2}( · [0-9a-f]{8}(-dirty)?)?",
+        report_root.data.tags["mlflow.runName"],
+    )
+    # MLflow's own bookkeeping tags (user, source, run name) are not the report's to assert,
+    # nor is the notation digest, a hash of the case notation that the report gate tests own.
+    root_tags = {
+        key: value
+        for key, value in report_root.data.tags.items()
+        if (not key.startswith("mlflow.") or key in {"mlflow.parentRunId", "mlflow.note.content"})
+        and key != "notation_digest"
+    }
+    assert root_tags == {
+        "mlflow.parentRunId": session_id,
+        "phase": REPORT_PHASE,
+        "report_level": "all_matrix_sets",
+        "source_session_run_id": session_id,
+        "report_schema_version": REPORT_SCHEMA_VERSION,
+        "neuralls.config": session_tags["neuralls.config"],
+        "neuralls.stage": "report",
+        "title": session_tags["title"],
+        "mlflow.note.content": session_tags["title"],
+    }
+    # Method discovery never picks up the report child.
+    assert [run.info.run_id for run in session_method_runs(client, session_id)] == [
+        method_run.info.run_id
+    ]
     method_figures = reports.list_artifacts(report_id, path=METHOD_FIGURE_ARTIFACT_DIR)
     assert {Path(item.path).name for item in method_figures} == {
         "residual_history_Method_Identity.png",
@@ -444,11 +480,11 @@ def test_comparison_logs_artifacts_to_mlflow_with_sqlite(
     reports_experiment_id = client.get_run(report_id).info.experiment_id
     matrix_set_id = child(report_id, "matrix_set")
     cohort_id = child(matrix_set_id, "matrix_set_rhs_type")
-    system_runs = client.search_runs(
-        experiment_ids=[reports_experiment_id],
-        filter_string=f"tags.mlflow.parentRunId = '{cohort_id}' and tags.report_level = 'system'",
+    # A system has no run: its figures and metrics live in its RHS type's run.
+    assert not client.search_runs(
+        experiment_ids=[reports_experiment_id], filter_string="tags.report_level = 'system'"
     )
-    assert len(system_runs) == 2
+    assert len(_report_tree_run_ids(client, report_id)) == 3
     # One matrix set and one recipe: the mixture levels pool exactly the class-level group's
     # systems, so they are not reported and their runs hold no group figure.
     assert group_artifacts(report_id) == []
@@ -463,18 +499,23 @@ def test_comparison_logs_artifacts_to_mlflow_with_sqlite(
         f"ecdf_solve_{recipe_stem}.png",
         f"ecdf_online_{recipe_stem}.png",
     } <= set(group_artifacts(cohort_id))
-    for system in system_runs:
-        assert {Path(item.path).name for item in client.list_artifacts(system.info.run_id)} == {
+    system_keys = ("benchmark-comparison-0", "benchmark-comparison-1")
+    system_figures = {
+        f"{SYSTEM_ARTIFACT_DIR}/{key}/{name}"
+        for key in system_keys
+        for name in (
             "residual_history.png",
             "residual_history.toml",
             "energy_history.png",
             "energy_history.toml",
-        }
-        assert set(system.data.metrics) == {
-            "iterations/identity",
-            "solve_s/identity",
-            "converged/identity",
-        }
+        )
+    }
+    assert set(_artifact_files(client, cohort_id, SYSTEM_ARTIFACT_DIR)) == system_figures
+    assert {key for key in client.get_run(cohort_id).data.metrics if key.startswith("system/")} == {
+        f"system/{key}/{metric}/identity"
+        for key in system_keys
+        for metric in ("iterations", "solve_s", "converged")
+    }
 
     matrix_set_params = client.get_run(matrix_set_id).data.params
     cohort_params = client.get_run(cohort_id).data.params
@@ -483,24 +524,22 @@ def test_comparison_logs_artifacts_to_mlflow_with_sqlite(
     assert cohort_params["report_level"] == "matrix_set_rhs_type"
     assert set(cohort_params) == {"report_level", "dataset_id", "recipe_key"}
     assert cohort_params["dataset_id"] == matrix_set_params["dataset_id"]
-    system_params = [system.data.params for system in system_runs]
-    assert all(
-        set(params) == {*cohort_params, "matrix_id", "rhs_ordinal"}
-        and params["report_level"] == "system"
-        and params["dataset_id"] == cohort_params["dataset_id"]
-        and params["recipe_key"] == cohort_params["recipe_key"]
-        for params in system_params
-    )
-    assert len({(p["matrix_id"], p["rhs_ordinal"]) for p in system_params}) == 2
     assert client.get_run(report_id).data.params == {"report_level": "all_matrix_sets"}
 
-    _assert_report_tree_is_documented(
+    index = _assert_report_tree_is_documented(
         client,
         report_id=report_id,
         session_id=session_id,
         method_run_ids={method_run.info.run_id},
         download_root=tmp_path / "cards",
     )
+    # The index cites each system figure in its RHS type's run, under its systems/ directory.
+    assert {
+        (entry.run_id, path)
+        for entry in index
+        if entry.level is ReportLevelName.SYSTEM
+        for path in (*entry.artifact_paths, entry.card)
+    } == {(cohort_id, path) for path in system_figures}
     legacy_runs = client.search_runs(
         experiment_ids=[experiment_id], filter_string="tags.phase = 'comparison'"
     )
@@ -568,5 +607,11 @@ def test_comparison_logs_artifacts_to_mlflow_with_sqlite(
         key: failed_tags[key]
         for key in ("source_session_run_id", "notation_digest", "report_schema_version")
     }
-    report_experiment = client.get_experiment(reports_experiment_id).name
-    assert _finished_report(client, report_experiment, source_tags) is None
+    assert _finished_report(client, reports_experiment_id, source_tags) is None
+    # A FAILED report child does not make its session look incomplete to the compare gate.
+    again = run_comparison_batch(
+        case_config_path=CaseConfigPath.resolve(experiments_config),
+        params=ComparisonParams(),
+        settings=neuralls_settings,
+    )
+    assert again and isinstance(again[0], ComparisonReused)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -12,6 +13,7 @@ from neuralls.composition.tracking.run_specs import (
     build_benchmark_method_run_spec,
     build_evaluation_run,
     build_evaluation_tags,
+    build_report_run_spec,
     build_session_run_spec,
     build_training_run_spec,
     comparison_run,
@@ -24,6 +26,7 @@ from neuralls.domain.presentation.run_names import (
     HeldOutMatrixPart,
     RhsDrawPart,
     RunTimestamp,
+    SessionPhase,
     TrainingPresentation,
     Untimed,
 )
@@ -219,35 +222,69 @@ def test_method_run_is_named_by_its_presentation_and_tagged_with_its_id(
     assert as_tags["method_label"] == "Jacobi"
 
 
-@pytest.mark.parametrize("phase", ["session_training", "session_comparison", "session_evaluation"])
+@pytest.mark.parametrize(
+    ("phase", "stage", "title_text"),
+    [
+        ("session_training", "train", DATASET_TEXT),
+        ("session_evaluation", "eval", DATASET_TEXT),
+        ("session_comparison", "compare", f"Comparison matrix set: {DATASET_TEXT}"),
+    ],
+)
 def test_session_run_spec_name_and_tags(
-    phase: str, dataset_presentation: DatasetPresentation
+    phase: SessionPhase, stage: str, title_text: str, dataset_presentation: DatasetPresentation
 ) -> None:
-    case_config_path = Path("workspace/cases/ffnn.toml")
-    scope = ComparisonScopePresentation(dataset_presentation)
+    case_config_path = Path("workspace/cases/spectral/ffnn.toml")
 
     run, tags = build_session_run_spec(
-        title=session_title([scope]),
+        title=session_title([ComparisonScopePresentation(dataset_presentation)]),
         notation=PLAIN,
         case_config_path=case_config_path,
-        experiment_name="Compare",
-        phase=phase,  # type: ignore[arg-type]
-        timestamp=ISO,
+        experiment_name="spectral/ffnn",
+        phase=phase,
+        revision="d5d807fe0123456789abcdef0123456789abcdef-dirty",
+        started=datetime(2026, 3, 12, 12, 0, 0),
     )
 
-    expected = (
-        f"Comparison matrix set: {DATASET_TEXT} | {ISO}"
-        if phase == "session_comparison"
-        else f"{DATASET_TEXT} | {ISO}"
-    )
-    assert run_name_text(run) == expected
+    assert run_name_text(run) == f"{stage} · 2026-03-12 12:00 · d5d807fe-dirty"
     assert tags.as_mlflow_tags() == {
         "phase": phase,
-        "case_config": "ffnn",
         "case_config_path": case_config_path.as_posix(),
         "started_at": ISO,
-        "experiment_name": "Compare",
+        "neuralls.config": "spectral/ffnn",
+        "neuralls.stage": stage,
+        "title": title_text,
+        "mlflow.note.content": title_text,
     }
+
+
+@pytest.mark.parametrize(
+    ("session_tags", "expected_tags"),
+    [
+        (
+            {"neuralls.config": "spectral/old", "title": DATASET_TEXT},
+            {
+                "neuralls.config": "spectral/old",
+                "title": DATASET_TEXT,
+                "mlflow.note.content": DATASET_TEXT,
+            },
+        ),
+        ({}, {"neuralls.config": "spectral/ffnn"}),
+    ],
+    ids=["session-tagged", "pre-tag-session"],
+)
+def test_report_run_spec_takes_config_and_title_from_its_session(
+    session_tags: dict[str, str], expected_tags: dict[str, str]
+) -> None:
+    run, tags = build_report_run_spec(
+        session_tags=session_tags,
+        notation=PLAIN,
+        config="spectral/ffnn",
+        revision="d5d807fe0123456789abcdef0123456789abcdef",
+        started=datetime(2026, 3, 12, 12, 0, 0),
+    )
+
+    assert run_name_text(run) == "report · 2026-03-12 12:00 · d5d807fe"
+    assert tags == {"phase": "report", "neuralls.stage": "report", **expected_tags}
 
 
 def test_evaluation_run_and_tags_use_the_same_subject(

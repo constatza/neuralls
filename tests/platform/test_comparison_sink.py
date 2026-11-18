@@ -95,7 +95,9 @@ from neuralls.platform.tracking.metrics_logging import parent_run_metric_key
 from neuralls.platform.tracking.report_sink import (
     GROUP_REPORT_ARTIFACT_DIR,
     METHOD_FIGURE_ARTIFACT_DIR,
+    SYSTEM_ARTIFACT_DIR,
     MLflowReportSink,
+    SystemKeyCollisionError,
     UnknownStoredMethodError,
 )
 from neuralls.platform.tracking.split_records import SPLITS_ARTIFACT
@@ -318,6 +320,7 @@ def sink(
     writer: RecordingRunWriter,
     runs: FakeRunTree,
     dataset_presentation: DatasetPresentation,
+    tmp_path: Path,
 ) -> MLflowReportSink:
     return MLflowReportSink(
         notation,
@@ -327,6 +330,7 @@ def sink(
         SESSION_ENVIRONMENT,
         writer,
         ROOT_RUN,
+        tmp_path / "staging",
         methods=stored_methods,
         datasets={DatasetId("ds"): dataset_presentation},
     )
@@ -534,6 +538,7 @@ def test_method_figures_are_drawn_with_the_configured_title_switch(
     monkeypatch: pytest.MonkeyPatch,
     show_titles: bool,
     writer: RecordingRunWriter,
+    tmp_path: Path,
 ) -> None:
     flags: list[bool] = []
     monkeypatch.setattr(
@@ -549,6 +554,7 @@ def test_method_figures_are_drawn_with_the_configured_title_switch(
         SESSION_ENVIRONMENT,
         writer,
         ROOT_RUN,
+        tmp_path / "staging",
         methods=stored_methods,
         figure_style=FigureStyleConfig(show_titles=show_titles),
     )
@@ -792,6 +798,7 @@ def test_group_naming_a_method_without_a_stored_run_is_rejected(
     notation: NotationPolicy,
     split_records: tuple[DatasetSplitRecord, ...],
     dataset_presentation: DatasetPresentation,
+    tmp_path: Path,
 ) -> None:
     with pytest.raises(UnknownStoredMethodError):
         MLflowReportSink(
@@ -802,6 +809,7 @@ def test_group_naming_a_method_without_a_stored_run_is_rejected(
             SESSION_ENVIRONMENT,
             RecordingRunWriter(),
             ROOT_RUN,
+            tmp_path / "staging",
             datasets={DatasetId("ds"): dataset_presentation},
         ).report(group, presentation=presentation)
 
@@ -859,7 +867,7 @@ def system_figure(
     return StagedFigure(plan, _touch(FigureTarget(tmp_path, plan.stem)))
 
 
-def test_system_figures_are_uploaded_with_cards_into_the_run_root(
+def test_a_system_is_recorded_inside_its_rhs_type_run(
     system: System,
     system_figure: StagedFigure,
     sink: MLflowReportSink,
@@ -867,20 +875,51 @@ def test_system_figures_are_uploaded_with_cards_into_the_run_root(
     writer: RecordingRunWriter,
     runs: FakeRunTree,
 ) -> None:
-    sink.report_system(system, {}, [system_figure])
+    metric = parent_run_metric_key("iterations", "amg")
+    sibling = replace(system, system_id=SystemId("entry/b 1"))  # same matrix, RHS and recipe
+    sink.report_system(system, {metric: 3.0}, [system_figure])
+    sink.report_system(sibling, {metric: 4.0}, [system_figure])
 
-    system_id = _scope_run_id(runs, ReportLevelName.SYSTEM)
-    parent_of = {created.run_id: created.parent_run_id for created in runs.created}
-    assert parent_of[system_id] == _scope_run_id(runs, ReportLevelName.MATRIX_SET_RHS_TYPE)
-    run = writer.runs[system_id]
+    assert [created.tags["report_level"] for created in runs.created] == [
+        ReportLevelName.MATRIX_SET.value,
+        ReportLevelName.MATRIX_SET_RHS_TYPE.value,
+    ]
+    run = _scope_run(runs, writer, ReportLevelName.MATRIX_SET_RHS_TYPE)
+    keys = ("s0", "entry_b_1")
     assert set(run.artifacts) == {
-        (None, "residual_history.png"),
-        (None, "residual_history.toml"),
+        (f"{SYSTEM_ARTIFACT_DIR}/{key}", name)
+        for key in keys
+        for name in ("residual_history.png", "residual_history.toml")
     }
+    assert run.metrics == {f"system/s0/{metric}": 3.0, f"system/entry_b_1/{metric}": 4.0}
     assert ROOT_RUN not in writer.runs
     card = _cards(_texts(run))["residual_history.toml"]
     assert card.metadata.scope == SystemScope(dataset_presentation, GAUSSIAN, MatrixId(7), 0)
     assert card.metadata.report_level is ReportLevelName.SYSTEM
+
+
+def test_two_system_ids_with_one_sanitized_key_are_rejected(
+    system: System,
+    system_figure: StagedFigure,
+    sink: MLflowReportSink,
+    writer: RecordingRunWriter,
+) -> None:
+    metric = parent_run_metric_key("iterations", "amg")
+    sink.report_system(replace(system, system_id=SystemId("a b")), {metric: 3.0}, [system_figure])
+    before = {
+        run_id: (dict(run.metrics), dict(run.artifacts)) for run_id, run in writer.runs.items()
+    }
+
+    with pytest.raises(SystemKeyCollisionError) as raised:
+        sink.report_system(
+            replace(system, system_id=SystemId("a_b")), {metric: 4.0}, [system_figure]
+        )
+
+    assert (raised.value.key, raised.value.first, raised.value.second) == ("a_b", "a b", "a_b")
+    after = {
+        run_id: (dict(run.metrics), dict(run.artifacts)) for run_id, run in writer.runs.items()
+    }
+    assert after == before
 
 
 def test_one_stem_may_repeat_across_runs_but_not_within_one(
@@ -889,7 +928,7 @@ def test_one_stem_may_repeat_across_runs_but_not_within_one(
     sink: MLflowReportSink,
     writer: RecordingRunWriter,
 ) -> None:
-    other = replace(system, matrix_id=MatrixId(8))
+    other = replace(system, matrix_id=MatrixId(8), system_id=SystemId("s1"))
     sink.report_system(system, {}, [system_figure])
     sink.report_system(other, {}, [system_figure])
 

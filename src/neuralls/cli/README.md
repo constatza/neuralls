@@ -11,7 +11,7 @@ The CLI package defines one public executable: `neuralls`.
 - `neuralls eval <case.toml>`: evaluate completed assignment checkpoints on their logged test splits
 - `neuralls run <case.toml> [--force] [--force-expand] [--force-generate] [--force-train] [--force-compare]`: the full per-case pipeline — generate every dataset, train every assignment, then run every comparison and its report, each stage independently skippable/forceable
 - `neuralls compare <case.toml> [--force]`: run every comparison profile declared in one case after their benchmark datasets exist and store each method's raw tables (skips a comparison whose resolved checkpoints already produced a result unless `--force`). Compute only: it draws no figures; run `neuralls report` for them
-- `neuralls report <case.toml> [--force] [--session-run-id ID]`: read the newest finished compare session back and write the nested report run tree (metrics, figures with cards, `figure_index.toml`) into the `Reports` experiment; a finished report for the same session, notation and schema is skipped unless `--force`. Never solves or times
+- `neuralls report <case.toml> [--force] [--session-run-id ID]`: read the newest finished compare session back and write the nested report run tree (metrics, figures with cards, `figure_index.toml`) into the case config's experiment; a finished report for the same session, notation and schema is skipped unless `--force`. Never solves or times
 
 ## Package Map
 

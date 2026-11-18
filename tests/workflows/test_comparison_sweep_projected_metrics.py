@@ -25,7 +25,7 @@ from neuralls.composition.assignments.comparison_report import run_comparison_re
 from neuralls.composition.comparison.models import ComparisonCompleted, ComparisonParams
 from neuralls.platform.config.case_path import CaseConfigPath
 from neuralls.platform.config.resolution import build_sqlite_tracking_uri
-from neuralls.platform.tracking.report_sink import GROUP_REPORT_ARTIFACT_DIR
+from neuralls.platform.tracking.report_sink import GROUP_REPORT_ARTIFACT_DIR, SYSTEM_ARTIFACT_DIR
 from tests.workflows.comparison_support import (
     make_settings,
     write_dataset_config,
@@ -40,7 +40,6 @@ _N_PLANNED_RHS = 4
 def _write_sweep_config(path: Path, tmp_path: Path) -> None:
     payload: dict[str, object] = {
         "mlflow": {"tracking_uri": build_sqlite_tracking_uri(tmp_path / "mlruns" / "mlflow.db")},
-        "names": {"training": "neuralls-training", "comparison": "Comparisons"},
         "comparison_baseline": {
             "rtol": 1.0e-6,
             "atol": 1.0e-14,
@@ -104,19 +103,17 @@ def test_real_sweep_execution_logs_group_metrics_and_reports(
     # One dataset and one recipe: the mixture levels would pool exactly the class-level
     # group's systems, so only the class level is reported, with its counts; the matrix-set
     # run is only the parent the class run nests under.
-    metrics = run_of_level("matrix_set_rhs_type").data.metrics
+    rhs_type_run = run_of_level("matrix_set_rhs_type")
+    metrics = rhs_type_run.data.metrics
     assert metrics["n_planned_rhs/identity"] == _N_PLANNED_RHS
     assert metrics["n_attempted_rhs/identity"] == _N_PLANNED_RHS
     assert metrics["n_converged/identity"] == _N_PLANNED_RHS
     assert metrics["success_rate/identity"] == 1
     matrix_set_run = run_of_level("matrix_set")
     assert matrix_set_run.data.metrics == {}
+    # Systems have no runs: each one is a directory of the class run.
     assert (
-        len(
-            client.search_runs(
-                experiment_ids=[experiment_id], filter_string="tags.report_level = 'system'"
-            )
-        )
+        len(client.list_artifacts(rhs_type_run.info.run_id, path=SYSTEM_ARTIFACT_DIR))
         == _N_PLANNED_RHS
     )
 

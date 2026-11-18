@@ -33,7 +33,6 @@ from neuralls.composition.assignments.training import (
 )
 from neuralls.composition.tracking.run_specs import training_run_name
 from neuralls.domain.presentation.run_names import TrainingPresentation
-from neuralls.platform.config.models.experiments import ExperimentNamesConfig
 from neuralls.platform.config.models.workspace import AssignmentWorkspace
 from neuralls.platform.config.resolution import MlflowPaths
 from neuralls.platform.config.settings import NeurallsSettings
@@ -390,7 +389,7 @@ def test_prepare_training_settings_builds_explicit_mlflow_run_config(
                 job_registry_id="job-1",
             ),
             presentation=training_presentation,
-            mlflow_experiment_name="CustomTrain",
+            experiment_name="CustomTrain",
         )
     cleanup_prepared_training(prepared)
     scratch_dir.rmtree.assert_called_once_with(scratch_dir.path, ignore_errors=True)
@@ -476,12 +475,13 @@ def test_prepare_training_settings_without_registry_ids_builds_an_untagged_run(
                 dataset_registry_id="dataset-legacy",
             ),
             presentation=training_presentation,
+            experiment_name="CustomTrain",
         )
     cleanup_prepared_training(prepared)
     scratch_dir.rmtree.assert_called_once_with(scratch_dir.path, ignore_errors=True)
 
     run_config = prepared.run_config
-    assert run_config.experiment_name == ExperimentNamesConfig().training
+    assert run_config.experiment_name == "CustomTrain"
     assert re.match(
         r"^POD \| CG Errors \(k=20, N=100\) \| "
         r"[A-Z][a-z]{2} \d{2} [A-Z][a-z]{2} \d{4} - \d{2}:\d{2}:\d{2}$",

@@ -18,6 +18,7 @@ having measured its own duration):
 from __future__ import annotations
 
 from contextlib import ExitStack
+from datetime import datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -33,12 +34,9 @@ from neuralls.composition.assignments.training_batch import (
 )
 from neuralls.domain.presentation.run_names import (
     NamedRun,
-    RunTimestamp,
     SessionRunName,
     TrainingPresentation,
-    training_dataset,
 )
-from neuralls.domain.presentation.titles import ComparisonScopePresentation
 from neuralls.platform.config.case_path import CaseConfigPath
 from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.shared.constants import (
@@ -46,6 +44,7 @@ from neuralls.shared.constants import (
     TRAINING_CHILD_PEAK_MEMORY_METRIC_KEY,
 )
 from neuralls.shared.device import ResourceUsage, ResourceUsageToken
+from neuralls.shared.runtime_environment import Unreported
 
 
 def _patch_sweep_collaborators(
@@ -87,11 +86,7 @@ def _patch_sweep_collaborators(
             "neuralls.composition.assignments.training_batch.build_session_run_spec",
             return_value=(
                 NamedRun(
-                    SessionRunName(
-                        ComparisonScopePresentation(training_dataset(presentation.subject)),
-                        RunTimestamp("2026-03-12T12:00:00"),
-                        "session_training",
-                    ),
+                    SessionRunName("train", datetime(2026, 3, 12, 12, 0, 0), Unreported.UNKNOWN),
                     presentation.notation,
                 ),
                 MagicMock(as_mlflow_tags=dict),

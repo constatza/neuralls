@@ -50,6 +50,7 @@ from neuralls.platform.tracking.mlflow import (
     finalize_session_parent_run,
 )
 from neuralls.platform.tracking.run_names import render_training_label, run_name_text
+from neuralls.platform.tracking.runtime_environment import neuralls_revision
 
 EVAL_OUTPUT_DIR_NAME = "eval"
 
@@ -302,7 +303,7 @@ def eval_batch(
         default_output_root=base_output,
         config_dir=configs_dir,
     )
-    mlflow_experiment_name = cfg.names.training
+    experiment_name = case_config_path.experiment_name
 
     with scoped_mlflow_environment(eval_mlflow_env.env):
         session_run, session_tags = build_session_run_spec(
@@ -314,8 +315,9 @@ def eval_batch(
             ),
             notation=case_notation(cfg),
             case_config_path=case_config_path.path,
-            experiment_name=mlflow_experiment_name,
+            experiment_name=experiment_name,
             phase="session_evaluation",
+            revision=neuralls_revision(),
         )
         session_tag_map = dict(session_tags.as_mlflow_tags())
 
@@ -328,13 +330,14 @@ def eval_batch(
                 settings=settings,
                 output_root=base_output,
                 case_config_path=case_config_path.path,
+                experiment_name=experiment_name,
                 tracking=tracking,
                 tracking_uri=eval_mlflow_env.tracking_uri,
                 artifact_leases=artifact_leases,
             )
             sweep_result, results, any_failed = _run_prepared_eval_sweep(
                 preparation=preparation,
-                experiment_name=mlflow_experiment_name,
+                experiment_name=experiment_name,
                 parent_run=session_run,
                 parent_tags=session_tag_map,
             )
@@ -345,7 +348,7 @@ def eval_batch(
             artifact_uri=eval_mlflow_env.artifact_uri,
             run=session_run,
             tags=session_tag_map,
-            experiment_name=mlflow_experiment_name,
+            experiment_name=experiment_name,
         )
 
         finalize_session_parent_run(

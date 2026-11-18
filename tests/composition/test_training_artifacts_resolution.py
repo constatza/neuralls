@@ -139,7 +139,7 @@ def test_build_training_run_config_uses_structured_tags_when_all_registry_ids_pr
     config = _build_training_run_config(
         identity=registry_identity,
         presentation=training_presentation,
-        mlflow_experiment_name="CustomTraining",
+        experiment_name="CustomTraining",
         runtime_mlflow_env=runtime_mlflow_env,
         workspace_root=workspace_root,
         include_timestamp=False,
@@ -165,7 +165,7 @@ def test_build_training_run_config_appends_timestamp_when_requested(
     config = _build_training_run_config(
         identity=registry_identity,
         presentation=training_presentation,
-        mlflow_experiment_name=None,
+        experiment_name="CustomTraining",
         runtime_mlflow_env=runtime_mlflow_env,
         workspace_root=workspace_root,
         include_timestamp=True,
@@ -187,7 +187,7 @@ def test_build_training_run_config_falls_back_to_untagged_spec_without_registry_
     config = _build_training_run_config(
         identity=adhoc_identity,
         presentation=training_presentation,
-        mlflow_experiment_name=None,
+        experiment_name="CustomTraining",
         runtime_mlflow_env=runtime_mlflow_env,
         workspace_root=workspace_root,
         include_timestamp=False,
@@ -195,7 +195,6 @@ def test_build_training_run_config_falls_back_to_untagged_spec_without_registry_
 
     assert run_name_text(config.name) == TRAINED_TEXT
     assert dict(config.tags) == {}
-    assert config.experiment_name  # config default, not None
 
 
 # ---------------------------------------------------------------------------

@@ -5,10 +5,10 @@ from __future__ import annotations
 import contextlib
 from collections.abc import Generator
 from dataclasses import dataclass
-from pathlib import Path
 
 from loguru import logger
 
+from neuralls.platform.config.case_path import CaseConfigPath
 from neuralls.platform.config.models.experiments import CaseConfig
 from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.platform.tracking.mlflow import build_workflow_environment
@@ -23,12 +23,11 @@ class ComparisonTopology:
     artifact_location: str | None
     experiment_name: str
     model_store_tracking_uri: str
-    report_experiment_name: str
 
 
 def resolve_comparison_topology(
     master_cfg: CaseConfig,
-    case_config_path: Path,
+    case_config_path: CaseConfigPath,
     settings: NeurallsSettings,
 ) -> ComparisonTopology:
     """Resolve comparison MLflow topology from the loaded case config."""
@@ -36,14 +35,13 @@ def resolve_comparison_topology(
         tracking_uri=master_cfg.mlflow.tracking_uri,
         artifact_location=master_cfg.mlflow.artifacts_destination,
         default_output_root=settings.output_dir,
-        config_dir=case_config_path.parent,
+        config_dir=case_config_path.config_dir,
     )
     return ComparisonTopology(
         tracking_uri=runtime.tracking_uri,
         artifact_location=runtime.artifact_uri,
-        experiment_name=master_cfg.names.comparison,
+        experiment_name=case_config_path.experiment_name,
         model_store_tracking_uri=runtime.tracking_uri,
-        report_experiment_name=master_cfg.names.report,
     )
 
 

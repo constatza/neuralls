@@ -21,7 +21,6 @@ from neuralls.domain.solver.models.report_scope import (
     MatrixSet,
     MatrixSetRhsType,
     ReportScope,
-    System,
 )
 from neuralls.shared.rhs_recipe import RhsRecipe, parse_recipe_key, recipe_key
 from neuralls.shared.types import DatasetId
@@ -90,8 +89,6 @@ def level_of_scope(scope: ReportScope) -> ReportLevelName:
             return ReportLevelName.MATRIX_SET
         case MatrixSetRhsType():
             return ReportLevelName.MATRIX_SET_RHS_TYPE
-        case System():
-            return ReportLevelName.SYSTEM
         case _ as unreachable:
             assert_never(unreachable)
 

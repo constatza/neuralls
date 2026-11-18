@@ -124,14 +124,7 @@ SCOPES: dict[str, SinkScope] = {
                 "platform/tracking/run_writer.py",
                 "open_run",
                 "forwards the name its caller passed to create_run; callers render it with "
-                "run_name_text, or are root_report_run and child_run below",
-            ),
-            Allowed(
-                RUN_NAME_TEXT,
-                "platform/tracking/report_run.py",
-                "root_report_run",
-                "the report run carries the name its comparison session already rendered "
-                "from a typed run name, so both runs read the same in their experiments",
+                "run_name_text, or are child_run below",
             ),
             Allowed(
                 RUN_NAME_TEXT,
@@ -154,6 +147,14 @@ SCOPES: dict[str, SinkScope] = {
                 "search_logged_models",
                 "the run name is a lookup filter for an existing run, supplied by the "
                 "user's checkpoint reference, not a name given to a new run",
+            ),
+            Allowed(
+                FILE_NAME_ID,
+                "platform/tracking/report_sink.py",
+                "system_key",
+                "a system's metric keys and artifact directory inside its RHS-type run need a "
+                "machine key unique per run; only the planned system id is, and the figure "
+                "file names in that directory stay rendered slugs",
             ),
             Allowed(
                 RUN_NAME_TEXT,

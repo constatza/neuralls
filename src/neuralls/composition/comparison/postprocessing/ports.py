@@ -32,7 +32,7 @@ class ReportSink(Protocol):
     def report_system(
         self, scope: System, metrics: Mapping[str, float], figures: Sequence[StagedFigure]
     ) -> None:
-        """Record one system's per-method metrics and its planned figures at its own scope."""
+        """Record one system's per-method metrics and its planned figures inside its RHS type's scope."""
         ...
 
     def finalize(self) -> None:

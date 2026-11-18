@@ -225,10 +225,6 @@ class TestTrainingPipelineWithMLflow:
                     "mlflow": {
                         "tracking_uri": f"sqlite:///{(custom_output_root / 'mlruns' / 'mlflow.db').as_posix()}",
                     },
-                    "names": {
-                        "training": "Train",
-                        "comparison": "Comparisons",
-                    },
                     "datasets": [{"id": "injection_test", "path": "datasets/injection_test.toml"}],
                     "jobs": [{"id": "injection_job", "path": "jobs/injection_job.toml"}],
                     "assignments": [

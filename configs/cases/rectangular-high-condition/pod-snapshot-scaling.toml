@@ -5,10 +5,6 @@
 [mlflow]
 tracking_uri = "http://localhost:5000"
 
-[names]
-training = "Train-RHC-POD-SnapshotScaling"
-comparison = "Compare-RHC-POD-SnapshotScaling"
-
 [comparison_baseline]
 rtol = 1.0e-6
 atol = 1.0e-14

@@ -46,16 +46,21 @@ uploaded figure has its PNG file and its card, and uploads the session's `splits
 
 `compare` is compute-only: it times solves and persists each method's raw tables
 (`platform/reporting/benchmark_events.py::MethodBenchmarkArtifacts`) under the
-`Comparisons` experiment. `neuralls report` (`assignments/comparison_report.py::run_comparison_report`, returning `ReportReused | ReportCreated`; the notation digest is a `canonical_digest` prefix, and the schema version tag, `REPORT_SCHEMA_VERSION`, changes with card keys, table schemas, metric keys, index fields or human-readable scope semantics, so a report written by older code is not reused)
-reads the newest finished session of the case config back through
+case config's experiment. `neuralls report` (`assignments/comparison_report.py::run_comparison_report`, returning `ReportReused | ReportCreated`; the notation digest is a `canonical_digest` prefix, and the schema version tag, `REPORT_SCHEMA_VERSION`, changes with card keys, table schemas, metric keys, index fields or human-readable scope semantics, so a report written by older code is not reused)
+reads the newest finished session in the case config's experiment (or the session `--session-run-id` names) back through
 `platform/reporting/stored_benchmark.py::read_stored_benchmark`, rebuilds typed events
 (`comparison/postprocessing/report_inputs.py`), draws every figure and logs every metric
-into a tree of nested runs in the `Reports` experiment (`names.report`), organised by
+into a tree of nested runs under that session, in the session's own experiment (so a named session of an older experiment still reports), organised by
 aggregation scope (`domain/solver/models/report_scope.py::ReportScope`): the root run
-(all matrix sets, tagged with the source session, the notation digest and the report
-schema version) contains one run per matrix set, each contains one run per RHS type of
-that set, and each of those contains one run per system with its per-method metrics and
-its residual and energy figures (each with its card). Every run's metrics are keyed `{metric}/{method}`; the
+(all matrix sets) is a child of the session, named and tagged like every session root with stage `report` (`tracking/run_specs.py::build_report_run_spec`: `report · <start> · <revision>`, `neuralls.config`, `neuralls.stage`, and the session's `title` tag as its own title and description when the session has one), plus phase `report`, the source session, the notation digest and the report
+schema version; it contains one run per matrix set, each contains one run per RHS type of
+that set. A system has no run of its own: its per-method metrics and its residual and
+energy figures (each with its card) go into its RHS type's run, the figures under
+`systems/<system id>/` and the metrics keyed `system/<system id>/{metric}/{method}`, where the
+key is the planned system id made MLflow-safe (`tracking/report_sink.py::system_key`; matrix and
+RHS ordinal alone are not unique, since two entries on one dataset and recipe may differ only in
+seed, method or selection, and two ids that sanitize alike raise `SystemKeyCollisionError`), so the type `ReportScope` holds only the scopes that
+have a run. Every group metric is keyed `{metric}/{method}`; the
 root also holds the method figures and the figure index. `ReportSink.report_system(scope, metrics, figures)`
 takes the system's `StagedFigure`s (a `FigurePlan` plus the drawn file) so system figures carry the same cards. Postprocessing writes only
 through the `ReportSink` Protocol (`postprocessing/ports.py`: `register_method_figures`, `report`, `report_system`, `finalize`); `MLflowReportSink` maps a
@@ -312,18 +317,23 @@ rule: composition may decide which collaborators participate in a workflow, but
 it must not absorb low-level IO mechanics, config normalization policy, or
 tensor-level runtime behavior.
 
-For MLflow naming, composition only propagates the resolved case-config names.
+For MLflow naming, composition propagates one experiment name per case config:
+`CaseConfigPath.experiment_name`, `<case>/<config>` from the config's path.
 
-Every entry point takes `NeurallsSettings` as a required argument: only the CLI loads settings, and composition never reads `NEURALLS_CASE_CONFIG` to find the case config or builds settings of its own. The case config path is a `CaseConfigPath` (`platform/config/case_path.py`, re-exported by `composition/config.py`): its constructor rejects a relative path, and the CLI builds it once with `CaseConfigPath.resolve(config)`. `run_case_pipeline`, `run_comparison_batch`, `run_loaded_comparison_batch`, `run_assignment_sweep`, `run_comparison_report` and `eval_batch` take it instead of a `Path`, unwrap `.path` (or `.config_dir`) for the planning, preparation and identity code below them, and never resolve anything themselves. The session tag `case_config_path` therefore always carries the absolute spelling `report` looks sessions up by, and no new entry point can forget to resolve it. Dataset input digests memoize on the path as given; the digest itself is path-independent.
-Training uses `names.training` and comparison uses `names.comparison`, with the
-defaults owned by the case-config Pydantic models rather than composition-layer
-constants.
+Every entry point takes `NeurallsSettings` as a required argument: only the CLI loads settings, and composition never reads `NEURALLS_CASE_CONFIG` to find the case config or builds settings of its own. The case config path is a `CaseConfigPath` (`platform/config/case_path.py`, re-exported by `composition/config.py`): its constructor rejects a relative path, and the CLI builds it once with `CaseConfigPath.resolve(config)`. `run_case_pipeline`, `run_comparison_batch`, `run_loaded_comparison_batch`, `run_assignment_sweep`, `run_comparison_report` and `eval_batch` take it instead of a `Path`, unwrap `.path` (or `.config_dir`) for the planning, preparation and identity code below them, and never resolve anything themselves. The session tag `case_config_path` therefore always carries the absolute spelling, and no new entry point can forget to resolve it; the tag is informational only, since `report` finds sessions by experiment and phase and an absolute path differs between machines. Dataset input digests memoize on the path as given; the digest itself is path-independent.
+
+Training, evaluation, comparison and report of one case config all write to that
+experiment; the entry points derive it once from their `CaseConfigPath` and pass the
+name down to checkpoint lookups (`TrainingLookup`, `neural_specs_from_assignments`)
+and to `resolve_comparison_topology`, so no case config declares experiment names.
 
 Batch training adds one session-scoped parent run per case-config invocation.
-That parent is identified by case-config path plus launch time and exists only
-to group the per-assignment child runs. Comparison workflows do not add an
-equivalent wrapper: their parent run identity stays defined by the dataset
-selection encoded in each comparison entry.
+That parent is named by its stage, launch time and code revision (see MLflow run
+naming below) and exists only to group the per-assignment child runs. Evaluation and comparison open the
+same kind of session root: a comparison session parents one run per method, and each
+`neuralls report` of it adds a report root beneath it. Method discovery and the compare
+reuse gate select children by `phase = comparison_method`, so a report child, finished or
+failed, never makes a session look complete or incomplete.
 
 Comparison parent-run summary metrics sanitize each preconditioner label into an
 MLflow-safe metric-key segment before appending it under namespaced keys such as
@@ -340,7 +350,7 @@ Prepared executions key each resolved data origin by method name and require the
 
 **CLI, log and summary text.** Results carry typed presentations, never display strings: `AssignmentSucceeded.presentation`/`AssignmentFailed.presentation` (the closed `AssignmentResult` union) and `EvaluationRunResult.presentation` are `TrainingPresentation`s, and `ComparisonCompleted`/`ComparisonReused` carry the `NamedRun` MLflow opens for the system (`ComparisonCompleted` also carries the text `summary` the CLI logs) (`PreparedComparisonExecution.run_name`, built by `tracking/run_specs.py::comparison_run`). `ComparisonEntryFailed.run` is that `NamedRun`, or `UndescribedComparison` when the failure came before the methods and dataset resolved (no title exists yet). `composition/display.py` is the only place the CLI turns these into text (`comparison_label`, `assignment_label`, `generation_label`), so a printed line is the plain text of the run name MLflow shows. Training and evaluation batches log `render_training_label(presentation)`; the bar charts they upload label each bar with `training_legend` and the label-map JSON stores `assignment_label` beside the machine `assignment_id`. `training_presentations` rejects two assignments that render alike (`IndistinguishableTrainingError`) before any run opens. Comparison summaries (`format_results_summary`) head each line with the method's description; per-method and per-matrix log lines in `execute_method_workload` name the method and dataset by their presentations (`datasets` and `notation` are explicit arguments), and a skipped report group is named by its scope. `GenerationResult` carries the dataset's stamped presentation. The remaining id-bearing log lines (pre-title comparison preparation, checkpoint hashing, checkpoint resolution, solver algorithm names) are listed with reasons in the `cli-and-logs` scope of `tests/workflows/test_human_facing_text_contract.py`.
 
-**MLflow run naming.** `tracking/run_specs.py` builds every run spec from typed presentations and returns a `NamedRun` (never text): the session parent is `SessionRunName(title, timestamp, phase)` with `summarized_session_title(titles, session_counts(planned))` for comparisons and `session_title` for training and evaluation; only a comparison session labels its dataset title as a comparison matrix set, a comparison parent is `ComparisonRunName` (the comparison title plus `system_qualifier(planned)`, which adds the held-out matrix and RHS draw that tell sibling systems apart; the planner leaves an editorial display name unqualified), a method child is `MethodRunName(prepared.compact)`, and training and evaluation runs are `TrainingRunName`/`EvaluationRunName` over a `TrainingSubject`. `assignments/assignment_subjects.py::training_subject` describes what an assignment trains exactly as a comparison describes it (its neural architecture, qualified by its dataset and the train and validation rows of its pinned split the job reads; an explicit assignment `display_name` becomes an editorial title beside the dataset; a POD recipe has no training subject, since the comparison fits it), and `training_presentations` builds all of them before the first run opens, so a missing provenance or architecture name aborts the batch. Tags keep `*_id` and `*_label` apart (`BenchmarkMethodRunTags.method_id`/`method_label`). The ad-hoc `run_inference` entry point no longer opens an MLflow run: it had no presentation to name one by.
+**MLflow run naming.** `tracking/run_specs.py` builds every run spec from typed presentations and returns a `NamedRun` (never text): every session root run (training, evaluation, comparison, and the report root under a comparison session) is `SessionRunName(stage, started, revision)`, rendered `"{stage} · {YYYY-MM-DD HH:MM} · {revision}"` (e.g. `compare · 2026-11-18 07:26 · d5d807fe`): `session_stage` maps the `phase` tag value to the stage word (`train`, `eval`, `compare`, `report`), and the revision is the neuralls checkout's `git describe` (`platform/tracking/runtime_environment.py::neuralls_revision`, the same reader `collect_runtime_environment` uses; a comparison passes its collected environment's `revision`) cut to 8 characters with any `-dirty` suffix kept, or left out when unreported. Sessions of one config share an experiment, so stage, start and revision tell them apart; what a session ran on is its scientific title, `summarized_session_title(titles, session_counts(planned))` for comparisons and `session_title` for training and evaluation, which `SessionRunTags` renders into the `title` tag and the run description (`mlflow.note.content`) beside `neuralls.config` (the config key's experiment name), `neuralls.stage`, the unchanged `phase` lookup tag and the ISO `started_at`; only a comparison session labels its dataset title as a comparison matrix set. A comparison parent is `ComparisonRunName` (the comparison title plus `system_qualifier(planned)`, which adds the held-out matrix and RHS draw that tell sibling systems apart; the planner leaves an editorial display name unqualified), a method child is `MethodRunName(prepared.compact)`, and training and evaluation runs are `TrainingRunName`/`EvaluationRunName` over a `TrainingSubject`. `assignments/assignment_subjects.py::training_subject` describes what an assignment trains exactly as a comparison describes it (its neural architecture, qualified by its dataset and the train and validation rows of its pinned split the job reads; an explicit assignment `display_name` becomes an editorial title beside the dataset; a POD recipe has no training subject, since the comparison fits it), and `training_presentations` builds all of them before the first run opens, so a missing provenance or architecture name aborts the batch. Tags keep `*_id` and `*_label` apart (`BenchmarkMethodRunTags.method_id`/`method_label`). The ad-hoc `run_inference` entry point no longer opens an MLflow run: it had no presentation to name one by.
 
 Comparison plot legends are a separate concern from that MLflow metric-key
 policy. `composition.preconditioners.descriptions` builds each display name as a

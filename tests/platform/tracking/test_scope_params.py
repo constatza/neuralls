@@ -10,11 +10,10 @@ from neuralls.domain.solver.models.report_scope import (
     MatrixSet,
     MatrixSetRhsType,
     ReportScope,
-    System,
 )
 from neuralls.platform.tracking.scope_params import scope_params
 from neuralls.shared.rhs_recipe import recipe_key
-from neuralls.shared.types import DatasetId, MatrixId, SystemId
+from neuralls.shared.types import DatasetId
 
 DATASET = DatasetId("ds")
 RECIPE_KEY = str(recipe_key(GAUSSIAN))
@@ -28,16 +27,6 @@ RECIPE_KEY = str(recipe_key(GAUSSIAN))
         (
             MatrixSetRhsType(DATASET, GAUSSIAN),
             {"report_level": "matrix_set_rhs_type", "dataset_id": "ds", "recipe_key": RECIPE_KEY},
-        ),
-        (
-            System(DATASET, GAUSSIAN, MatrixId(3), 7, SystemId("s")),
-            {
-                "report_level": "system",
-                "dataset_id": "ds",
-                "recipe_key": RECIPE_KEY,
-                "matrix_id": "3",
-                "rhs_ordinal": "7",
-            },
         ),
     ],
 )

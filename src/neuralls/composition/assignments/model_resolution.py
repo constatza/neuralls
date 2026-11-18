@@ -47,7 +47,7 @@ class TrainingLookup:
     """Where and against what data an assignment's training run must be found.
 
     Attributes:
-        experiment: MLflow experiment the assignment's training runs live in;
+        experiment_name: MLflow experiment the assignment's training runs live in;
             strict resolution never looks outside it.
         identity: The assignment's derived training identity (dataset content,
             effective job settings); only a run carrying exactly this key is
@@ -55,7 +55,7 @@ class TrainingLookup:
             resolution fails.
     """
 
-    experiment: str
+    experiment_name: str
     identity: StageIdentity | None
 
 
@@ -509,13 +509,13 @@ def _resolve_trained_assignment_ref(request: _ModelRefRequest) -> ModelResolutio
         )
     reused = request.tracking.identity_store(
         tracking_uri=request.tracking_uri,
-        experiment=training.experiment,
+        experiment=training.experiment_name,
         require_checkpoint=True,
     ).find(training.identity)
     if reused is None or reused.run_id is None:
         raise ValueError(
             f"No FINISHED training run with a checkpoint for assignment '{ref.assignment_id}' "
-            f"in experiment '{training.experiment}' matches the current dataset and job "
+            f"in experiment '{training.experiment_name}' matches the current dataset and job "
             f"settings (identity {training.identity.key[:19]}). Runs from any other input "
             "state are deliberately ignored — train this assignment first."
         )

@@ -272,10 +272,6 @@ datasets with one recipe per rank instead of pretending rank is a dataset axis.
 [mlflow]
 tracking_uri = "http://localhost:5000"
 
-[names]
-training = "Train"
-comparison = "Comparisons"
-
 [[datasets]]
 id = "train-dataset"
 path = "../../datasets/train/45x15/gaussian-cg50.toml"
@@ -294,8 +290,10 @@ dataset = "train-dataset"
 job = "scale-equivariant-constant-width-factorized"
 ```
 
-`[names].training` controls the MLflow experiment bucket for training runs.
-`[names].comparison` controls the comparison bucket.
+A case config has no experiment-name table: its training, evaluation,
+comparison and report runs all go to one MLflow experiment named
+`<case>/<config>` after its path (`cases/spectral-3d-field/default.toml` writes
+to `spectral-3d-field/default`).
 
 ### Sweeping one dataset config across several samples/cg_iters values
 

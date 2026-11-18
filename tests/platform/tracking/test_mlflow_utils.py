@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 import pytest
 from dlkit.infrastructure.io import url_resolver
+from mlflow.tracking import MlflowClient
 
 import neuralls.platform.tracking.mlflow as tracking_mlflow
 from neuralls.platform.config.resolution import MlflowPaths, build_sqlite_tracking_uri
@@ -19,9 +20,20 @@ from neuralls.platform.tracking.mlflow import (
     sanitize_metric_key_segment,
 )
 from neuralls.platform.tracking.mlflow_client import (
+    find_mlflow_run,
     log_artifacts_to_mlflow,
     log_batch_artifacts_to_mlflow,
 )
+
+
+@pytest.fixture
+def same_named_eval_and_training_runs(mlflow_tracking_uri: str) -> str:
+    """A training run, then a newer evaluation run with the same name, in `case/config`."""
+    client = MlflowClient(tracking_uri=mlflow_tracking_uri)
+    experiment_id = client.create_experiment("case/config")
+    training = client.create_run(experiment_id, run_name="mlp", tags={"phase": "training"})
+    client.create_run(experiment_id, run_name="mlp", tags={"phase": "evaluation"})
+    return training.info.run_id
 
 
 class DummyExperimentClient:
@@ -349,3 +361,15 @@ def test_log_batch_artifacts_to_mlflow_uploads_only_existing_files(tmp_path: Pat
 
     logged_paths = [Path(call.args[1]).name for call in client.log_artifact.call_args_list]
     assert logged_paths == ["batch_eval_labels.json"]
+
+
+def test_find_mlflow_run_matches_only_the_training_run(
+    mlflow_tracking_uri: str, same_named_eval_and_training_runs: str
+) -> None:
+    """The experiment is shared with evaluation runs of the same name."""
+    found = find_mlflow_run(
+        tracking_uri=mlflow_tracking_uri, experiment_name="case/config", run_name="mlp"
+    )
+
+    assert found is not None
+    assert found[1] == same_named_eval_and_training_runs

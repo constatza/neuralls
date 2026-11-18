@@ -45,9 +45,17 @@ class System:
     rhs_ordinal: int
     system_id: SystemId
 
+    @property
+    def rhs_type(self) -> MatrixSetRhsType:
+        """The matrix set and RHS type containing this system; its report run records the system."""
+        return MatrixSetRhsType(self.dataset, self.recipe)
 
-type ReportScope = AllMatrixSets | MatrixSet | MatrixSetRhsType | System
-"""The closed set of levels a report is organised by; each has one containing parent."""
+
+type ReportScope = AllMatrixSets | MatrixSet | MatrixSetRhsType
+"""The closed set of levels a report has a run for; each has one containing parent.
+
+A ``System`` has no run of its own: a system is recorded inside its ``rhs_type``'s run.
+"""
 
 
 def parent_scope(scope: ReportScope) -> ReportScope | None:
@@ -59,8 +67,6 @@ def parent_scope(scope: ReportScope) -> ReportScope | None:
             return AllMatrixSets()
         case MatrixSetRhsType(dataset=dataset):
             return MatrixSet(dataset)
-        case System(dataset=dataset, recipe=recipe):
-            return MatrixSetRhsType(dataset, recipe)
         case unreachable:
             assert_never(unreachable)
 

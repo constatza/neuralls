@@ -69,7 +69,6 @@ class MlflowTopology:
     """Runtime MLflow topology for a training or inference workflow."""
 
     env: dict[str, str]
-    experiment_name: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -165,10 +164,7 @@ def _build_case_mlflow_topology(
         default_output_root=neuralls_settings.output_dir,
         config_dir=case_config_path.parent,
     )
-    return MlflowTopology(
-        env=runtime.env,
-        experiment_name=case_cfg.names.training,
-    )
+    return MlflowTopology(env=runtime.env)
 
 
 def load_assignment(

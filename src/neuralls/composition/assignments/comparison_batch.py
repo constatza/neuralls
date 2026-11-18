@@ -45,18 +45,17 @@ from neuralls.composition.tracking.run_specs import (
     build_session_run_spec,
 )
 from neuralls.composition.tracking.services import MLFLOW_TRACKING, TrackingServices
+from neuralls.domain.presentation.run_names import COMPARISON_SESSION_PHASE
 from neuralls.domain.presentation.titles import (
     summarized_session_title,
 )
 from neuralls.platform.config.case_path import CaseConfigPath
 from neuralls.platform.config.models.experiments import CaseConfig
+from neuralls.platform.config.resolution import MlflowPaths
 from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.platform.tracking.comparison_runs import MethodRecordContext
-from neuralls.platform.tracking.metrics_logging import (
-    setup_comparison_tracking,
-)
+from neuralls.platform.tracking.mlflow import ensure_experiment
 from neuralls.platform.tracking.runtime_environment import collect_runtime_environment
-from neuralls.platform.tracking.session_artifacts import SESSION_PHASE
 from neuralls.shared.device import warm_up_device
 from neuralls.shared.digest import digest_memo
 from neuralls.shared.workflow_failures import (
@@ -86,6 +85,8 @@ def _run_session(
 ) -> list[ComparisonOutcome]:
     """Execute the batch inside one session parent run and project the workloads to outcomes."""
     pending = batch.items
+    device = resolve_device()
+    environment = collect_runtime_environment(device)
     session_run, session_tags = build_session_run_spec(
         title=summarized_session_title(
             [item.title for item in executions],
@@ -94,7 +95,8 @@ def _run_session(
         notation=batch_notation_policy(executions),
         case_config_path=case_config_path,
         experiment_name=topology.experiment_name,
-        phase=SESSION_PHASE,
+        phase=COMPARISON_SESSION_PHASE,
+        revision=environment.revision,
     )
     runs = tracking.comparison_runs(
         topology.tracking_uri,
@@ -107,8 +109,7 @@ def _run_session(
     )
     with runs.session(session_run, session_tags.as_mlflow_tags()) as session:
         session.record_splits(batch.split_records)
-        device = resolve_device()
-        session.record_environment(collect_runtime_environment(device))
+        session.record_environment(environment)
         with _batch_phase(session.failures, case_config_path, ComparisonBatchPhase.WARMUP):
             warm_up_device(device)
         with _batch_phase(
@@ -178,11 +179,10 @@ def run_loaded_comparison_batch(
         )
 
     case_path = case_config_path.path
-    topology = resolve_comparison_topology(master_cfg, case_path, settings)
-    experiment_id = setup_comparison_tracking(
-        tracking_uri=topology.tracking_uri,
-        artifact_location=topology.artifact_location,
-        experiment_name=topology.experiment_name,
+    topology = resolve_comparison_topology(master_cfg, case_config_path, settings)
+    experiment_id = ensure_experiment(
+        topology.experiment_name,
+        MlflowPaths(tracking_uri=topology.tracking_uri, artifact_uri=topology.artifact_location),
     )
 
     with contextlib.ExitStack() as stack:

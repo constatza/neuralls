@@ -584,6 +584,7 @@ def test_neural_specs_from_assignments_uses_strict_assignment_ref(
         claimed_ids=set(),
         tracking=MagicMock(),
         tracking_uri=TRACKING_URI,
+        experiment_name="case/config",
         cfg=cfg,
         config_dir=config_dir,
         settings=settings,
@@ -609,6 +610,7 @@ def test_neural_specs_from_assignments_skips_claimed_ids(tmp_path: Path) -> None
         claimed_ids={"ffnn_solutions"},
         tracking=MagicMock(),
         tracking_uri=TRACKING_URI,
+        experiment_name="case/config",
         cfg=cfg,
         config_dir=config_dir,
         settings=settings,
@@ -641,6 +643,7 @@ def test_neural_specs_from_assignments_dispatches_a_pod_recipe_to_a_pod_method(
         claimed_ids=set(),
         tracking=tracking,
         tracking_uri=TRACKING_URI,
+        experiment_name="case/config",
         cfg=cfg,
         config_dir=config_dir,
         settings=settings,
@@ -761,7 +764,7 @@ def prepare_entry(
             context = ComparisonResolutionContext(
                 topology=resolve_comparison_topology(
                     load_validated_case_config(experiments_config, settings)[0],
-                    experiments_config,
+                    CaseConfigPath(experiments_config),
                     settings,
                 ),
                 case_config_path=experiments_config,
@@ -787,7 +790,7 @@ def legacy_hit_context(
     context = ComparisonResolutionContext(
         topology=resolve_comparison_topology(
             load_validated_case_config(experiments_config, settings)[0],
-            experiments_config,
+            CaseConfigPath(experiments_config),
             settings,
         ),
         case_config_path=experiments_config,
@@ -817,11 +820,9 @@ def test_prepare_injects_master_topology(
     identity_cfg: MagicMock,
     prepare_entry: Callable[[ComparisonConfig, PlannedSystem], PendingComparison],
 ) -> None:
-    write_experiments_config(experiments_config, comparison_name="CustomComparison")
-
     prepared = _executing(prepare_entry(identity_cfg, _planned(_make_entry())))
 
-    assert prepared.topology.experiment_name == "CustomComparison"
+    assert prepared.topology.experiment_name == CaseConfigPath(experiments_config).experiment_name
 
 
 def test_prepare_keeps_the_entry_indices_unchanged(
@@ -985,7 +986,7 @@ def test_preparation_keeps_checkpoint_when_training_data_config_is_unavailable(
     context = ComparisonResolutionContext(
         topology=resolve_comparison_topology(
             load_validated_case_config(experiments_config, settings)[0],
-            experiments_config,
+            CaseConfigPath(experiments_config),
             settings,
         ),
         case_config_path=experiments_config,
@@ -1309,7 +1310,6 @@ def test_comparison_sweep_runs_one_system_per_held_out_matrix_and_rhs_draw(
     experiments_config = tmp_path / "experiments.toml"
     payload: dict[str, object] = {
         "mlflow": {"tracking_uri": build_sqlite_tracking_uri(tmp_path / "mlruns" / "mlflow.db")},
-        "names": {"training": "neuralls-training", "comparison": "Comparisons"},
         "comparison_baseline": {
             "rtol": 1.0e-6,
             "atol": 1.0e-14,
@@ -1453,7 +1453,6 @@ def test_an_external_rhs_of_the_wrong_length_fails_only_its_own_system(
     experiments_config = tmp_path / "experiments.toml"
     payload: dict[str, object] = {
         "mlflow": {"tracking_uri": build_sqlite_tracking_uri(tmp_path / "mlruns" / "mlflow.db")},
-        "names": {"training": "neuralls-training", "comparison": "Comparisons"},
         "comparison_baseline": {
             "rtol": 1.0e-6,
             "atol": 1.0e-14,

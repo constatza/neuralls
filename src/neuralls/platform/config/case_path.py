@@ -25,3 +25,8 @@ class CaseConfigPath:
     @property
     def config_dir(self) -> Path:
         return self.path.parent
+
+    @property
+    def experiment_name(self) -> str:
+        """``<case>/<config>``, the case directory and the config file's stem: one experiment per config."""
+        return f"{self.path.parent.name}/{self.path.stem}"

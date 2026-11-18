@@ -25,3 +25,16 @@ def test_resolve_makes_a_relative_path_absolute_against_the_cwd(
 
     assert case.path == tmp_path.resolve() / "case.toml"
     assert case.config_dir == tmp_path.resolve()
+
+
+@pytest.mark.parametrize(
+    ("relative", "experiment_name"),
+    [
+        (Path("configs/cases/spectral-3d-field/default.toml"), "spectral-3d-field/default"),
+        (Path("rhc/pod-sweep.toml"), "rhc/pod-sweep"),
+    ],
+)
+def test_key_is_the_case_directory_and_the_config_stem(
+    relative: Path, experiment_name: str
+) -> None:
+    assert CaseConfigPath.resolve(relative).experiment_name == experiment_name

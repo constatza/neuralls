@@ -18,7 +18,7 @@ from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.system_scaling import GershgorinScaling, RhsScaling
 from neuralls.shared.types import ComparisonRhsSourceKind, RowKind
 
-SETUP_TRACKING = "neuralls.composition.assignments.comparison_batch.setup_comparison_tracking"
+SETUP_TRACKING = "neuralls.composition.assignments.comparison_batch.ensure_experiment"
 
 
 def make_settings(tmp_path: Path) -> NeurallsSettings:
@@ -39,15 +39,10 @@ def experiments_payload(
     path: Path,
     *,
     with_comparisons: bool = False,
-    comparison_name: str = "Comparisons",
 ) -> dict[str, object]:
     """The raw case-config mapping that `path` would hold; reads and writes no file."""
     payload: dict[str, object] = {
         "mlflow": {"tracking_uri": build_sqlite_tracking_uri(path.parent / "mlruns" / "mlflow.db")},
-        "names": {
-            "training": "neuralls-training",
-            "comparison": comparison_name,
-        },
         "comparison_baseline": {
             "rtol": 1.0e-6,
             "atol": 1.0e-14,
@@ -74,16 +69,13 @@ def write_experiments_config(
     path: Path,
     *,
     with_comparisons: bool = False,
-    comparison_name: str = "Comparisons",
 ) -> None:
     """Write the case config and, with comparisons, the dataset stubs it registers."""
     if with_comparisons:
         (path.parent / "datasets").mkdir(exist_ok=True)
         write_dataset_config(path.parent / "datasets" / "solutions.toml", "solutions")
         write_dataset_config(path.parent / "datasets" / "gaussian-rhs.toml", "gaussian-rhs")
-    payload = experiments_payload(
-        path, with_comparisons=with_comparisons, comparison_name=comparison_name
-    )
+    payload = experiments_payload(path, with_comparisons=with_comparisons)
     with path.open("wb") as fh:
         tomli_w.dump(payload, fh)
 
@@ -110,7 +102,6 @@ def virtual_settings() -> NeurallsSettings:
 def in_memory_case(
     *,
     with_comparisons: bool = False,
-    comparison_name: str = "Comparisons",
     settings: NeurallsSettings | None = None,
 ) -> CaseConfig:
     """The case config of `write_experiments_config`, parsed without touching disk."""
@@ -119,9 +110,7 @@ def in_memory_case(
         settings=settings or virtual_settings(),
         home_dir=VIRTUAL_HOME,
     )
-    raw = experiments_payload(
-        VIRTUAL_CASE_PATH, with_comparisons=with_comparisons, comparison_name=comparison_name
-    )
+    raw = experiments_payload(VIRTUAL_CASE_PATH, with_comparisons=with_comparisons)
     return parse_case_config(raw, ctx)
 
 
