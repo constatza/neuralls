@@ -58,7 +58,7 @@ from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import SessionRunId, SystemId
 from neuralls.shared.workflow_failures import ComparisonBatchFailureContext, ComparisonBatchPhase
 
-REPORT_SCHEMA_VERSION = "34"
+REPORT_SCHEMA_VERSION = "35"
 """Identifies the card keys, table schemas, written figure formats and metric keys a report
 writes; an existing report of another version is not reused."""
 NOTATION_DIGEST_LENGTH = 8
@@ -209,7 +209,7 @@ def _report_systems(
     notation: NotationPolicy,
     figure_style: FigureStyleConfig,
 ) -> None:
-    """Record every system's per-method metrics and convergence figures at its own scope."""
+    """Record every system's per-method metrics and convergence figures inside its RHS type's scope."""
     methods = inputs.methods
     attempts = [attempt for method in methods for attempt in method.solve_attempts]
     metrics_by_system: dict[SystemId, dict[str, float]] = {}

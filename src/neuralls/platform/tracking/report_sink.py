@@ -71,6 +71,12 @@ METHOD_FIGURE_ARTIFACT_DIR = "method_figures"
 GROUP_REPORT_ARTIFACT_DIR = "group_reports"
 """Report-run artifact directory holding every group's figures, cards and tables."""
 
+SYSTEM_ARTIFACT_DIR = "systems"
+"""RHS-type report-run artifact directory holding one subdirectory of figures per system."""
+
+SYSTEM_METRIC_PREFIX = "system"
+"""First segment of every per-system metric key on an RHS-type report run."""
+
 
 class UnknownStoredMethodError(LookupError):
     """A figure names a method the report has no stored run for."""
@@ -98,10 +104,13 @@ def scope_run_name(
             return scope_label(DatasetScope(presented(dataset)), notation)
         case MatrixSetRhsType(dataset=dataset, recipe=recipe):
             return scope_label(RecipeScope(presented(dataset), recipe), notation)
-        case System(matrix_id=matrix_id, rhs_ordinal=rhs_ordinal):
-            return f"matrix {int(matrix_id)}, RHS {rhs_ordinal}"
         case unreachable:
             assert_never(unreachable)
+
+
+def system_key(scope: System) -> str:
+    """The segment naming ``scope`` in its RHS-type run's artifact paths and metric keys."""
+    return f"matrix-{int(scope.matrix_id)}_rhs-{scope.rhs_ordinal}"
 
 
 @dataclass(frozen=True, slots=True)
@@ -117,8 +126,9 @@ class OpenReport:
 
     ``root_run_id`` is the run of all matrix sets; every other scope gets a child run of
     its parent scope, created on first use. Every figure is uploaded with its
-    card into the run of its own scope; the root run also holds the method figures and,
-    once finalized, the index of all figures.
+    card into the run of its own scope, except a system's, which go under
+    ``systems/<system_key>/`` of its RHS type's run; the root run also holds the method
+    figures and, once finalized, the index of all figures.
     """
 
     notation: NotationPolicy
@@ -251,12 +261,21 @@ class OpenReport:
     def report_system(
         self, scope: System, metrics: Mapping[str, float], figures: Sequence[StagedFigure]
     ) -> None:
-        """Log one system's per-method metrics and figures, with their cards, into its own run."""
-        run_id = self._run_of(scope)
-        self.writer.log_metrics(run_id, metrics)
-        self.uploader.check_free(run_id, None, [staged.plan.stem for staged in figures])
+        """Log one system's per-method metrics and figures, with their cards, into its RHS type's run.
+
+        A system has no run: its metrics are keyed ``system/<system_key>/<metric>/<method>``
+        and its figures sit in ``systems/<system_key>/`` of that run.
+        """
+        run_id = self._run_of(scope.rhs_type)
+        key = system_key(scope)
+        directory = f"{SYSTEM_ARTIFACT_DIR}/{key}"
+        self.writer.log_metrics(
+            run_id,
+            {f"{SYSTEM_METRIC_PREFIX}/{key}/{name}": value for name, value in metrics.items()},
+        )
+        self.uploader.check_free(run_id, directory, [staged.plan.stem for staged in figures])
         for staged in figures:
-            self.uploader.upload(run_id, None, staged)
+            self.uploader.upload(run_id, directory, staged)
 
     def finalize(self) -> FinalizedReport:
         """Check every figure has its card, then upload the figure index to the root run."""
@@ -332,7 +351,7 @@ class MLflowReportSink:
     def report_system(
         self, scope: System, metrics: Mapping[str, float], figures: Sequence[StagedFigure]
     ) -> None:
-        """Log one system's per-method metrics and figures, with their cards, into its own run."""
+        """Log one system's per-method metrics and figures, with their cards, into its RHS type's run."""
         self._open().report_system(scope, metrics, figures)
 
     def finalize(self) -> None:

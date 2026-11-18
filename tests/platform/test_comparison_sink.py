@@ -95,6 +95,7 @@ from neuralls.platform.tracking.metrics_logging import parent_run_metric_key
 from neuralls.platform.tracking.report_sink import (
     GROUP_REPORT_ARTIFACT_DIR,
     METHOD_FIGURE_ARTIFACT_DIR,
+    SYSTEM_ARTIFACT_DIR,
     MLflowReportSink,
     UnknownStoredMethodError,
 )
@@ -859,7 +860,7 @@ def system_figure(
     return StagedFigure(plan, _touch(FigureTarget(tmp_path, plan.stem)))
 
 
-def test_system_figures_are_uploaded_with_cards_into_the_run_root(
+def test_a_system_is_recorded_inside_its_rhs_type_run(
     system: System,
     system_figure: StagedFigure,
     sink: MLflowReportSink,
@@ -867,16 +868,20 @@ def test_system_figures_are_uploaded_with_cards_into_the_run_root(
     writer: RecordingRunWriter,
     runs: FakeRunTree,
 ) -> None:
-    sink.report_system(system, {}, [system_figure])
+    metric = parent_run_metric_key("iterations", "amg")
+    sink.report_system(system, {metric: 3.0}, [system_figure])
 
-    system_id = _scope_run_id(runs, ReportLevelName.SYSTEM)
-    parent_of = {created.run_id: created.parent_run_id for created in runs.created}
-    assert parent_of[system_id] == _scope_run_id(runs, ReportLevelName.MATRIX_SET_RHS_TYPE)
-    run = writer.runs[system_id]
+    assert [created.tags["report_level"] for created in runs.created] == [
+        ReportLevelName.MATRIX_SET.value,
+        ReportLevelName.MATRIX_SET_RHS_TYPE.value,
+    ]
+    run = _scope_run(runs, writer, ReportLevelName.MATRIX_SET_RHS_TYPE)
+    directory = f"{SYSTEM_ARTIFACT_DIR}/matrix-7_rhs-0"
     assert set(run.artifacts) == {
-        (None, "residual_history.png"),
-        (None, "residual_history.toml"),
+        (directory, "residual_history.png"),
+        (directory, "residual_history.toml"),
     }
+    assert run.metrics == {f"system/matrix-7_rhs-0/{metric}": 3.0}
     assert ROOT_RUN not in writer.runs
     card = _cards(_texts(run))["residual_history.toml"]
     assert card.metadata.scope == SystemScope(dataset_presentation, GAUSSIAN, MatrixId(7), 0)
