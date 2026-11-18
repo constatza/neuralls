@@ -172,7 +172,6 @@ def read_dataset_manifest(dataset_dir: str | Path) -> DatasetManifest:
                 if payload.get("n_matrix_samples") is not None
                 else None
             ),
-            broadcast=bool(payload["broadcast"]) if payload.get("broadcast") is not None else None,
             key=str(payload["key"]) if payload.get("key") is not None else None,
             layout=LayoutType(payload["layout"]) if payload.get("layout") is not None else None,
             logical_sample_count=(

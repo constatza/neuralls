@@ -33,5 +33,6 @@ class FsFitDataLoader:
 
     def scaled_matrix(self, dataset_dir: Path, row: int, matrix_id: int) -> csr_array:
         artifact = resolve_dataset_artifacts(dataset_dir).matrix
-        physical = matrix_row(artifact, row_index=row, matrix_id=matrix_id)
+        bindings = load_matrix_sample_index(dataset_dir)
+        physical = matrix_row(artifact, bindings, row_index=row, dataset_dir=dataset_dir)
         return load_matrix_sparse_sample(dataset_dir, physical)

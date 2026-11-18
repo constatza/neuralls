@@ -39,7 +39,6 @@ def minimal_dataset(tmp_path: Path) -> Path:
                 dtype="float64",
                 shape=(1, n, n),
                 n_matrix_samples=1,
-                broadcast=True,
             ),
             rhs=DatasetArtifact(
                 path="rhs.zarr", format="zarr", dtype="float64", shape=(samples, n)
@@ -86,7 +85,6 @@ def two_parameters_zarrs(minimal_dataset: Path) -> Path:
                 dtype="float64",
                 shape=(1, 4, 4),
                 n_matrix_samples=1,
-                broadcast=True,
             ),
             rhs=DatasetArtifact(
                 path="rhs.zarr", format="zarr", dtype="float64", shape=(samples, 4)
@@ -150,7 +148,6 @@ def test_load_training_arrays_preserves_npy_rhs_and_solution_paths(tmp_path: Pat
                 dtype="float64",
                 shape=(1, 4, 4),
                 n_matrix_samples=1,
-                broadcast=True,
             ),
             rhs=DatasetArtifact(path="rhs.npy", format="npy", dtype="float64", shape=(5, 4)),
             solutions=DatasetArtifact(

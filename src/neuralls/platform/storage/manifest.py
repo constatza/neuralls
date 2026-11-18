@@ -23,7 +23,6 @@ class DatasetArtifact:
     shape: tuple[int, ...]
     index: int | None = None
     n_matrix_samples: int | None = None
-    broadcast: bool | None = None
     key: str | None = None
     layout: LayoutType | None = None
     logical_sample_count: int | None = None

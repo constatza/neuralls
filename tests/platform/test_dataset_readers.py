@@ -10,8 +10,11 @@ from tests.dataset_support import build_test_dataset
 
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
 from neuralls.platform.storage.dataset_readers import (
+    InconsistentMatrixStorageError,
     MissingMatrixSampleIndexError,
+    ResolvedDatasetArtifact,
     load_matrix_dense_sample,
+    matrix_row,
     resolve_canonical_training_triplet,
     resolve_dataset_artifacts,
     try_read_matrix_scaling,
@@ -51,6 +54,61 @@ def _drop_manifest_matrix_sample_index(dataset_dir: Path) -> None:
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     manifest["matrix_sample_index"] = None
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+
+_DATASET_DIR = Path("workspace/dataset")
+
+
+def _matrix_artifact(stored_copies: int) -> ResolvedDatasetArtifact:
+    return ResolvedDatasetArtifact(
+        path=_DATASET_DIR / "matrix", format="zarr", dtype="float64", shape=(stored_copies,)
+    )
+
+
+@pytest.mark.parametrize(
+    ("stored_copies", "bindings", "expected"),
+    [
+        pytest.param(1, [7, 7, 7, 7, 7], 0, id="one-copy-shared-by-one-id"),
+        pytest.param(5, [0, 1, 2, 3, 4], 3, id="one-copy-per-row"),
+    ],
+)
+def test_matrix_row_maps_a_dataset_row_to_its_stored_copy(
+    stored_copies: int, bindings: list[int], expected: int
+) -> None:
+    row = matrix_row(
+        _matrix_artifact(stored_copies),
+        np.array(bindings),
+        row_index=3,
+        dataset_dir=_DATASET_DIR,
+    )
+
+    assert row == expected
+
+
+@pytest.mark.parametrize(
+    ("stored_copies", "bindings", "matrix_ids"),
+    [
+        pytest.param(1, [0, 0, 1, 1, 1], 2, id="one-copy-for-two-ids"),
+        pytest.param(3, [0, 1, 2, 3, 4], 5, id="fewer-copies-than-rows"),
+    ],
+)
+def test_matrix_row_refuses_copies_that_match_no_storage(
+    stored_copies: int, bindings: list[int], matrix_ids: int
+) -> None:
+    with pytest.raises(InconsistentMatrixStorageError) as caught:
+        matrix_row(
+            _matrix_artifact(stored_copies),
+            np.array(bindings),
+            row_index=3,
+            dataset_dir=_DATASET_DIR,
+        )
+
+    error = caught.value
+    assert (error.stored_copies, error.rows, error.matrix_ids) == (
+        stored_copies,
+        len(bindings),
+        matrix_ids,
+    )
 
 
 def test_resolve_canonical_training_triplet_selects_first_standard_row(tmp_path: Path) -> None:

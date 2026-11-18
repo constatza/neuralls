@@ -110,7 +110,6 @@ def build_dense_manifest(
             dtype="float64",
             shape=matrix_shape,
             n_matrix_samples=int(matrix_shape[0]),
-            broadcast=layout == LayoutType.BROADCAST_SINGLE,
             layout=layout,
             logical_sample_count=int(rhs_shape[0]),
             key=locations.matrix.key,

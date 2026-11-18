@@ -115,7 +115,6 @@ def _write_npy_dataset_with_params(
                 dtype="float64",
                 shape=(n_samples, vec_dim, vec_dim),
                 n_matrix_samples=n_samples,
-                broadcast=False,
             ),
             rhs=DatasetArtifact(
                 path="rhs.npy",

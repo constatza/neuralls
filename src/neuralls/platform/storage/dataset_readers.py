@@ -27,6 +27,9 @@ from neuralls.shared.digest import RowSliceable
 from neuralls.shared.enum_codecs import decode_row_kind_array
 from neuralls.shared.types import LayoutType, MatrixFormat, MatrixSampleId, RowKind
 
+_SHARED_MATRIX_COPIES = 1
+"""Stored matrix copies of a single-matrix dataset: one, shared by every row."""
+
 
 @dataclass(frozen=True, slots=True)
 class ResolvedDatasetArtifact:
@@ -38,7 +41,6 @@ class ResolvedDatasetArtifact:
     shape: tuple[int, ...]
     index: int | None = None
     n_matrix_samples: int | None = None
-    broadcast: bool | None = None
     key: str | None = None
     layout: LayoutType | None = None
     logical_sample_count: int | None = None
@@ -93,7 +95,6 @@ def _resolve_artifact(root: Path, artifact: DatasetArtifact) -> ResolvedDatasetA
         shape=artifact.shape,
         index=artifact.index,
         n_matrix_samples=artifact.n_matrix_samples,
-        broadcast=artifact.broadcast,
         key=artifact.key,
         layout=artifact.layout,
         logical_sample_count=artifact.logical_sample_count,
@@ -200,32 +201,63 @@ def _select_canonical_row(
     raise ValueError(f"No canonical non-residual rows are available in dataset '{dataset_dir}'.")
 
 
-def matrix_row(matrix: ResolvedDatasetArtifact, *, row_index: int, matrix_id: int) -> int:
+class InconsistentMatrixStorageError(ValueError):
+    """A dataset's stored matrix copies do not match its rows' matrix bindings.
+
+    A dataset stores either one matrix copy per row or one copy shared by rows that all bind
+    the same matrix id. Any other combination has no defined copy for a row, and guessing one
+    would silently read the wrong matrix.
+    """
+
+    def __init__(
+        self, dataset_dir: str | Path, *, stored_copies: int, rows: int, matrix_ids: int
+    ) -> None:
+        self.dataset_dir = Path(dataset_dir)
+        self.stored_copies = stored_copies
+        self.rows = rows
+        self.matrix_ids = matrix_ids
+        super().__init__(
+            f"Dataset '{dataset_dir}' stores {stored_copies} matrix copies for {rows} rows "
+            f"bound to {matrix_ids} matrix ids; expected one copy per row, or one copy shared "
+            f"by rows bound to one id. Regenerate it with `{REGENERATE_DATASETS_COMMAND}`."
+        )
+
+
+def matrix_row(
+    matrix: ResolvedDatasetArtifact,
+    bindings: np.ndarray,
+    *,
+    row_index: int,
+    dataset_dir: str | Path,
+) -> int:
     """Return the physical index into the stored matrix array for one dataset row.
 
     A matrix id is the sample id the generator bound the row to
-    (`matrix_sample_index`); it names a matrix, not a storage position. The
-    multi-matrix layout stores one matrix copy per row, so the row itself is
-    the position; a broadcast single-matrix layout stores one copy at 0.
-    This is the only place an id is turned into a storage index.
+    (`matrix_sample_index`); it names a matrix, not a storage position. The storage is
+    derived from the stored copy count and the bindings, never from a layout flag: one
+    copy per row puts each row's matrix at the row itself, and one copy shared by rows
+    that all bind one id puts it at 0. This is the only place an id is turned into a
+    storage index.
 
     Args:
         matrix: The dataset's resolved matrix artifact.
+        bindings: The matrix id bound to every dataset row.
         row_index: The dataset row whose matrix is wanted.
-        matrix_id: The matrix id bound to that row, kept for the error message.
+        dataset_dir: The dataset directory, for the error.
 
     Raises:
-        IndexError: If the row has no stored matrix copy.
+        InconsistentMatrixStorageError: If the stored copies match neither storage.
     """
-    if matrix.broadcast:
-        return 0
     stored = matrix.shape[0] if matrix.shape else 0
-    if row_index >= stored:
-        raise IndexError(
-            f"Row {row_index} (matrix id {matrix_id}) has no stored matrix; "
-            f"the matrix array holds {stored} entries."
-        )
-    return row_index
+    rows = bindings.shape[0]
+    if stored == rows:
+        return row_index
+    matrix_ids = np.unique(bindings).size
+    if stored == _SHARED_MATRIX_COPIES and matrix_ids == 1:
+        return 0
+    raise InconsistentMatrixStorageError(
+        dataset_dir, stored_copies=stored, rows=rows, matrix_ids=matrix_ids
+    )
 
 
 class MissingMatrixSampleIndexError(ValueError):
@@ -243,19 +275,26 @@ class MissingMatrixSampleIndexError(ValueError):
         )
 
 
-def _matrix_sample_id(
-    artifacts: DatasetArtifacts, row_index: int, dataset_dir: str | Path
-) -> MatrixSampleId:
-    """The matrix sample id generation bound a dataset row to.
+def _matrix_bindings(artifacts: DatasetArtifacts, dataset_dir: str | Path) -> np.ndarray:
+    """The matrix id generation bound every dataset row to.
 
     Raises:
         MissingMatrixSampleIndexError: If the dataset stores no ``matrix_sample_index``.
-        IndexError: If the row has no binding.
     """
     if artifacts.matrix_sample_index is None:
         raise MissingMatrixSampleIndexError(dataset_dir)
     bindings = _load_resolved_native(artifacts.matrix_sample_index).astype(np.int64, copy=False)
-    bindings = bindings.reshape(-1)
+    return bindings.reshape(-1)
+
+
+def _matrix_sample_id(
+    bindings: np.ndarray, row_index: int, dataset_dir: str | Path
+) -> MatrixSampleId:
+    """The matrix sample id generation bound a dataset row to.
+
+    Raises:
+        IndexError: If the row has no binding.
+    """
     if row_index >= bindings.shape[0]:
         raise IndexError(
             f"sample_index={row_index} has no matrix_sample_index binding in '{dataset_dir}'."
@@ -289,9 +328,11 @@ def resolve_canonical_training_triplet(
         require_standard=require_standard,
         dataset_dir=dataset_dir,
     )
-    matrix_id = _matrix_sample_id(artifacts, row_index, dataset_dir)
+    bindings = _matrix_bindings(artifacts, dataset_dir)
+    matrix_id = _matrix_sample_id(bindings, row_index, dataset_dir)
     matrix = load_matrix_sparse_sample(
-        dataset_dir, matrix_row(artifacts.matrix, row_index=row_index, matrix_id=matrix_id)
+        dataset_dir,
+        matrix_row(artifacts.matrix, bindings, row_index=row_index, dataset_dir=dataset_dir),
     )
     rhs = _load_sample(artifacts.rhs, row_index).reshape(-1)
     lhs = _load_sample(artifacts.solutions, row_index).reshape(-1)
@@ -331,7 +372,9 @@ def try_read_matrix_scaling(path: str | Path, matrix_row: int) -> PersistedMatri
     if not candidate.is_dir():
         return None
     artifacts = resolve_dataset_artifacts(candidate)
-    return artifacts.scaling.for_matrix(_matrix_sample_id(artifacts, matrix_row, candidate))
+    return artifacts.scaling.for_matrix(
+        _matrix_sample_id(_matrix_bindings(artifacts, candidate), matrix_row, candidate)
+    )
 
 
 def _load_resolved(artifact: ResolvedDatasetArtifact) -> np.ndarray:
