@@ -51,6 +51,15 @@ path = "../../datasets/train/spectral-3d-field/gaussian-cg20.toml"
 [[datasets]]
 path = "../../datasets/train/spectral-3d-field/smoother-filtered-probes.toml"
 
+# Matched depth: CG k = 10 next to the probes' k = 10, probes k = 20 next to CG k = 20 (one CG
+# iteration and one Jacobi sweep each cost about one matvec). Same rows, [split] and seed as the two
+# datasets above, so all four pin the same held-out matrices.
+[[datasets]]
+path = "../../datasets/train/spectral-3d-field/gaussian-cg10.toml"
+
+[[datasets]]
+path = "../../datasets/train/spectral-3d-field/smoother-filtered-probes-k20.toml"
+
 [[jobs]]
 id = "pod_rank10"
 path = "../../jobs/pod/pod-rank10.toml"
@@ -110,4 +119,12 @@ job = "pod_rank10"
 
 [[assignments]]
 dataset = "smoother-filtered-probes-spectral-3d-field"
+job = "pod_rank100"
+
+[[assignments]]
+dataset = "gaussian-cg10-spectral-3d-field"
+job = "pod_rank100"
+
+[[assignments]]
+dataset = "smoother-filtered-probes-k20-spectral-3d-field"
 job = "pod_rank100"
