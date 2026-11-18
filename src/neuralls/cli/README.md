@@ -14,7 +14,7 @@ The CLI package defines one public executable: `neuralls`.
 - `neuralls report <case.toml|glob>... [--force] [--session-run-id ID]` (`--session-run-id` needs exactly one case): read the newest finished compare session back and write the nested report run tree (metrics, figures with cards, `figure_index.toml`) into the case config's experiment; a finished report for the same session, notation and schema is skipped unless `--force`. Never solves or times
 
 Every case command takes one or more case configs, as paths or glob patterns
-(`uv run neuralls run configs/cases/spectral-3d-field/pod-*.toml`). Patterns are
+(`uv run neuralls run configs/cases/spectral-3d-field/study-*.toml`). Patterns are
 expanded by the CLI, because cmd and PowerShell pass `*` through unexpanded. Every
 argument must resolve before any case runs. Cases then run one after another, in the
 given order, with matches of one pattern sorted. A failed case does not stop the rest.

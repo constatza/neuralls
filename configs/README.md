@@ -174,14 +174,16 @@ search: identity/Jacobi/IC0, AMG at coarse dim 10 and 100, and POD at rank 10
 and 100, fitted from `gaussian-cg10` (`cg_errors`) and `smoother-filtered-probes`
 (`jacobi_probes`) snapshots.
 Default cases reference only plain, tracked dataset configs — never sweep output.
-Several cases run as one command, `uv run neuralls run configs/cases/<family>/pod-*.toml`
+Several cases run as one command, `uv run neuralls run configs/cases/<family>/study-*.toml`
 (one after another, see `src/neuralls/cli/README.md`); no config file lists other cases.
 Neural network jobs are kept in explicit training/search variants. Parametric
 searches live in sibling case files, one searched axis per file:
 `coarse-dim-search.toml` (AMG dim / POD rank in 10, 100, 200, 300, on
 `gaussian-cg50`) and `stop-search.toml` (`gaussian-cg0`/`cg10`/`cg50` snapshots
 at POD rank 100). The rectangular-high-condition family adds the legacy
-`sample-sweep.toml` plus the four `pod-<axis>.toml` POD parametric study cases. The 45x15randomE cases are parametric — the underlying
+`sample-sweep.toml` plus the POD parametric study cases.
+Every POD parametric study case is named `study-<axis>.toml`, so
+`configs/cases/*/study-*.toml` selects all of them. The 45x15randomE cases are parametric — the underlying
 problem is a family of ~100 stiffness matrices with randomized Young's moduli
 (E1-E4), not one fixed matrix. These CG cases use the `gaussian-cg*` datasets as
 POD snapshot inputs, with
@@ -231,7 +233,7 @@ scale-equivariant initialization/gain parameters.
 
 ### Rectangular POD parameter studies
 
-The four `pod-<axis>.toml` cases share one matrix and vary one input each,
+The four `study-<axis>.toml` cases share one matrix and vary one input each,
 over POD-CG and POD-JP only; their comparisons contain no classical
 preconditioners. Every other input stays at one baseline shared by both
 generators: rank c = 100, depth k = 20, N = 1000 rows
@@ -243,24 +245,24 @@ generation budget. Each swept value is its own method, labelled from its
 facts, so the per-method figures compare them directly. Every case solves
 the same 80 systems: four RHS recipes (Gaussian, masked Gaussian, low- and
 high-frequency sinusoidal, seeds 42-45) with `rhs_count = 20` each, on
-`gaussian-cg20`'s matrix. `pod-seed-43.toml` and `pod-seed-44.toml` replicate
+`gaussian-cg20`'s matrix. `study-seed-43.toml` and `study-seed-44.toml` replicate
 the baseline with other snapshot seeds, one case per seed because replicates
 render alike.
 
-- `pod-rank.toml`: c in `{5, 10, 20, 50, 100}`, one POD recipe per rank. Every
+- `study-rank.toml`: c in `{5, 10, 20, 50, 100}`, one POD recipe per rank. Every
   case sweeps at most five values per input.
-- `pod-samples.toml`: N in `{250, 500, 1000, 2000, 5000}` at c in `{50, 100}`
+- `study-samples.toml`: N in `{250, 500, 1000, 2000, 5000}` at c in `{50, 100}`
   (`gaussian-cg20.sweep.toml` plus the tracked `gaussian-cg20.toml` for
   N = 5000, `smoother-filtered-probes-nu20.sweep.toml`).
-- `pod-depth.toml`: depth k (CG iterations or Jacobi sweeps) in `{1, 5, 10, 20, 40}`
+- `study-depth.toml`: depth k (CG iterations or Jacobi sweeps) in `{1, 5, 10, 20, 40}`
   at c in `{20, 100}` (`gaussian-cg-depth.sweep.toml`,
   `smoother-filtered-probes-depth.sweep.toml`).
-- `pod-metric.toml`: the Euclidean and the energy inner product
+- `study-metric.toml`: the Euclidean and the energy inner product
   (`pod-rank100-energy.toml`).
 
 ### Spectral-3D POD parameter studies
 
-`spectral-3d-field/pod-{rank,depth,samples}.toml` follow the same rules on
+`spectral-3d-field/study-{rank,depth,samples}.toml` follow the same rules on
 the 200-matrix spectral family, with the same shared baseline c = 100,
 k = 20, N = 1000. Here N counts fit rows: the matrix-level split fits on 180
 matrices, which receive about 0.9 of the generated rows, so N = 1000 is 1120
@@ -270,17 +272,16 @@ generated rows. The baseline is the 1120-row point of
 left out of the case's sweep values. Every count is at least one row per
 matrix, so all fit datasets hold out the same 20 test matrices.
 
-- `pod-rank.toml`: c in `{10, 50, 100, 200, 300}`.
-- `pod-samples.toml`: N in `{250, 500, 1000, 2000, 4000}` fit rows
+- `study-rank.toml`: c in `{10, 50, 100, 200, 300}`.
+- `study-samples.toml`: N in `{250, 500, 1000, 2000, 4000}` fit rows
   (280, 560, 1120, 2230, 4460 generated).
-- `pod-depth.toml`: k in `{1, 5, 10, 20, 40}` (`gaussian-cg-depth.sweep.toml`,
+- `study-depth.toml`: k in `{1, 5, 10, 20, 40}` (`gaussian-cg-depth.sweep.toml`,
   `smoother-filtered-probes-depth.sweep.toml`).
 
 `default.toml` is not a study point: it fits POD-CG on 500 rows and POD-JP on
 4000, with its own depths. Its tracked `gaussian-cg20-n560.toml` and
 `smoother-filtered-probes-k20-n4460.toml` carry the ids and fields of those
-sweep points, so their data is generated once. `pod-sensitivity.toml` keeps the older rank and
-depth study around 5000 generated rows, with Jacobi and AMG as anchors.
+sweep points, so their data is generated once.
 
 A sweep file lists only the non-baseline values. The baseline point is the
 tracked baseline file, assigned explicitly, so the same data is never
@@ -294,7 +295,7 @@ fitted rank, an energy fit's inner product and its fit dataset's recorded
 provenance, so a static name would duplicate them. (A neural job needs a short `display_name` for its architecture;
 without one it cannot be described and the comparison is rejected before it runs.)
 
-POD rank belongs to the POD recipe, so `pod-rank.toml` crosses the two baseline
+POD rank belongs to the POD recipe, so `study-rank.toml` crosses the two baseline
 datasets with one recipe per rank instead of pretending rank is a dataset axis.
 
 ## Case Anatomy
