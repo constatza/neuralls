@@ -93,7 +93,7 @@ def run_once(
         output_root=OUTPUT_ROOT,
         force=force,
         presentation=presentation,
-        mlflow_experiment_name=EXPERIMENT,
+        experiment_name=EXPERIMENT,
         tracking_uri=tracking_uri,
         tracking=tracking,
     )

@@ -7,18 +7,6 @@ from pathlib import Path
 
 
 @dataclass(frozen=True, slots=True)
-class ConfigKey:
-    """One case config's identity, ``<case>/<config>``: the name of its MLflow experiment."""
-
-    case: str
-    config: str
-
-    @property
-    def experiment_name(self) -> str:
-        return f"{self.case}/{self.config}"
-
-
-@dataclass(frozen=True, slots=True)
 class CaseConfigPath:
     """The absolute path of one case config: the single spelling session tags and report lookups use."""
 
@@ -39,6 +27,6 @@ class CaseConfigPath:
         return self.path.parent
 
     @property
-    def key(self) -> ConfigKey:
-        """The case directory and the config file's stem: one experiment per config."""
-        return ConfigKey(case=self.path.parent.name, config=self.path.stem)
+    def experiment_name(self) -> str:
+        """``<case>/<config>``, the case directory and the config file's stem: one experiment per config."""
+        return f"{self.path.parent.name}/{self.path.stem}"

@@ -584,7 +584,7 @@ def test_neural_specs_from_assignments_uses_strict_assignment_ref(
         claimed_ids=set(),
         tracking=MagicMock(),
         tracking_uri=TRACKING_URI,
-        experiment="case/config",
+        experiment_name="case/config",
         cfg=cfg,
         config_dir=config_dir,
         settings=settings,
@@ -610,7 +610,7 @@ def test_neural_specs_from_assignments_skips_claimed_ids(tmp_path: Path) -> None
         claimed_ids={"ffnn_solutions"},
         tracking=MagicMock(),
         tracking_uri=TRACKING_URI,
-        experiment="case/config",
+        experiment_name="case/config",
         cfg=cfg,
         config_dir=config_dir,
         settings=settings,
@@ -643,7 +643,7 @@ def test_neural_specs_from_assignments_dispatches_a_pod_recipe_to_a_pod_method(
         claimed_ids=set(),
         tracking=tracking,
         tracking_uri=TRACKING_URI,
-        experiment="case/config",
+        experiment_name="case/config",
         cfg=cfg,
         config_dir=config_dir,
         settings=settings,
@@ -822,9 +822,7 @@ def test_prepare_injects_master_topology(
 ) -> None:
     prepared = _executing(prepare_entry(identity_cfg, _planned(_make_entry())))
 
-    assert (
-        prepared.topology.experiment_name == CaseConfigPath(experiments_config).key.experiment_name
-    )
+    assert prepared.topology.experiment_name == CaseConfigPath(experiments_config).experiment_name
 
 
 def test_prepare_keeps_the_entry_indices_unchanged(

@@ -1,4 +1,4 @@
-"""MLflow experiment setup and the per-method metrics of comparison report runs."""
+"""The per-method metrics of comparison report runs."""
 
 from __future__ import annotations
 
@@ -8,21 +8,8 @@ import polars as pl
 
 from neuralls.domain.solver.models.convergence import ConvergenceSummary
 from neuralls.domain.solver.reporting.metrics import METRICS, MetricId
-from neuralls.platform.config.resolution import MlflowPaths
-from neuralls.platform.tracking.mlflow import ensure_experiment, sanitize_metric_key_segment
+from neuralls.platform.tracking.mlflow import sanitize_metric_key_segment
 from neuralls.shared.types import PreconditionerName
-
-
-def setup_comparison_tracking(
-    tracking_uri: str,
-    artifact_location: str | None,
-    experiment_name: str,
-) -> str:
-    """Create or reuse the experiment comparison runs are written to and return its id."""
-    return ensure_experiment(
-        experiment_name,
-        MlflowPaths(tracking_uri=tracking_uri, artifact_uri=artifact_location),
-    )
 
 
 def parent_run_metric_key(metric: str, preconditioner_name: str) -> str:

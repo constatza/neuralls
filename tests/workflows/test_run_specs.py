@@ -248,7 +248,6 @@ def test_session_run_spec_name_and_tags(
     assert run_name_text(run) == f"{stage} · 2026-03-12 12:00 · d5d807fe-dirty"
     assert tags.as_mlflow_tags() == {
         "phase": phase,
-        "case_config": "ffnn",
         "case_config_path": case_config_path.as_posix(),
         "started_at": ISO,
         "neuralls.config": "spectral/ffnn",

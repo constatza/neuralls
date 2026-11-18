@@ -228,7 +228,6 @@ class SessionRunTags:
 
     Attributes:
         phase: The session phase lookups filter on; its stage word is the ``neuralls.stage`` tag.
-        case_config: Stem of the case config file.
         case_config_path: Full path string.
         started_at: ISO timestamp (local).
         experiment_name: The config key's experiment name, rendered as the ``neuralls.config`` tag.
@@ -237,7 +236,6 @@ class SessionRunTags:
     """
 
     phase: SessionPhase
-    case_config: str
     case_config_path: str
     started_at: str
     experiment_name: str
@@ -249,7 +247,6 @@ class SessionRunTags:
         return {
             **root_run_tags(self.phase, self.experiment_name),
             **title_tags(render_session_title(self.title, self.phase, self.notation)),
-            "case_config": self.case_config,
             "case_config_path": self.case_config_path,
             "started_at": self.started_at,
         }
@@ -352,7 +349,6 @@ def build_session_run_spec(
     run = NamedRun(SessionRunName(session_stage(phase), started, revision), notation)
     tags = SessionRunTags(
         phase=phase,
-        case_config=case_config_path.stem,
         case_config_path=case_config_path.as_posix(),
         started_at=iso_timestamp(started),
         experiment_name=experiment_name,

@@ -73,16 +73,16 @@ def _stamped(text: str, stamp: RunStamp) -> str:
             assert_never(stamp)
 
 
-def _title_text(
-    title: SessionTitle,
-    profile: RenderProfile,
-    policy: NotationPolicy,
-    phase: SessionPhase,
-) -> str:
+def _plain(notation: NotationPolicy) -> NotationPolicy:
+    """``notation`` rendered as plain text: MLflow names, tags and logs show no markup."""
+    return replace(notation, target=RenderTarget.PLAIN)
+
+
+def _title_text(title: SessionTitle, policy: NotationPolicy, phase: SessionPhase) -> str:
     match title:
         case CollectionTitle(parts=parts):
             return _COLLECTION_SEPARATOR.join(
-                sorted(_title_text(part, profile, policy, phase) for part in parts)
+                sorted(_title_text(part, policy, phase) for part in parts)
             )
         case SummarizedTitle(head=head, counts=counts):
             summary = (
@@ -91,14 +91,14 @@ def _title_text(
             )
             if head is None:
                 return summary
-            return f"{_title_text(head, profile, policy, phase)}{_PART_SEPARATOR}{summary}"
+            return f"{_title_text(head, policy, phase)}{_PART_SEPARATOR}{summary}"
         case ComparisonScopePresentation(dataset=dataset):
-            rendered = render_dataset(dataset, profile, policy).text
+            rendered = render_dataset(dataset, RUN_NAME_PROFILE, policy).text
             return (
                 f"{_MATRIX_SET_PREFIX}{rendered}" if phase == COMPARISON_SESSION_PHASE else rendered
             )
         case EditorialPresentation():
-            return render_title(title, profile, policy).text
+            return render_title(title, RUN_NAME_PROFILE, policy).text
         case _:
             assert_never(title)
 
@@ -112,7 +112,7 @@ def _short_revision(revision: str) -> str:
 
 def render_session_title(title: SessionTitle, phase: SessionPhase, notation: NotationPolicy) -> str:
     """Render a session's scientific title as plain text, for its ``title`` tag and description."""
-    return _title_text(title, RUN_NAME_PROFILE, replace(notation, target=RenderTarget.PLAIN), phase)
+    return _title_text(title, _plain(notation), phase)
 
 
 def _qualifier_text(qualifier: SystemQualifier) -> str:
@@ -153,14 +153,12 @@ def _subject_text(subject: TrainingSubject, profile: RenderProfile, policy: Nota
 
 def render_training_subject(subject: TrainingSubject, notation: NotationPolicy) -> str:
     """Render what a training or evaluation run is about, for a ``*_label`` tag."""
-    return _subject_text(subject, RUN_NAME_PROFILE, replace(notation, target=RenderTarget.PLAIN))
+    return _subject_text(subject, RUN_NAME_PROFILE, _plain(notation))
 
 
 def render_dataset_label(dataset: DatasetPresentation, notation: NotationPolicy) -> str:
     """Render a dataset as plain text, for logs and summaries."""
-    return render_dataset(
-        dataset, RUN_NAME_PROFILE, replace(notation, target=RenderTarget.PLAIN)
-    ).text
+    return render_dataset(dataset, RUN_NAME_PROFILE, _plain(notation)).text
 
 
 def render_training_dataset(subject: TrainingSubject, notation: NotationPolicy) -> str:
@@ -170,9 +168,7 @@ def render_training_dataset(subject: TrainingSubject, notation: NotationPolicy) 
 
 def render_method_label(method: ConfiguredMethodPresentation, notation: NotationPolicy) -> str:
     """Render a configured method as plain text, for logs and summaries."""
-    return render_method(
-        method, RUN_NAME_PROFILE, replace(notation, target=RenderTarget.PLAIN)
-    ).text
+    return render_method(method, RUN_NAME_PROFILE, _plain(notation)).text
 
 
 def render_training_label(presentation: TrainingPresentation) -> str:
@@ -182,7 +178,7 @@ def render_training_label(presentation: TrainingPresentation) -> str:
 
 def render_run_name(name: RunName, notation: NotationPolicy) -> str:
     """Render ``name`` as plain text under the case's symbol overrides."""
-    policy = replace(notation, target=RenderTarget.PLAIN)
+    policy = _plain(notation)
     profile = RUN_NAME_PROFILE
     match name:
         case SessionRunName(stage=stage, started=started, revision=revision):

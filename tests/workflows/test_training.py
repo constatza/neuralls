@@ -389,7 +389,7 @@ def test_prepare_training_settings_builds_explicit_mlflow_run_config(
                 job_registry_id="job-1",
             ),
             presentation=training_presentation,
-            mlflow_experiment_name="CustomTrain",
+            experiment_name="CustomTrain",
         )
     cleanup_prepared_training(prepared)
     scratch_dir.rmtree.assert_called_once_with(scratch_dir.path, ignore_errors=True)
@@ -475,7 +475,7 @@ def test_prepare_training_settings_without_registry_ids_builds_an_untagged_run(
                 dataset_registry_id="dataset-legacy",
             ),
             presentation=training_presentation,
-            mlflow_experiment_name="CustomTrain",
+            experiment_name="CustomTrain",
         )
     cleanup_prepared_training(prepared)
     scratch_dir.rmtree.assert_called_once_with(scratch_dir.path, ignore_errors=True)

@@ -42,7 +42,7 @@ def identity() -> StageIdentity:
 @pytest.fixture
 def lookup(identity: StageIdentity) -> TrainingLookup:
     """Training experiment plus the current training identity."""
-    return TrainingLookup(experiment="Train-Case", identity=identity)
+    return TrainingLookup(experiment_name="Train-Case", identity=identity)
 
 
 @pytest.fixture
@@ -113,7 +113,7 @@ def test_missing_identity_fails_without_searching(
 ) -> None:
     """An ungenerated dataset cannot be verified, so no search is attempted."""
     with pytest.raises(ValueError):
-        _resolve(ref, TrainingLookup(experiment="Train-Case", identity=None), tracking)
+        _resolve(ref, TrainingLookup(experiment_name="Train-Case", identity=None), tracking)
     tracking.identity_store.assert_not_called()
 
 

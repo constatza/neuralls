@@ -157,7 +157,7 @@ def _build_master_assignment_contexts(
     *,
     master_cfg: CaseConfig,
     config_dir: Path,
-    experiment: str,
+    experiment_name: str,
 ) -> dict[str, AssignmentModelContext]:
     """Resolve dataset/model identity for all case-config assignments.
 
@@ -178,7 +178,7 @@ def _build_master_assignment_contexts(
             dataset_alias=dataset_id,
             model_name=build_registered_model_name(assignment_id),
             training=TrainingLookup(
-                experiment=experiment,
+                experiment_name=experiment_name,
                 identity=_assignment_training_identity(
                     job_config_path=binding.job_config_path,
                     data_config_path=binding.data_config_path,
@@ -197,7 +197,7 @@ def existing_assignment_ids(specs: tuple[PreconditionerConfig, ...]) -> set[str]
 def _extra_input_names_of_training_run(
     training: StageIdentity | None,
     *,
-    experiment: str,
+    experiment_name: str,
     tracking: TrackingServices,
     tracking_uri: str,
 ) -> tuple[str, ...]:
@@ -209,7 +209,7 @@ def _extra_input_names_of_training_run(
     if training is None:
         return ()
     reused = tracking.identity_store(
-        tracking_uri=tracking_uri, experiment=experiment, require_checkpoint=True
+        tracking_uri=tracking_uri, experiment=experiment_name, require_checkpoint=True
     ).find(training)
     if reused is None or reused.run_id is None:
         return ()
@@ -222,7 +222,7 @@ def neural_specs_from_assignments(
     *,
     tracking: TrackingServices,
     tracking_uri: str,
-    experiment: str,
+    experiment_name: str,
     cfg: CaseConfig,
     config_dir: Path,
     settings: NeurallsSettings,
@@ -243,7 +243,7 @@ def neural_specs_from_assignments(
         claimed_ids: Assignment ids already covered by explicit preconditioners.
         tracking: Source of the clients and reuse lookups for the training runs.
         tracking_uri: Tracking store holding the training runs.
-        experiment: The case config's experiment, holding the training runs.
+        experiment_name: The case config's experiment, holding the training runs.
         cfg: The assignments' owning case config, for job/dataset resolution.
         config_dir: Directory `cfg`'s registry paths resolve relative to.
         settings: Runtime settings used to load each assignment's job/dataset config.
@@ -270,7 +270,7 @@ def neural_specs_from_assignments(
                         entry,
                         extra_input_names=_extra_input_names_of_training_run(
                             training,
-                            experiment=experiment,
+                            experiment_name=experiment_name,
                             tracking=tracking,
                             tracking_uri=tracking_uri,
                         ),
@@ -393,7 +393,7 @@ def _resolve_specs(
             context.settings,
             master_cfg=resolved_master_cfg,
             config_dir=context.case_config_path.parent,
-            experiment=context.topology.experiment_name,
+            experiment_name=context.topology.experiment_name,
         )
     resolution = resolve_preconditioner_models_with_warnings(
         specs=specs,

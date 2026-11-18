@@ -103,7 +103,7 @@ def run_assignment(
     output_root: Path,
     force: bool,
     presentation: TrainingPresentation,
-    mlflow_experiment_name: str,
+    experiment_name: str,
     tracking_uri: str | None = None,
     tracking: TrackingServices = MLFLOW_TRACKING,
 ) -> AssignmentResult | PreparedTraining:
@@ -197,7 +197,7 @@ def run_assignment(
             else reuse_lookup(
                 tracking,
                 tracking_uri=tracking_uri,
-                experiment=mlflow_experiment_name,
+                experiment=experiment_name,
                 identity=identity,
                 force=force,
                 label=assignment_id,
@@ -226,7 +226,7 @@ def run_assignment(
             output_root=output_root,
             identity=AssignmentIdentity.from_spec(spec),
             presentation=presentation,
-            mlflow_experiment_name=mlflow_experiment_name,
+            experiment_name=experiment_name,
             batched=True,
             extra_tags=identity.tags(),
         )
@@ -433,7 +433,7 @@ def run_assignment_sweep(
         default_output_root=batch.output_root,
         config_dir=config_dir,
     )
-    mlflow_experiment_name = case_config_path.key.experiment_name
+    experiment_name = case_config_path.experiment_name
 
     with scoped_mlflow_environment(training_mlflow_env.env):
         session_run, session_tags = build_session_run_spec(
@@ -445,7 +445,7 @@ def run_assignment_sweep(
             ),
             notation=case_notation(cfg),
             case_config_path=case_path,
-            experiment_name=mlflow_experiment_name,
+            experiment_name=experiment_name,
             phase="session_training",
             revision=neuralls_revision(),
         )
@@ -456,7 +456,7 @@ def run_assignment_sweep(
             settings=settings,
             output_root=batch.output_root,
             force=force,
-            mlflow_experiment_name=mlflow_experiment_name,
+            experiment_name=experiment_name,
             tracking_uri=training_mlflow_env.tracking_uri,
             tracking=tracking,
         )
@@ -468,7 +468,7 @@ def run_assignment_sweep(
             )
         sweep_result = _run_training_sweep(
             pending,
-            experiment_name=mlflow_experiment_name,
+            experiment_name=experiment_name,
             parent_run_name=run_name_text(session_run),
             parent_tags=dict(session_tags.as_mlflow_tags()),
             tracking_uri=training_mlflow_env.tracking_uri,
@@ -500,7 +500,7 @@ def _prepare_assignments(
     settings: NeurallsSettings,
     output_root: Path,
     force: bool,
-    mlflow_experiment_name: str,
+    experiment_name: str,
     tracking_uri: str,
     tracking: TrackingServices,
 ) -> tuple[dict[str, AssignmentResult], dict[str, PreparedTraining]]:
@@ -522,7 +522,7 @@ def _prepare_assignments(
             output_root=output_root,
             force=force,
             presentation=presentation,
-            mlflow_experiment_name=mlflow_experiment_name,
+            experiment_name=experiment_name,
             tracking_uri=tracking_uri,
             tracking=tracking,
         )

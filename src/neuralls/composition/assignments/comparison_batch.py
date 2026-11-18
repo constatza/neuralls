@@ -51,11 +51,10 @@ from neuralls.domain.presentation.titles import (
 )
 from neuralls.platform.config.case_path import CaseConfigPath
 from neuralls.platform.config.models.experiments import CaseConfig
+from neuralls.platform.config.resolution import MlflowPaths
 from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.platform.tracking.comparison_runs import MethodRecordContext
-from neuralls.platform.tracking.metrics_logging import (
-    setup_comparison_tracking,
-)
+from neuralls.platform.tracking.mlflow import ensure_experiment
 from neuralls.platform.tracking.runtime_environment import collect_runtime_environment
 from neuralls.shared.device import warm_up_device
 from neuralls.shared.digest import digest_memo
@@ -181,10 +180,9 @@ def run_loaded_comparison_batch(
 
     case_path = case_config_path.path
     topology = resolve_comparison_topology(master_cfg, case_config_path, settings)
-    experiment_id = setup_comparison_tracking(
-        tracking_uri=topology.tracking_uri,
-        artifact_location=topology.artifact_location,
-        experiment_name=topology.experiment_name,
+    experiment_id = ensure_experiment(
+        topology.experiment_name,
+        MlflowPaths(tracking_uri=topology.tracking_uri, artifact_uri=topology.artifact_location),
     )
 
     with contextlib.ExitStack() as stack:

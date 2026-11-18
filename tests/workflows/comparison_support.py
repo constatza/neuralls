@@ -18,7 +18,7 @@ from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.system_scaling import GershgorinScaling, RhsScaling
 from neuralls.shared.types import ComparisonRhsSourceKind, RowKind
 
-SETUP_TRACKING = "neuralls.composition.assignments.comparison_batch.setup_comparison_tracking"
+SETUP_TRACKING = "neuralls.composition.assignments.comparison_batch.ensure_experiment"
 
 
 def make_settings(tmp_path: Path) -> NeurallsSettings:

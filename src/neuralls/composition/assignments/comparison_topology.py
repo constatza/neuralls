@@ -40,7 +40,7 @@ def resolve_comparison_topology(
     return ComparisonTopology(
         tracking_uri=runtime.tracking_uri,
         artifact_location=runtime.artifact_uri,
-        experiment_name=case_config_path.key.experiment_name,
+        experiment_name=case_config_path.experiment_name,
         model_store_tracking_uri=runtime.tracking_uri,
     )
 

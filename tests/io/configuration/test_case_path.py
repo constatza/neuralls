@@ -37,4 +37,4 @@ def test_resolve_makes_a_relative_path_absolute_against_the_cwd(
 def test_key_is_the_case_directory_and_the_config_stem(
     relative: Path, experiment_name: str
 ) -> None:
-    assert CaseConfigPath.resolve(relative).key.experiment_name == experiment_name
+    assert CaseConfigPath.resolve(relative).experiment_name == experiment_name

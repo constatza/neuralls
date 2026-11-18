@@ -115,7 +115,7 @@ def test_failed_report_finalization_is_retried_on_the_next_call(
     assert all(isinstance(outcome, ComparisonCompleted) for outcome in computed)
     assert all(isinstance(outcome, ComparisonReused) for outcome in reused)
     client = MlflowClient(tracking_uri=mlflow_tracking_uri)
-    compute = client.get_experiment_by_name(CaseConfigPath.resolve(case_path).key.experiment_name)
+    compute = client.get_experiment_by_name(CaseConfigPath.resolve(case_path).experiment_name)
     assert compute is not None
     sessions = client.search_runs(
         [compute.experiment_id], filter_string="tags.phase = 'session_comparison'"
@@ -164,9 +164,7 @@ def test_blocking_matrix_load_failure_marks_child_and_parent_with_exact_diagnost
 
     assert raised.value is original
     client = MlflowClient(tracking_uri=mlflow_tracking_uri)
-    experiment = client.get_experiment_by_name(
-        CaseConfigPath.resolve(case_path).key.experiment_name
-    )
+    experiment = client.get_experiment_by_name(CaseConfigPath.resolve(case_path).experiment_name)
     assert experiment is not None
     runs = client.search_runs([experiment.experiment_id])
     parent = next(run for run in runs if "mlflow.parentRunId" not in run.data.tags)
@@ -228,9 +226,7 @@ def test_recoverable_setup_failure_warns_persists_and_allows_later_method(
 
     assert outcomes and all(isinstance(outcome, ComparisonCompleted) for outcome in outcomes)
     client = MlflowClient(tracking_uri=mlflow_tracking_uri)
-    experiment = client.get_experiment_by_name(
-        CaseConfigPath.resolve(case_path).key.experiment_name
-    )
+    experiment = client.get_experiment_by_name(CaseConfigPath.resolve(case_path).experiment_name)
     assert experiment is not None
     children = client.search_runs(
         [experiment.experiment_id], filter_string="tags.phase = 'comparison_method'"
