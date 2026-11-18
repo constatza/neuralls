@@ -1,0 +1,29 @@
+id = "gaussian-cg20-samples-spectral-3d-field"
+id_template = "gaussian-cg20-n{value}-spectral-3d-field"
+
+[source]
+problem = "Spectral 3D field"
+matrix_path = "${NEURALLS_RAW_DIR}/SpectralData/spectral-3d-field/*/K_ff.mtx"
+
+[generation]
+scaling = { kind = "gershgorin", dimension_factor = "sqrt_n" }
+shuffle = true
+seed = 42
+
+# `start` left unset (default -1): keeps only the last CG iterate's
+# residual/error pair per trajectory.
+[[generation.strategy]]
+name = "cg_errors"
+# Every count is at least one row per matrix, so all 200 matrices are bound and the matrix-level
+# split holds out the same 20 as the 5000-row dataset; N is the 180-matrix train share (~0.9x).
+samples = [560, 1120, 2230]
+stop = 20
+
+# The POD fit has no training loop to serve a validation fold, so the
+# dataset keeps none: 180 fit / 20 test matrices.
+[split]
+test_ratio = 0.1
+val_ratio = 0.0
+
+[output]
+data_dir = "${NEURALLS_PROCESSED_DIR}"
