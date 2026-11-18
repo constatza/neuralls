@@ -385,9 +385,12 @@ notation, one line, no wrapping. `MlflowRunConfig` carries a `NamedRun`; the
 text is produced where MLflow (or dlkit, which opens the training and evaluation runs) is
 handed a name (`run_name_text`), so a run cannot be named from an id, a slug, a path or a
 class name. `ComparisonRunName` renders its dataset as "Comparison matrix set: ..."
-after any editorial title. A comparison session parent applies that prefix to a
-dataset title too; training and evaluation session parents retain their dataset
-titles. Method-child names and assignment training/evaluation subjects keep
+after any editorial title. A session root run renders as
+`"{stage} · {YYYY-MM-DD HH:MM} · {revision}"`, the revision cut to 8 characters with
+any `-dirty` suffix kept and omitted when unreported; `render_session_title` renders
+its scientific title for the `title` tag and run description, applying the
+"Comparison matrix set: ..." prefix to a dataset title only for a comparison
+session. Method-child names and assignment training/evaluation subjects keep
 their own typed labels. Tags keep machine ids in `*_id` fields (`method_id`, `assignment_id`,
 `comparison_id`) and rendered text in `*_label` fields (`method_label`,
 `assignment_label`, `comparison_label`, and the `dataset` tag/param holding the rendered dataset beside the machine `dataset_id` lookup tag); metric keys stay machine-safe and are never labels.
