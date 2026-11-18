@@ -54,8 +54,11 @@ into a tree of nested runs under that session, in the session's own experiment (
 aggregation scope (`domain/solver/models/report_scope.py::ReportScope`): the root run
 (all matrix sets) is a child of the session, named and tagged like every session root with stage `report` (`tracking/run_specs.py::build_report_run_spec`: `report · <start> · <revision>`, `neuralls.config`, `neuralls.stage`, and the session's `title` tag as its own title and description when the session has one), plus phase `report`, the source session, the notation digest and the report
 schema version; it contains one run per matrix set, each contains one run per RHS type of
-that set, and each of those contains one run per system with its per-method metrics and
-its residual and energy figures (each with its card). Every run's metrics are keyed `{metric}/{method}`; the
+that set. A system has no run of its own: its per-method metrics and its residual and
+energy figures (each with its card) go into its RHS type's run, the figures under
+`systems/matrix-<id>_rhs-<k>/` and the metrics keyed `system/matrix-<id>_rhs-<k>/{metric}/{method}`
+(`tracking/report_sink.py::system_key`), so the type `ReportScope` holds only the scopes that
+have a run. Every group metric is keyed `{metric}/{method}`; the
 root also holds the method figures and the figure index. `ReportSink.report_system(scope, metrics, figures)`
 takes the system's `StagedFigure`s (a `FigurePlan` plus the drawn file) so system figures carry the same cards. Postprocessing writes only
 through the `ReportSink` Protocol (`postprocessing/ports.py`: `register_method_figures`, `report`, `report_system`, `finalize`); `MLflowReportSink` maps a
