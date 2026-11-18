@@ -46,11 +46,11 @@ uploaded figure has its PNG file and its card, and uploads the session's `splits
 
 `compare` is compute-only: it times solves and persists each method's raw tables
 (`platform/reporting/benchmark_events.py::MethodBenchmarkArtifacts`) under the
-`Comparisons` experiment. `neuralls report` (`assignments/comparison_report.py::run_comparison_report`, returning `ReportReused | ReportCreated`; the notation digest is a `canonical_digest` prefix, and the schema version tag, `REPORT_SCHEMA_VERSION`, changes with card keys, table schemas, metric keys, index fields or human-readable scope semantics, so a report written by older code is not reused)
+case config's experiment. `neuralls report` (`assignments/comparison_report.py::run_comparison_report`, returning `ReportReused | ReportCreated`; the notation digest is a `canonical_digest` prefix, and the schema version tag, `REPORT_SCHEMA_VERSION`, changes with card keys, table schemas, metric keys, index fields or human-readable scope semantics, so a report written by older code is not reused)
 reads the newest finished session of the case config back through
 `platform/reporting/stored_benchmark.py::read_stored_benchmark`, rebuilds typed events
 (`comparison/postprocessing/report_inputs.py`), draws every figure and logs every metric
-into a tree of nested runs in the `Reports` experiment (`names.report`), organised by
+into a tree of nested runs in the same experiment, organised by
 aggregation scope (`domain/solver/models/report_scope.py::ReportScope`): the root run
 (all matrix sets, tagged with the source session, the notation digest and the report
 schema version) contains one run per matrix set, each contains one run per RHS type of
@@ -312,12 +312,15 @@ rule: composition may decide which collaborators participate in a workflow, but
 it must not absorb low-level IO mechanics, config normalization policy, or
 tensor-level runtime behavior.
 
-For MLflow naming, composition only propagates the resolved case-config names.
+For MLflow naming, composition propagates one experiment name per case config:
+`CaseConfigPath.key.experiment_name`, `<case>/<config>` from the config's path.
 
 Every entry point takes `NeurallsSettings` as a required argument: only the CLI loads settings, and composition never reads `NEURALLS_CASE_CONFIG` to find the case config or builds settings of its own. The case config path is a `CaseConfigPath` (`platform/config/case_path.py`, re-exported by `composition/config.py`): its constructor rejects a relative path, and the CLI builds it once with `CaseConfigPath.resolve(config)`. `run_case_pipeline`, `run_comparison_batch`, `run_loaded_comparison_batch`, `run_assignment_sweep`, `run_comparison_report` and `eval_batch` take it instead of a `Path`, unwrap `.path` (or `.config_dir`) for the planning, preparation and identity code below them, and never resolve anything themselves. The session tag `case_config_path` therefore always carries the absolute spelling `report` looks sessions up by, and no new entry point can forget to resolve it. Dataset input digests memoize on the path as given; the digest itself is path-independent.
-Training uses `names.training` and comparison uses `names.comparison`, with the
-defaults owned by the case-config Pydantic models rather than composition-layer
-constants.
+
+Training, evaluation, comparison and report of one case config all write to that
+experiment; the entry points derive it once from their `CaseConfigPath` and pass the
+name down to checkpoint lookups (`TrainingLookup`, `neural_specs_from_assignments`)
+and to `resolve_comparison_topology`, so no case config declares experiment names.
 
 Batch training adds one session-scoped parent run per case-config invocation.
 That parent is identified by case-config path plus launch time and exists only
