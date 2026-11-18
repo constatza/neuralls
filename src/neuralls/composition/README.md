@@ -56,8 +56,10 @@ aggregation scope (`domain/solver/models/report_scope.py::ReportScope`): the roo
 schema version; it contains one run per matrix set, each contains one run per RHS type of
 that set. A system has no run of its own: its per-method metrics and its residual and
 energy figures (each with its card) go into its RHS type's run, the figures under
-`systems/matrix-<id>_rhs-<k>/` and the metrics keyed `system/matrix-<id>_rhs-<k>/{metric}/{method}`
-(`tracking/report_sink.py::system_key`), so the type `ReportScope` holds only the scopes that
+`systems/<system id>/` and the metrics keyed `system/<system id>/{metric}/{method}`, where the
+key is the planned system id made MLflow-safe (`tracking/report_sink.py::system_key`; matrix and
+RHS ordinal alone are not unique, since two entries on one dataset and recipe may differ only in
+seed, method or selection, and two ids that sanitize alike raise `SystemKeyCollisionError`), so the type `ReportScope` holds only the scopes that
 have a run. Every group metric is keyed `{metric}/{method}`; the
 root also holds the method figures and the figure index. `ReportSink.report_system(scope, metrics, figures)`
 takes the system's `StagedFigure`s (a `FigurePlan` plus the drawn file) so system figures carry the same cards. Postprocessing writes only
