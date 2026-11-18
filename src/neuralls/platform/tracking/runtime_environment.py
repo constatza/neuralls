@@ -93,10 +93,22 @@ def _torchalg_version() -> str | Unreported:
 
 
 def _git_revision(directory: Path) -> str | Unreported:
-    """`git describe --always --dirty` of the checkout containing `directory`, if there is one."""
+    """The commit (`<sha>[-dirty]`) of the checkout containing `directory`, if there is one.
+
+    `--exclude=*` ignores every tag, so the result is always a commit hash and never a tag name.
+    """
     try:
         done = subprocess.run(
-            ["git", "-C", str(directory), "describe", "--always", "--dirty", "--abbrev=40"],
+            [
+                "git",
+                "-C",
+                str(directory),
+                "describe",
+                "--always",
+                "--dirty",
+                "--abbrev=40",
+                "--exclude=*",
+            ],
             capture_output=True,
             encoding="utf-8",
             check=False,
