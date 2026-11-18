@@ -1,6 +1,6 @@
 # POD parametric study, rank c in {5, 10, 20, 50, 100}.
-# Baseline: c = 100, k = 20 (POD-CG), k = 10 (POD-JP), N = 5000. Only POD-CG and POD-JP
-# methods are compared; each swept value is its own method, labelled from its facts.
+# Baseline: c = 100, k = 20 (POD-CG), k = 10 (POD-JP), N = 5000. Each swept value is its own
+# method, labelled from its facts; the classical methods anchor the POD numbers.
 
 [mlflow]
 tracking_uri = "http://localhost:5000"
@@ -11,6 +11,39 @@ atol = 1.0e-14
 max_iterations = 5000
 stopping_criterion = "residual_norm"
 m_max = 20
+
+# Classical anchors for the POD numbers, as in the spectral-3d case.
+[[comparison_baseline.preconditioners]]
+name = "identity"
+type = "identity"
+
+[[comparison_baseline.preconditioners]]
+name = "jacobi"
+type = "jacobi"
+
+[[comparison_baseline.preconditioners]]
+name = "ic0"
+type = "ic0"
+
+[[comparison_baseline.preconditioners]]
+name = "amg-small-theta"
+type = "amg"
+coarsening = { method = "aggregation", theta = 0.05 }
+
+[[comparison_baseline.preconditioners]]
+name = "amg-medium-theta"
+type = "amg"
+coarsening = { method = "aggregation", theta = 0.25 }
+
+[[comparison_baseline.preconditioners]]
+name = "asa-few-candidates"
+type = "adaptive_sa_amg"
+num_candidates = 3
+theta = 0.05
+
+[[comparison_baseline.preconditioners]]
+name = "bamg"
+type = "bootstrap_amg"
 
 [[datasets]]
 path = "../../datasets/train/rectangular-high-condition/gaussian-cg20.toml"

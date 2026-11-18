@@ -1,0 +1,69 @@
+# Snapshot-seed replicate 44 of the POD parametric baseline (c = 100, k = 20 POD-CG, k = 10 POD-JP,
+# N = 5000). Replicates of one configuration render alike, so each seed is its own case; the seed-42
+# replicate is the baseline in every other sweep. Iterations are compared across seeds; online costs
+# are not (separate runs).
+
+[mlflow]
+tracking_uri = "http://localhost:5000"
+
+[comparison_baseline]
+rtol = 1.0e-6
+atol = 1.0e-14
+max_iterations = 5000
+stopping_criterion = "residual_norm"
+m_max = 20
+
+[[datasets]]
+path = "../../datasets/train/rectangular-high-condition/gaussian-cg20.toml"
+
+[[dataset_sweeps]]
+label = "cg-seed"
+path_template = "../../datasets/train/rectangular-high-condition/_generated/gaussian-cg20-seed-{value}.toml"
+values = [44]
+
+[[dataset_sweeps]]
+label = "jp-seed"
+path_template = "../../datasets/train/rectangular-high-condition/_generated/smoother-filtered-probes-nu10-seed-{value}.toml"
+values = [44]
+
+[[jobs]]
+id = "pod-c100"
+path = "../../jobs/pod/pod-rank100.toml"
+
+# 4 RHS recipes x 20 draws on the one RHC matrix: 80 systems per method.
+
+[[comparisons]]
+id = "gaussian"
+matrix_dataset = "gaussian-cg20-rectangular-high-condition"
+rhs_source = { kind = "gaussian" }
+rhs_count = 20
+seed = 42
+
+[[comparisons]]
+id = "masked-gaussian"
+matrix_dataset = "gaussian-cg20-rectangular-high-condition"
+rhs_source = { kind = "gaussian", mask = { kind = "random", density = 0.1 } }
+rhs_count = 20
+seed = 43
+
+[[comparisons]]
+id = "sinusoidal-low-freq"
+matrix_dataset = "gaussian-cg20-rectangular-high-condition"
+rhs_source = { kind = "sinusoidal", omega = 6.283185307179586 }
+rhs_count = 20
+seed = 44
+
+[[comparisons]]
+id = "sinusoidal-high-freq"
+matrix_dataset = "gaussian-cg20-rectangular-high-condition"
+rhs_source = { kind = "sinusoidal", omega = 62.83185307179586 }
+rhs_count = 20
+seed = 45
+
+[[assignment_sweeps]]
+dataset_sweep = "cg-seed"
+job = "pod-c100"
+
+[[assignment_sweeps]]
+dataset_sweep = "jp-seed"
+job = "pod-c100"

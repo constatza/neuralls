@@ -13,7 +13,7 @@ seed = 42
 [[generation.strategy]]
 name = "jacobi_probes"
 samples = 5000
-stop = [1, 2, 5, 20]
+stop = [1, 5, 20, 40]
 probe_distribution = "gaussian"
 
 # Only POD recipes read this dataset; the comparison fits their basis on the

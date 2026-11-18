@@ -1,4 +1,5 @@
-# POD parametric study, snapshot depth k (CG iterations or Jacobi sweeps) in {1, 2, 5, 10, 20}.
+# POD parametric study, snapshot depth k (CG iterations or Jacobi sweeps) in {1, 5, 10, 20, 40}
+# at rank c in {20, 100}: the rank-by-depth grid shows which depth a given rank needs.
 # Every dataset keeps only the last trajectory row (`start` unset), so no kept window holds row 0.
 # Baseline: c = 100, k = 20 (POD-CG), k = 10 (POD-JP), N = 5000. Only POD-CG and POD-JP
 # methods are compared; each swept value is its own method, labelled from its facts.
@@ -25,12 +26,16 @@ path = "../../datasets/train/rectangular-high-condition/gaussian-cg10.toml"
 [[dataset_sweeps]]
 label = "cg-depth"
 path_template = "../../datasets/train/rectangular-high-condition/_generated/gaussian-cg-depth-{value}.toml"
-values = [1, 2, 5]
+values = [1, 5, 40]
 
 [[dataset_sweeps]]
 label = "jp-depth"
 path_template = "../../datasets/train/rectangular-high-condition/_generated/smoother-filtered-probes-depth-{value}.toml"
-values = [1, 2, 5, 20]
+values = [1, 5, 20, 40]
+
+[[jobs]]
+id = "pod-c20"
+path = "../../jobs/pod/pod-rank20.toml"
 
 [[jobs]]
 id = "pod-c100"
@@ -77,6 +82,26 @@ job = "pod-c100"
 [[assignments]]
 dataset = "smoother-filtered-probes-nu10-rectangular-high-condition"
 job = "pod-c100"
+
+[[assignments]]
+dataset = "gaussian-cg10-rectangular-high-condition"
+job = "pod-c20"
+
+[[assignments]]
+dataset = "gaussian-cg20-rectangular-high-condition"
+job = "pod-c20"
+
+[[assignments]]
+dataset = "smoother-filtered-probes-nu10-rectangular-high-condition"
+job = "pod-c20"
+
+[[assignment_sweeps]]
+dataset_sweep = "cg-depth"
+job = "pod-c20"
+
+[[assignment_sweeps]]
+dataset_sweep = "jp-depth"
+job = "pod-c20"
 
 [[assignment_sweeps]]
 dataset_sweep = "cg-depth"
