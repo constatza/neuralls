@@ -17,12 +17,12 @@ from neuralls.domain.benchmarking.profiles import ProfileSeries
 from neuralls.domain.solver.reporting.metrics import MetricId
 from neuralls.platform.reporting.figure_annotations import counted
 from neuralls.platform.reporting.figure_formats import FigureTarget
+from neuralls.platform.reporting.figure_sizing import LINE_PLOT_SIZE_IN
 from neuralls.platform.reporting.figure_text import draw_legend
 from neuralls.platform.reporting.figure_writer import finish_group_figure
 from neuralls.platform.reporting.group_style import GroupStyle
 from neuralls.platform.reporting.series_style import method_palette
 
-_PROFILE_SIZE_IN = (8.0, 5.0)
 """Width and height in inches of a profile's plotting area, legend excluded."""
 
 _PERFORMANCE_XLABELS = {
@@ -81,7 +81,7 @@ def _step_profile_figure(
     palette = method_palette(names, style)
     solved = series.frame["x"].to_numpy()
     x_min, x_max = (float(solved.min()), float(solved.max())) if len(solved) else (1.0, 1.0)
-    fig, ax = plt.subplots(figsize=_PROFILE_SIZE_IN)
+    fig, ax = plt.subplots(figsize=LINE_PLOT_SIZE_IN)
     for row in counts.iter_rows(named=True):
         name = row["method"]
         curve = series.frame.filter(pl.col("method") == name)

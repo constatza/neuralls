@@ -15,8 +15,8 @@ from neuralls.platform.reporting.figure_sizing import (
 
 def test_the_width_grows_with_the_number_of_methods_past_a_minimum() -> None:
     narrow, _ = bar_columns_figure_size(["a"], 30.0)
-    few, _ = bar_columns_figure_size(["a"] * 6, 30.0)
-    many, _ = bar_columns_figure_size(["a"] * 12, 30.0)
+    few, _ = bar_columns_figure_size(["a"] * 8, 30.0)
+    many, _ = bar_columns_figure_size(["a"] * 16, 30.0)
 
     assert narrow < few < many
 

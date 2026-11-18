@@ -19,42 +19,48 @@ Derived from ``LEGEND_FONT_SIZE`` so a change of the label font size resizes the
 reserve room for those labels.
 """
 
+TEXT_WIDTH_IN = 6.5
+"""Text width of a one-column paper page; figures are drawn at the size they print at."""
+
+LINE_PLOT_SIZE_IN = (TEXT_WIDTH_IN, 4.0)
+"""Size of every line plot (ECDF, profile, cost curve, speed ratio, convergence history)."""
+
 POINT_JITTER = 0.2
 """Jitter of the per-system points drawn over mean bars and convergence factors."""
 
-_METHOD_ROWS_WIDTH_IN = 4.5
+_METHOD_ROWS_WIDTH_IN = 4.0
 """Width in inches of the bars of a figure with one row per method, method labels excluded."""
 
-_METHOD_ROW_HEIGHT_IN = 0.45
+_METHOD_ROW_HEIGHT_IN = 0.35
 """Height in inches of one method's row."""
 
-_MIN_METHOD_ROWS_HEIGHT_IN = 4.0
+_MIN_METHOD_ROWS_HEIGHT_IN = 3.0
 
-_BAR_COLUMN_WIDTH_IN = 0.85
+_BAR_COLUMN_WIDTH_IN = 0.65
 """Width in inches of one method's column in a bar figure with methods along the x axis."""
 
-COLUMN_TEXT_WIDTH_IN = 0.66
+COLUMN_TEXT_WIDTH_IN = 0.58
 """Widest text in inches above a bar, under the column width so neighbours' texts never touch."""
 
 _MIN_BAR_COLUMNS_WIDTH_IN = 5.0
 """Narrowest bar figure, so a figure of one or two methods keeps room for its axis labels."""
 
-_BAR_PLOT_HEIGHT_IN = 4.0
+_BAR_PLOT_HEIGHT_IN = 3.2
 """Height in inches of a vertical bar figure's plotting area, rotated labels excluded."""
 
-_CELL_WIDTH_IN = 1.1
+_CELL_WIDTH_IN = 0.75
 """Width in inches of one method's heatmap column."""
 
 _CELL_HEIGHT_IN = 0.4
 """Height in inches of one matrix's heatmap row; the figure grows with the number of matrices."""
 
-_HEATMAP_COLORBAR_WIDTH_IN = 2.5
+_HEATMAP_COLORBAR_WIDTH_IN = 1.8
 """Room in inches right of the cells for the colour bar and its label."""
 
 _HEATMAP_FRAME_HEIGHT_IN = 1.5
 """Room in inches above and below the cells for the axis label and padding, rotated labels excluded."""
 
-_MIN_HEATMAP_HEIGHT_IN = 4.0
+_MIN_HEATMAP_HEIGHT_IN = 3.0
 
 _LABEL_LINE_HEIGHT_IN = 0.2
 """Height in inches one wrapped label line takes along the x axis."""
@@ -150,7 +156,7 @@ def method_rows_figure_size(labels: Sequence[str]) -> tuple[float, float]:
     )
 
 
-_PAIRED_AXES_SIDE_IN = 5.5
+_PAIRED_AXES_SIDE_IN = 4.0
 """Side in inches of the paired scatter's square plotting area."""
 
 _PAIRED_FRAME_WIDTH_IN = 1.4

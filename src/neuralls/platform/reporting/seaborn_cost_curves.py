@@ -23,10 +23,15 @@ from neuralls.domain.solver.reporting.summary import Population, select
 from neuralls.domain.solver.reporting.timed_values import bootstrap_kind_of
 from neuralls.platform.reporting.figure_formats import FigureTarget
 from neuralls.platform.reporting.figure_sizing import (
+    LINE_PLOT_SIZE_IN,
     POINT_JITTER,
     bar_columns_figure_size,
 )
-from neuralls.platform.reporting.figure_style import rotate_x_labels
+from neuralls.platform.reporting.figure_style import (
+    REFERENCE_LINE_WIDTH,
+    THIN_LINE_WIDTH,
+    rotate_x_labels,
+)
 from neuralls.platform.reporting.figure_text import draw_legend
 from neuralls.platform.reporting.figure_writer import finish_group_figure
 from neuralls.platform.reporting.group_style import GroupStyle
@@ -96,7 +101,7 @@ def plot_break_even_curves(
     names = marks["method"].to_list()
     series = method_palette(names, style)
     palette = {name: series.color(name) for name in names}
-    fig, ax = plt.subplots(figsize=(8.0, 5.0))
+    fig, ax = plt.subplots(figsize=LINE_PLOT_SIZE_IN)
     sns.lineplot(
         data=plot_frame(drawn),
         x="n_rhs",
@@ -165,7 +170,7 @@ def plot_break_even_curves(
 _POINT_ALPHA = 0.8
 _POINT_SIZE = 4.0
 _POINT_EDGE = "white"
-_POINT_EDGE_WIDTH = 0.4
+_POINT_EDGE_WIDTH = THIN_LINE_WIDTH
 """A white edge keeps a point apart from its neighbours and from a dark method colour."""
 _YLABEL_WRAP = 30
 """Characters per line of the y label, so a long metric name stays beside a narrow figure."""
@@ -290,7 +295,7 @@ def _draw_summary_marks(
                 fmt="o",
                 color=_SUMMARY_COLOR,
                 markerfacecolor="white",
-                markeredgewidth=1.2,
+                markeredgewidth=REFERENCE_LINE_WIDTH,
                 capsize=4,
                 zorder=3,
             )
@@ -302,7 +307,7 @@ def _draw_summary_marks(
                 [mean],
                 facecolor="white",
                 edgecolor=_SUMMARY_COLOR,
-                linewidth=1.2,
+                linewidth=REFERENCE_LINE_WIDTH,
                 zorder=3,
             )
             marks.add(Mark.MEAN_POINT)

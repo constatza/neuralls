@@ -48,7 +48,13 @@ from neuralls.platform.reporting.figure_annotations import (
 )
 from neuralls.platform.reporting.figure_formats import FigureTarget
 from neuralls.platform.reporting.figure_sizing import bar_columns_figure_size, heatmap_figure_size
-from neuralls.platform.reporting.figure_style import TICK_FONT_SIZE, rotate_x_labels
+from neuralls.platform.reporting.figure_style import (
+    EMPHASIS_LINE_WIDTH,
+    REFERENCE_LINE_WIDTH,
+    THIN_LINE_WIDTH,
+    TICK_FONT_SIZE,
+    rotate_x_labels,
+)
 from neuralls.platform.reporting.figure_text import LEGEND_FONT_SIZE
 from neuralls.platform.reporting.figure_writer import finish_group_figure
 from neuralls.platform.reporting.group_style import GroupStyle
@@ -63,7 +69,7 @@ _BOX_WHISKER_PERCENTILES = (5, 95)
 """Percentiles of the box's whiskers; the table's ``q05`` and ``q95``."""
 _MEDIAN_TICK_HALF_WIDTH = 0.2
 """Half-width of a median tick, in units of the distance between two method columns."""
-_MEDIAN_TICK_WIDTH = 1.5
+_MEDIAN_TICK_WIDTH = EMPHASIS_LINE_WIDTH
 _POINT_SIZE = 3.0
 _POINT_ALPHA = 0.7
 _POINT_JITTER = 0.15
@@ -305,7 +311,7 @@ def _draw_violins(
         inner=None,
         cut=0,
         density_norm="width",
-        linewidth=0.5,
+        linewidth=THIN_LINE_WIDTH,
         alpha=_VIOLIN_ALPHA,
         orient="v",
         ax=ax,
@@ -342,7 +348,7 @@ def _draw_boxes(ax: Axes, systems: pl.DataFrame, labels: Collection[str], order:
         fill=False,
         color=_MARK_COLOR,
         width=_BOX_WIDTH,
-        linewidth=1.0,
+        linewidth=REFERENCE_LINE_WIDTH,
         orient="v",
         ax=ax,
     )
@@ -501,7 +507,7 @@ def plot_matrix_heatmap(
         ax=ax,
         cmap=_HEATMAP_CMAP,
         norm=norm,
-        linewidths=0.5,
+        linewidths=THIN_LINE_WIDTH,
         linecolor="white",
         cbar_kws={
             "label": textwrap.fill(

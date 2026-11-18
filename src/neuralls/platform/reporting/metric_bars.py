@@ -10,7 +10,11 @@ import numpy as np
 import seaborn as sns
 
 from neuralls.platform.reporting.figure_formats import FigureTarget
-from neuralls.platform.reporting.figure_style import AXIS_LABEL_FONT_SIZE, TICK_FONT_SIZE
+from neuralls.platform.reporting.figure_style import (
+    AXIS_LABEL_FONT_SIZE,
+    THIN_LINE_WIDTH,
+    TICK_FONT_SIZE,
+)
 from neuralls.platform.reporting.figure_text import FigureTitle, Legend, title_text
 from neuralls.platform.reporting.figure_writer import finish_group_figure, use_headless_backend
 
@@ -45,9 +49,9 @@ def plot_metric_comparison(
     use_headless_backend()
     label_lines = sum(label.count("\n") + 1 for label in labels)
     if horizontal:
-        fig, ax = plt.subplots(figsize=(5, max(3, label_lines * 0.6)))
+        fig, ax = plt.subplots(figsize=(5, max(3, label_lines * 0.35)))
     else:
-        fig, ax = plt.subplots(figsize=(max(6, len(labels) * 1.2), 5))
+        fig, ax = plt.subplots(figsize=(max(5, len(labels) * 0.65), 4))
 
     order = [
         label for label, _ in sorted(zip(labels, values), key=lambda pair: pair[1], reverse=True)
@@ -62,7 +66,7 @@ def plot_metric_comparison(
         "legend": False,
         "alpha": 0.85,
         "edgecolor": "black",
-        "linewidth": 0.7,
+        "linewidth": THIN_LINE_WIDTH,
         "ax": ax,
     }
 

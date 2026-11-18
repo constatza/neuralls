@@ -19,8 +19,10 @@ from neuralls.domain.benchmarking.paired import PairKind
 from neuralls.domain.solver.reporting.metrics import METRICS, MetricId
 from neuralls.platform.reporting.figure_formats import FigureTarget
 from neuralls.platform.reporting.figure_sizing import (
+    LINE_PLOT_SIZE_IN,
     paired_scatter_figure_size,
 )
+from neuralls.platform.reporting.figure_style import REFERENCE_LINE_WIDTH
 from neuralls.platform.reporting.figure_text import (
     LEGEND_FONT_SIZE,
     LEGEND_LOCATION,
@@ -95,7 +97,13 @@ def plot_paired_time_scatter(
     fig, ax = plt.subplots(figsize=paired_scatter_figure_size())
     ax.set_xscale("log")
     ax.set_yscale("log")
-    ax.plot([axes.low, axes.high], [axes.low, axes.high], color="gray", linewidth=1, linestyle="--")
+    ax.plot(
+        [axes.low, axes.high],
+        [axes.low, axes.high],
+        color="gray",
+        linewidth=REFERENCE_LINE_WIDTH,
+        linestyle="--",
+    )
     for name in others:
         pairs = paired.filter(pl.col("method") == name)
         both = pairs.filter(pl.col("pair_kind") == PairKind.BOTH.value)
@@ -190,7 +198,7 @@ def plot_speed_ratio_cdf(
         return None
     names = summary["method"].to_list()
     palette = method_palette(names, style)
-    fig, ax = plt.subplots(figsize=(8.0, 5.0))
+    fig, ax = plt.subplots(figsize=LINE_PLOT_SIZE_IN)
     for row in summary.iter_rows(named=True):
         name = row["method"]
         xs, ys = _speed_ratio_curve(ratios.filter(pl.col("method") == name)["ratio"].to_list())
@@ -207,7 +215,7 @@ def plot_speed_ratio_cdf(
                 ci=ci,
             ),
         )
-    ax.axvline(1.0, color="gray", linewidth=1, linestyle="--")
+    ax.axvline(1.0, color="gray", linewidth=REFERENCE_LINE_WIDTH, linestyle="--")
     ax.set_xscale("log")
     ax.set_ylim(0.0, 1.02)
     ax.set_xlabel(

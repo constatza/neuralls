@@ -11,6 +11,8 @@ from loguru import logger
 
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
 from neuralls.platform.reporting.figure_formats import FigureTarget
+from neuralls.platform.reporting.figure_sizing import LINE_PLOT_SIZE_IN
+from neuralls.platform.reporting.figure_style import REFERENCE_LINE_WIDTH
 from neuralls.platform.reporting.figure_text import (
     LEGEND_FONT_SIZE,
     FigureTitle,
@@ -210,7 +212,7 @@ def plot_convergence_curves(
         show_titles: Whether the figure carries its title and subtitle.
     """
     use_headless_backend()
-    fig, ax = plt.subplots(figsize=(10, 6))
+    fig, ax = plt.subplots(figsize=LINE_PLOT_SIZE_IN)
     metadata = dict(metadata or {})
     line_styles = resolve_styles(families, color_keys) if families else {}
 
@@ -236,7 +238,9 @@ def plot_convergence_curves(
         )
 
     if threshold_rel is not None:
-        ax.axhline(threshold_rel, color="black", linestyle="--", linewidth=1, alpha=0.7)
+        ax.axhline(
+            threshold_rel, color="black", linestyle="--", linewidth=REFERENCE_LINE_WIDTH, alpha=0.7
+        )
         ax.annotate(
             f"stopping threshold {threshold_rel:.1e}",
             xy=(1.0, threshold_rel),

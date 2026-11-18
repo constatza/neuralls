@@ -36,7 +36,7 @@ from neuralls.platform.reporting.figure_annotations import (
 from neuralls.platform.reporting.figure_formats import FigureTarget
 from neuralls.platform.reporting.figure_metadata import Statistic
 from neuralls.platform.reporting.figure_sizing import POINT_JITTER, bar_columns_figure_size
-from neuralls.platform.reporting.figure_style import rotate_x_labels
+from neuralls.platform.reporting.figure_style import REFERENCE_LINE_WIDTH, rotate_x_labels
 from neuralls.platform.reporting.figure_writer import finish_group_figure
 from neuralls.platform.reporting.group_style import GroupStyle
 from neuralls.platform.reporting.mark_legend import (
@@ -364,13 +364,15 @@ def _whisker_top(ax: Axes, whisker: Whisker | NoWhisker, column: int) -> float:
     """Draw ``whisker`` on ``column``; its upper end, or 0 when there is none."""
     match whisker:
         case Whisker(low=low, high=high):
-            ax.plot([column, column], [low, high], color=_WHISKER_COLOR, linewidth=1)
+            ax.plot(
+                [column, column], [low, high], color=_WHISKER_COLOR, linewidth=REFERENCE_LINE_WIDTH
+            )
             for end in (low, high):
                 ax.plot(
                     [column - _WHISKER_CAP, column + _WHISKER_CAP],
                     [end, end],
                     color=_WHISKER_COLOR,
-                    linewidth=1,
+                    linewidth=REFERENCE_LINE_WIDTH,
                 )
             return high
         case NoWhisker():

@@ -19,6 +19,11 @@ from matplotlib.path import Path
 from matplotlib.typing import ColorType
 
 from neuralls.domain.benchmarking.uncertainty import BootstrapKind
+from neuralls.platform.reporting.figure_style import (
+    EMPHASIS_LINE_WIDTH,
+    REFERENCE_LINE_WIDTH,
+    THIN_LINE_WIDTH,
+)
 from neuralls.platform.reporting.figure_text import LEGEND_FONT_SIZE, LEGEND_LOCATION
 from neuralls.shared.constants import CONFIDENCE_LEVEL
 
@@ -29,7 +34,7 @@ _GLYPH_SIZE = 9.0
 SYSTEM_POINT_STYLE: dict[str, object] = {
     "color": "white",
     "edgecolor": _INK,
-    "linewidth": 0.5,
+    "linewidth": THIN_LINE_WIDTH,
     "alpha": 0.85,
 }
 """Seaborn arguments of the per-system points: white with a dark edge, visible on any bar colour."""
@@ -108,16 +113,26 @@ def _proxy(mark: Mark) -> Line2D | Patch:
     label = mark.text
     match mark:
         case Mark.MEAN_BAR | Mark.RATIO_BAR:
-            return Patch(facecolor=_BAR_FACE, edgecolor=_INK, linewidth=0.5, label=label)
+            return Patch(
+                facecolor=_BAR_FACE, edgecolor=_INK, linewidth=THIN_LINE_WIDTH, label=label
+            )
         case Mark.IQR:
-            return Rectangle((0, 0), 1, 1, fill=False, edgecolor=_INK, linewidth=1.0, label=label)
+            return Rectangle(
+                (0, 0),
+                1,
+                1,
+                fill=False,
+                edgecolor=_INK,
+                linewidth=REFERENCE_LINE_WIDTH,
+                label=label,
+            )
         case Mark.MEDIAN:
             return Line2D(
                 [],
                 [],
                 marker="_",
                 markersize=_GLYPH_SIZE,
-                markeredgewidth=1.5,
+                markeredgewidth=EMPHASIS_LINE_WIDTH,
                 linestyle="none",
                 color=_INK,
                 label=label,
@@ -134,7 +149,11 @@ def _proxy(mark: Mark) -> Line2D | Patch:
             )
         case Mark.VIOLIN:
             return Patch(
-                facecolor=_BAR_FACE, edgecolor=_INK, linewidth=0.5, alpha=0.45, label=label
+                facecolor=_BAR_FACE,
+                edgecolor=_INK,
+                linewidth=THIN_LINE_WIDTH,
+                alpha=0.45,
+                label=label,
             )
         case Mark.QUANTILE_WHISKER:
             return Line2D(
@@ -142,7 +161,7 @@ def _proxy(mark: Mark) -> Line2D | Patch:
                 [],
                 marker="|",
                 markersize=_GLYPH_SIZE,
-                markeredgewidth=1.0,
+                markeredgewidth=REFERENCE_LINE_WIDTH,
                 linestyle="none",
                 color=_INK,
                 label=label,
@@ -153,7 +172,7 @@ def _proxy(mark: Mark) -> Line2D | Patch:
                 [],
                 marker=_I_BEAM,
                 markersize=_GLYPH_SIZE,
-                markeredgewidth=1.0,
+                markeredgewidth=REFERENCE_LINE_WIDTH,
                 linestyle="none",
                 color=_INK,
                 label=label,
@@ -167,7 +186,7 @@ def _proxy(mark: Mark) -> Line2D | Patch:
                 linestyle="none",
                 markerfacecolor="white",
                 markeredgecolor=_INK,
-                markeredgewidth=1.2,
+                markeredgewidth=REFERENCE_LINE_WIDTH,
                 label=label,
             )
         case Mark.SYSTEM_POINTS:
@@ -179,7 +198,7 @@ def _proxy(mark: Mark) -> Line2D | Patch:
                 linestyle="none",
                 markerfacecolor="white",
                 markeredgecolor=_INK,
-                markeredgewidth=0.5,
+                markeredgewidth=THIN_LINE_WIDTH,
                 label=label,
             )
         case Mark.MATRIX_MEAN_POINTS:
