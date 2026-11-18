@@ -255,14 +255,21 @@ class SessionRunTags:
         }
 
 
+CONFIG_TAG = "neuralls.config"
+"""Root-run tag holding the case config key, ``<case>/<config>``."""
+
+TITLE_TAG = "title"
+"""Root-run tag holding the rendered scientific title."""
+
+
 def root_run_tags(phase: SessionPhase, config: str) -> dict[str, str]:
     """The tags every root run carries: its lookup phase, config key and stage word."""
-    return {"phase": phase, "neuralls.config": config, "neuralls.stage": session_stage(phase)}
+    return {"phase": phase, CONFIG_TAG: config, "neuralls.stage": session_stage(phase)}
 
 
 def title_tags(title: str) -> dict[str, str]:
     """A root run's rendered title, as its ``title`` tag and its MLflow description."""
-    return {"title": title, RUN_DESCRIPTION_TAG: title}
+    return {TITLE_TAG: title, RUN_DESCRIPTION_TAG: title}
 
 
 def build_training_run_spec(
@@ -366,13 +373,15 @@ def build_report_run_spec(
     """Build (run, root tags) for a report root, the child of the session it renders.
 
     Named like every session root, with the report's own stage, start and revision; it
-    carries the session's rendered title, when the session has one, as its own.
+    carries the session's rendered title, when the session has one, as its own. Its config
+    key is the session's, since it sits in the session's experiment; ``config`` stands in
+    only for a session recorded before sessions carried one.
     """
     run = NamedRun(
         SessionRunName(session_stage(REPORT_PHASE), started or datetime.now(), revision), notation
     )
-    tags = root_run_tags(REPORT_PHASE, config)
-    title = session_tags.get("title")
+    tags = root_run_tags(REPORT_PHASE, session_tags.get(CONFIG_TAG, config))
+    title = session_tags.get(TITLE_TAG)
     return run, tags if title is None else {**tags, **title_tags(title)}
 
 

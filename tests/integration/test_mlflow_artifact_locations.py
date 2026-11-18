@@ -426,18 +426,19 @@ def test_comparison_logs_artifacts_to_mlflow_with_sqlite(
         r"report · \d{4}-\d{2}-\d{2} \d{2}:\d{2}( · [0-9a-f]{8}(-dirty)?)?",
         report_root.data.tags["mlflow.runName"],
     )
-    # MLflow's own bookkeeping tags (user, source, run name) are not the report's to assert.
+    # MLflow's own bookkeeping tags (user, source, run name) are not the report's to assert,
+    # nor is the notation digest, a hash of the case notation that the report gate tests own.
     root_tags = {
         key: value
         for key, value in report_root.data.tags.items()
-        if not key.startswith("mlflow.") or key in {"mlflow.parentRunId", "mlflow.note.content"}
+        if (not key.startswith("mlflow.") or key in {"mlflow.parentRunId", "mlflow.note.content"})
+        and key != "notation_digest"
     }
     assert root_tags == {
         "mlflow.parentRunId": session_id,
         "phase": REPORT_PHASE,
         "report_level": "all_matrix_sets",
         "source_session_run_id": session_id,
-        "notation_digest": root_tags["notation_digest"],
         "report_schema_version": REPORT_SCHEMA_VERSION,
         "neuralls.config": session_tags["neuralls.config"],
         "neuralls.stage": "report",

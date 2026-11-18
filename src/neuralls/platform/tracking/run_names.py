@@ -16,6 +16,7 @@ from neuralls.domain.presentation.methods import (
 from neuralls.domain.presentation.provenance import DatasetPresentation
 from neuralls.domain.presentation.render import render_dataset, render_method, render_title
 from neuralls.domain.presentation.run_names import (
+    COMPARISON_SESSION_PHASE,
     ComparisonRunName,
     ComparisonSubject,
     EditorialComparison,
@@ -93,7 +94,9 @@ def _title_text(
             return f"{_title_text(head, profile, policy, phase)}{_PART_SEPARATOR}{summary}"
         case ComparisonScopePresentation(dataset=dataset):
             rendered = render_dataset(dataset, profile, policy).text
-            return f"{_MATRIX_SET_PREFIX}{rendered}" if phase == "session_comparison" else rendered
+            return (
+                f"{_MATRIX_SET_PREFIX}{rendered}" if phase == COMPARISON_SESSION_PHASE else rendered
+            )
         case EditorialPresentation():
             return render_title(title, profile, policy).text
         case _:
