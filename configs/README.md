@@ -278,10 +278,9 @@ matrix, so all fit datasets hold out the same 20 test matrices.
 - `study-depth.toml`: k in `{1, 5, 10, 20, 40}` (`gaussian-cg-depth.sweep.toml`,
   `smoother-filtered-probes-depth.sweep.toml`).
 
-`default.toml` is not a study point: it fits POD-CG on 500 rows and POD-JP on
-4000, with its own depths. Its tracked `gaussian-cg20-n560.toml` and
-`smoother-filtered-probes-k20-n4460.toml` carry the ids and fields of those
-sweep points, so their data is generated once.
+`default.toml` is not a study point: at c = 50 it fits POD-CG (k = 10) on 250
+rows and POD-JP (k = 20) on 2502, through its own tracked
+`gaussian-cg10-n280.toml` and `smoother-filtered-probes-k20-n2780.toml`.
 
 A sweep file lists only the non-baseline values. The baseline point is the
 tracked baseline file, assigned explicitly, so the same data is never

@@ -49,33 +49,20 @@ type = "bootstrap_amg"
 [[datasets]]
 path = "../../datasets/train/spectral-3d-field/gaussian-cg20.toml"
 
-# POD-CG is fitted on 500 rows (560 generated), POD-JP on 4000 (4460 generated): the 180-matrix fit
-# fold gets ~0.9x of the generated rows.
+# POD-CG (k = 10) is fitted on 250 rows (280 generated), POD-JP (k = 20) on 2502 (2780 generated):
+# the remainder allocation of rows over the 200 matrices decides how many land in the 180-matrix
+# fit fold, and no generated count gives exactly 2500. Same [split] and seed for both, so both pin
+# the same held-out matrices.
 [[datasets]]
-path = "../../datasets/train/spectral-3d-field/gaussian-cg20-n560.toml"
+path = "../../datasets/train/spectral-3d-field/gaussian-cg10-n280.toml"
 
 [[datasets]]
-path = "../../datasets/train/spectral-3d-field/smoother-filtered-probes-n4460.toml"
-
-# Matched depth: CG k = 10 next to the probes' k = 10, probes k = 20 next to CG k = 20 (one CG
-# iteration and one Jacobi sweep each cost about one matvec). Each generator keeps its row count
-# (CG 500, probes 4000 fit rows); same [split] and seed throughout, so all pin the same held-out
-# matrices.
-[[datasets]]
-path = "../../datasets/train/spectral-3d-field/gaussian-cg10-n560.toml"
-
-[[datasets]]
-path = "../../datasets/train/spectral-3d-field/smoother-filtered-probes-k20-n4460.toml"
+path = "../../datasets/train/spectral-3d-field/smoother-filtered-probes-k20-n2780.toml"
 
 [[jobs]]
-id = "pod_rank10"
-path = "../../jobs/pod/pod-rank10.toml"
-display_name = "POD (rank 10)"
-
-[[jobs]]
-id = "pod_rank100"
-path = "../../jobs/pod/pod-rank100.toml"
-display_name = "POD (rank 100)"
+id = "pod_rank50"
+path = "../../jobs/pod/r50.toml"
+display_name = "POD (rank 50)"
 
 # The dataset is a glob over many matrices (`*/K_ff.mtx`), so every recipe is one
 # [[comparison_sweeps]] entry solving on all 20 matrices of the pinned test
@@ -113,25 +100,9 @@ rhs_source = { kind = "sinusoidal", omega = 62.83185307179586 }
 seed = 45
 
 [[assignments]]
-dataset = "gaussian-cg20-n560-spectral-3d-field"
-job = "pod_rank10"
+dataset = "gaussian-cg10-n280-spectral-3d-field"
+job = "pod_rank50"
 
 [[assignments]]
-dataset = "gaussian-cg20-n560-spectral-3d-field"
-job = "pod_rank100"
-
-[[assignments]]
-dataset = "smoother-filtered-probes-n4460-spectral-3d-field"
-job = "pod_rank10"
-
-[[assignments]]
-dataset = "smoother-filtered-probes-n4460-spectral-3d-field"
-job = "pod_rank100"
-
-[[assignments]]
-dataset = "gaussian-cg10-n560-spectral-3d-field"
-job = "pod_rank100"
-
-[[assignments]]
-dataset = "smoother-filtered-probes-k20-n4460-spectral-3d-field"
-job = "pod_rank100"
+dataset = "smoother-filtered-probes-k20-n2780-spectral-3d-field"
+job = "pod_rank50"

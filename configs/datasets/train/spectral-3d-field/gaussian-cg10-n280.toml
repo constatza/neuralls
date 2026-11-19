@@ -1,4 +1,4 @@
-id = "gaussian-cg20-n560-spectral-3d-field"
+id = "gaussian-cg10-n280-spectral-3d-field"
 
 [source]
 problem = "Spectral 3D field"
@@ -13,8 +13,8 @@ seed = 42
 # residual/error pair per trajectory.
 [[generation.strategy]]
 name = "cg_errors"
-samples = 560
-stop = 20
+samples = 280
+stop = 10
 
 # The POD fit has no training loop to serve a validation fold, so the
 # dataset keeps none: 180 fit / 20 test matrices.
